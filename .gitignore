@@ -5,4 +5,5 @@ settings.json
 storage.json
 data/
 logs/
+scripts/
 *.log
