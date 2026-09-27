@@ -1,0 +1,441 @@
+# LINE Webhook 轉發器
+
+接收外部端點傳來的訊息，透過一個已登入的 LINE 帳號（selfbot）轉發給指定的好友或群組。
+附登入狀態頁（可互動）、Email 通知，登入失效時會自動嘗試重登。
+
+> ⚠️ 本專案使用非官方 LINE API（[`@evex/linejs`](https://github.com/evex/linejs)）模擬個人帳號，屬 selfbot，
+> **違反 LINE 服務條款，帳號有被停權的風險**。請自行評估，建議使用備用帳號。
+
+## 功能
+
+- Webhook 接收 `{ to, text }` 並轉發到指定好友 / 群組；支援**多訊息類型**（`text` / `file` / `image` / `sticker` / `location` / `flex`）、**訊息模板 + 變數**（`template` / `vars`）、**排程 / 延遲發送**（`sendAt` / `delaySec`）與**多收件人**（`to` 陣列）
+- **發送佇列**：序列化發送、最小間隔節流、失敗自動退避重試
+- 來源 IP 白名單 + HMAC-SHA256 簽章（含 timestamp / nonce 防重放）+ 速率限制 + **idempotency 去重**（`X-Idempotency-Key`）
+- **管理頁面一律需登入**（`/dashboard`、`/status`、`/console`、`/settings`、`/messages`、`/readme`），閒置 5 分鐘自動登出並導回登入頁；側欄底部為使用者圓形按鈕（顯示帳號首字，上方顯示**閒置登出倒數**），點擊可**登出**或**變更密碼**
+- **儀表板 `/dashboard`**（登入後首頁）：發送統計（總數 / 成功 / 失敗 / 成功率、近 N 日長條圖、類型分佈）、狀態摘要（登入狀態、QR/PIN、好友數、佇列、最後發送…）、最近紀錄
+- **狀態頁 `/status`**：登入狀態、QR / PIN、摘要（好友數、佇列、最後發送…）
+- **功能頁 `/console`**：左側「功能」卡片（測試發送含媒體上傳、目標清單、最近紀錄、排程中的訊息可改變時間 / 取消）與「操作」（LINE 重新登入 / 重新整理聯絡人）
+- **設定頁 `/settings`**：左側設定卡片，**線上編輯設定**（存於 `settings.json`，立即生效）
+- **訊息頁 `/messages`**：記錄收到的訊息（唯讀瀏覽；可選持久化到檔案）
+- **關鍵字自動回覆**：收到訊息且內容與關鍵字「完全相符」時，自動回覆文字與／或檔案，含**每聊天冷卻**（於 `/settings` 設定）
+- 登入失效自動重登；失敗時寄 Email 通知
+- **log 輪替**（依大小）
+- 啟動時驗證 `.env`（zod），缺必填直接報錯
+- Graceful shutdown（SIGINT / SIGTERM）
+
+## 環境需求
+
+- Node.js 20+（開發用 24）
+- 一支 LINE 帳號與可收驗證的手機
+
+## 安裝
+
+```sh
+npm install
+Copy-Item .env.example .env   # Windows
+# cp .env.example .env        # macOS / Linux
+```
+
+編輯 `.env`（見下方設定說明），然後：
+
+```sh
+npm run dev      # 開發（tsx watch）
+npm run build    # 編譯到 dist/
+npm start        # 執行編譯後版本
+npm run typecheck
+```
+
+首次啟動時沒有 `authToken`，終端機會直接印出可掃描的 QR Code，狀態頁也會顯示 QR 圖；
+用手機 LINE 的掃描功能掃描即可完成登入（或點狀態頁的「驗證連結」在手機開啟）。
+之後 token 會存到 `storage.json` 自動登入。
+裝置名稱（`LINE_DEVICE_NAME`）只在登入時送出，修改後需刪除 `storage.json` 重新登入才會生效。
+
+## 設定
+
+設定分兩層：
+
+- **`.env`（bootstrap，無法在網頁修改）**：`PORT`、`SETTINGS_PATH`、`STORAGE_PATH`、`LOG_FILE`、`MESSAGES_PATH`、`STATUS_USER`、`STATUS_PASS`
+- **`/settings` 頁面（存於 `settings.json`，修改後立即生效）**：其餘所有項目
+- 優先順序：`.env` < `settings.json`（`.env` 可作為初始預設值）
+
+### `.env`（bootstrap）
+
+| 變數 | 預設 | 說明 |
+| --- | --- | --- |
+| `PORT` | `8090` | 服務埠 |
+| `SETTINGS_PATH` | `./settings.json` | 執行期設定儲存檔 |
+| `STORAGE_PATH` | `./storage.json` | 登入 token 儲存位置 |
+| `LOG_FILE` | `./logs/app.log` | log 檔路徑 |
+| `MESSAGES_PATH` | `./data/messages.jsonl` | 收到的訊息持久化檔（JSONL）；是否寫入由 `/settings` 開關控制 |
+| `SCHEDULES_PATH` | `./data/schedules.json` | 排程訊息持久化檔；重啟後恢復未到期排程 |
+| `STATS_PATH` | `./data/stats.jsonl` | 發送統計（JSONL，供儀表板） |
+| `STATS_DAYS` | `14` | 儀表板統計顯示天數 |
+| `UPLOADS_PATH` | `./data/uploads` | 網頁上傳檔案儲存目錄 |
+| `MAX_BODY_MB` | `25` | 請求 body 大小上限（MB） |
+| `STATUS_USER` / `STATUS_PASS` | 空 | 設定頁登入帳密（一律需要登入；留空會自動產生臨時密碼並顯示於 console） |
+| `AUTH_PATH` | `./data/auth.json` | 於網頁「變更密碼」後，新密碼（scrypt 雜湊）儲存位置；存在時覆蓋 `STATUS_USER` / `STATUS_PASS` |
+
+### `/settings` 可線上修改
+
+`ALLOWED_IPS`、`HMAC_SECRET`、`HMAC_MAX_SKEW_SEC`、`WEBHOOK_TOKEN`、`API_TOKEN`、`ADMIN_PRIVATE_ONLY`、
+`RATE_LIMIT_WINDOW_MS`、`RATE_LIMIT_MAX`、
+`LINE_DEVICE`、`LINE_DEVICE_NAME`、`LINE_MODEL_NAME`、
+`SEND_MAX_RETRIES`、`SEND_RETRY_BASE_MS`、`SEND_MIN_INTERVAL_MS`、
+`HEALTH_CHECK_INTERVAL_SEC`、`LOG_LIMIT`、`LOG_MAX_BYTES`、`LOG_MAX_FILES`、`TARGETS`、訊息模板、
+訊息持久化開關、自動回覆（含冷卻秒數）、`SMTP_*`、`MAIL_FROM`、`MAIL_TO`。
+
+> `LINE_DEVICE_NAME` / `LINE_DEVICE` 需重新登入（刪除 `storage.json`）才會反映在 LINE 顯示的裝置名稱。
+> `.env.example` 仍保留這些項目的預設值，可作為啟動初始值。
+
+### 只讓 webhook 對外、管理頁面限內網
+
+想要「`/webhook` 公開給外部服務打、但 `/status` `/console` `/settings` `/messages` `/readme` 只能內網開」時：
+
+- `ALLOWED_IPS` 留空（webhook 不限制來源）
+- 勾選 `/settings` 的「僅限私人 IP 存取管理頁面」（或 `.env` 設 `ADMIN_PRIVATE_ONLY=true`）
+
+如此管理頁面只允許私人位址（`10.x`、`172.16–31.x`、`192.168.x`、`127.x`、IPv6 `::1` / `fc00::/7` / `fe80::/10`）存取；webhook 不受影響。
+判定用的是「有效客戶端 IP」（經 nginx 時為 `X-Forwarded-For` 最左側，也就是真實來源）。
+
+## API
+
+### `POST /webhook`
+
+```http
+POST /webhook HTTP/1.1
+Content-Type: application/json
+X-Timestamp: <毫秒 epoch>
+X-Signature: <hex>
+X-Nonce: <可選，唯一字串>
+X-Idempotency-Key: <可選，唯一字串；同 key 只會發送一次>
+
+{
+  "to": "好友名稱或 mid",           // 或陣列：["小明","測試群"]
+  "text": "要轉發的訊息",            // 可選
+  "file": "/path/on/server/quote.pdf",  // 可選，伺服器上的檔案路徑
+  "image": "https://example.com/a.jpg", // 可選，URL 或伺服器路徑
+  "video": "https://example.com/a.mp4", // 可選，影片（URL / 路徑 / data URL）
+  "audio": "https://example.com/a.m4a", // 可選，語音
+  "filename": "報價單.pdf",          // 可選，顯示檔名
+
+  "template": "每日報價",            // 可選，套用 /settings 定義的模板（text 未給時採用模板內容）
+  "vars": { "name": "小明", "amount": "100" },  // 可選，模板 / text 內 {{key}} 的變數
+  "flexTemplate": "公告卡片",        // 可選，套用 /settings 定義的 Flex 樣板（可用 vars）
+
+  "sticker": { "packageId": "446", "stickerId": "1988" },       // 可選，LINE 貼圖
+  "location": { "title": "公司", "address": "台北市…", "latitude": 25.033, "longitude": 121.565 }, // 可選，位置
+  "flex": { "altText": "通知", "contents": { "type": "bubble", "body": {} } }, // 可選，Flex（contents 可為物件或 JSON 字串）
+
+  "sendAt": "2026-01-01T09:00:00+08:00", // 可選，排程時間（ISO 8601 或 epoch 毫秒）
+  "delaySec": 60,                         // 可選，延遲幾秒發送（與 sendAt 擇一）
+  "repeat": "0 9 * * 1-5",                // 可選，重複排程（5 欄 cron：分 時 日 月 週）
+
+  "messages": [                           // 可選，一次送多則（每則可各自帶 to / vars）
+    { "to": "小明", "template": "報價", "vars": { "amount": "100" } },
+    { "to": "測試群", "text": "請查收" }
+  ]
+}
+```
+
+- `to`：字串或字串陣列；可填好友 / 群組名稱（需與 LINE 顯示名稱一致）或 mid。使用 `messages` 時，可省略 `to` 並在每則訊息各自帶 `to`（個人化群發）。
+- 至少需提供 `text` / `file` / `image` / `video` / `audio` / `sticker` / `location` / `flex` 其中一項；多項會依序送出（image → video → audio → file → sticker → location → flex → text）。
+- `image` / `video` / `audio` 可給 URL（會下載後上傳）、伺服器路徑，或 `data:` base64。
+- `template`：套用 `/settings` 的「訊息模板」；`flexTemplate`：套用「Flex 樣板」。若同時提供 `text`，以 `text` 為優先。`vars` 會替換模板 / Flex 中的 `{{key}}`（未提供的變數原樣保留）。
+- `sticker`：`packageId` / `stickerId`（可加 `version`）；貼圖與 Flex 走 LIFF 分享通道。
+- `location`：需 `latitude` / `longitude`，`title` / `address` 可選。
+- `flex`：`contents` 可為 Flex 容器物件，或代表其 JSON 的字串；`altText` 預設「Flex 訊息」。
+- `sendAt` / `delaySec`：設定後改為**排程發送**（持久化於 `SCHEDULES_PATH`，最遠 30 天；重啟後未到期的排程會恢復）。`sendAt` 可為 ISO 8601、`YYYY-MM-DD HH:mm:ss` 或 epoch 毫秒；`delaySec` 為延遲秒數。回應為 `{ "ok": true, "scheduled": true, "id": "...", "runAt": "..." }`。`repeat` 為 cron 重複排程，回應會多帶 `repeat`。
+- `X-Idempotency-Key`：帶了的話，成功（含排程）後會記錄；相同 key 再次送出會直接回 `{ "ok": true, "duplicate": true }`（不重複發送）。
+
+簽章方式（設 `HMAC_SECRET` 時必填 `X-Timestamp` 與 `X-Signature`）：
+
+```
+X-Signature = HMAC-SHA256(HMAC_SECRET, `${X-Timestamp}.${原始 body}`).hex
+```
+
+| 狀態碼 | 意義 |
+| --- | --- |
+| 200 | 發送成功（`duplicate: true` 表示重複 key 已略過；`scheduled: true` 表示已排程） |
+| 400 | `to` 為空、未提供任何訊息內容、找不到模板，或 `sendAt` / `delaySec` 無效 |
+| 403 | 來源 IP 未授權、缺少 / 無效時間戳記、簽章失敗、nonce 重複 |
+| 404 | 找不到目標好友 / 群組 |
+| 429 | 超過速率限制 |
+| 503 | LINE 尚未登入 |
+| 500 | LINE 發送失敗（已重試） |
+
+產生簽章範例（Linux / bash + openssl）：
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE_URL="${BASE_URL:-http://localhost:8090}"
+SECRET="${HMAC_SECRET:?請先設定 HMAC_SECRET}"
+
+TO="${1:-小明}"
+TEXT="${2:-來自 curl 的測試訊息}"
+
+# 1) body：必須與實際送出的位元組完全一致
+BODY=$(printf '{"to":"%s","text":"%s"}' "$TO" "$TEXT")
+
+# 2) 毫秒時間戳與 nonce（date 不支援 %3N 時退回秒*1000）
+TS=$(date +%s%3N 2>/dev/null || echo $(( $(date +%s) * 1000 )))
+NONCE=$(openssl rand -hex 16)
+
+# 3) 簽章 = HMAC-SHA256(SECRET, "timestamp.body")
+SIG=$(printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $NF}')
+
+# 4) 送出
+curl -sS -X POST "$BASE_URL/webhook" \
+  -H "Content-Type: application/json" \
+  -H "X-Timestamp: $TS" \
+  -H "X-Signature: $SIG" \
+  -H "X-Nonce: $NONCE" \
+  --data-binary "$BODY"
+echo
+```
+
+單行版本：
+
+```bash
+BODY='{"to":"小明","text":"hi"}'; TS=$(date +%s%3N); NONCE=$(openssl rand -hex 16); \
+SIG=$(printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac "$HMAC_SECRET" | awk '{print $NF}'); \
+curl -sS -X POST http://localhost:8090/webhook \
+  -H 'Content-Type: application/json' \
+  -H "X-Timestamp: $TS" -H "X-Signature: $SIG" -H "X-Nonce: $NONCE" \
+  --data-binary "$BODY"
+```
+
+Node.js 版本：
+
+```sh
+node -e "const c=require('crypto');const ts=Date.now().toString();const b=process.argv[1];console.log('X-Timestamp: '+ts);console.log('X-Signature: '+c.createHmac('sha256',process.env.HMAC_SECRET).update(ts+'.'+b).digest('hex'))" '{"to":"小明","text":"hi"}'
+```
+
+> `X-Nonce` 為選填（填了會防重放）；`X-Timestamp` 需為毫秒且在 `HMAC_MAX_SKEW_SEC` 容許範圍內；`body` 必須與簽章用的字串位元組完全一致（勿多加換行）。
+
+### 驗證方式（HMAC / URL Token / API Token 可並存）
+
+設定 `HMAC_SECRET`、`WEBHOOK_TOKEN` 或 `API_TOKEN` 任一後即啟用驗證；**任一通過即可**，三者皆空則不驗證。
+
+- **HMAC 簽章**：見上方範例。
+- **URL Token**：網址帶 `?token=<WEBHOOK_TOKEN>`，或標頭 `X-Webhook-Token: <WEBHOOK_TOKEN>`。
+  適合無法自訂簽章標頭的來源（例如只提供靜態 headers 的 webhook 平台）。
+- **API Token（Bearer）**：標頭 `Authorization: Bearer <API_TOKEN>`。適合可設定標準 Authorization 標頭的來源。
+
+```sh
+curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data-binary '{"to":"小明","text":"hi"}'
+
+curl -sS -X POST "http://localhost:8090/webhook" \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data-binary '{"to":"小明","text":"hi"}'
+```
+
+### 頁面 / 操作
+
+| 路由 | 說明 |
+| --- | --- |
+| `GET /` | 導向 `/dashboard` |
+| `GET /dashboard` | 儀表板（需登入）：發送統計、狀態摘要、最近紀錄 |
+| `GET /dashboard.json` | 儀表板 JSON（需登入） |
+| `GET /status` | 狀態頁（需登入）：登入狀態、QR / PIN、摘要 |
+| `GET /status.json` | 狀態 / log / 目標 / 佇列 / 排程 JSON（需登入） |
+| `GET /status/qr` | 目前登入 QR 的 PNG 圖（需登入） |
+| `GET /console` | 功能頁（需登入）：測試發送、目標清單、最近紀錄、排程中的訊息 |
+| `GET /settings` | 設定頁（需登入）：左側設定卡片 + 設定表單 |
+| `GET /login` | 登入畫面（無導覽列） |
+| `POST /login` | 登入，body `{ user, pass }`，成功設定 session cookie（閒置 5 分鐘） |
+| `POST /logout` | 登出（導覽列「登出」按鈕） |
+| `GET /settings/session` | 檢查 session 是否有效（不續期，供前端偵測逾時） |
+| `POST /settings/touch` | 使用者有操作時續期 session |
+| `GET /settings.json` | 目前可編輯設定 JSON（需登入） |
+| `GET /settings/export` | 匯出設定檔（需登入，下載 JSON） |
+| `POST /settings/import` | 匯入設定（需登入），body `{ settings }` 或設定 JSON |
+| `POST /settings` | 儲存設定（需登入，body = 設定 JSON） |
+| `POST /settings/password` | 變更登入密碼（需登入），body `{ current, next }`；新密碼以 scrypt 雜湊存至 `AUTH_PATH` |
+| `POST /settings/relogin` | 手動觸發重新登入（需登入） |
+| `POST /settings/refresh` | 重新整理好友 / 群組清單（需登入） |
+| `POST /settings/test` | 測試發送（需登入），body `{ to, text, file, image, video, audio, filename, sticker?, location?, flex?, sendAt?, delaySec?, repeat? }` |
+| `POST /settings/upload` | 上傳媒體（需登入），raw body + `X-Filename`，回 `{ path, filename, bytes }` |
+| `POST /settings/scheduled/cancel` | 取消排程（需登入），body `{ id }` |
+| `POST /settings/scheduled/update` | 編輯排程（需登入），body `{ id, delaySec? \| sendAt?, repeat? }` |
+| `GET /messages` | 收到的訊息頁（需登入） |
+| `GET /messages.json` | 收到的訊息 JSON（需登入） |
+| `GET /readme` | README 頁（需登入） |
+| `GET /health` | `{ "status": "ok" \| "bad" }`（依 LINE 登入狀態） |
+
+## 關鍵字自動回覆
+
+在 `/settings` 的「關鍵字自動回覆」區塊：
+
+- 勾選「啟用自動回覆」
+- **回覆冷卻（秒）**：同一個聊天於此時間內只回覆一次（避免被連刷）
+- 「新增規則」，每條規則包含：
+  - **關鍵字**：可用 `|` 分隔多組（例如 `hi|hello|哈囉`）
+  - **比對方式**：完全相符 / 包含 / 正則（regex）
+  - **回覆文字**：要回的文字（可留空；支援 `{{name}}`、`{{keyword}}`、`{{text}}`）
+  - **回覆圖片**：要回的圖片 URL 或路徑（可留空）
+  - **檔案路徑**：要回的檔案在**執行本程式的機器**上的路徑（可留空）
+  - **檔名**：顯示用檔名（選填，預設用原檔名）
+  - **啟用**：個別開關
+- 儲存後立即生效
+
+行為：
+
+- 只回覆**別人傳來的**訊息（自己的訊息不回，避免迴圈）
+- 1:1 回給對方；群組則回在該群組
+- 依序送出：文字 → 圖片 → 檔案
+- 媒體以 E2EE 上傳並傳送
+- 所有收到的訊息（含未觸發的）會記錄於 `/messages` 頁
+
+> 此功能需要程式持續接收訊息（`client.listen()`），等同讓帳號保持在線並處理所有訊息，風險請自行評估。
+
+## 訊息轉發規則
+
+在 `/settings` 的「訊息轉發規則」新增規則，收到符合條件的訊息時自動轉發到指定聊天：
+
+- **比對方式**：包含 / 正則 / 全部
+- **關鍵字**：`|` 分隔多組（「全部」時可留空）
+- **來源**：限定來源聊天（名稱或 mid；留空 = 全部）
+- **轉發對象**：目標好友 / 群組（名稱或 mid）
+- **前綴**：轉發時加在訊息前的文字（選填）
+- **附上來源名稱**：開啟則在訊息前加上 `[來源]`
+
+## LINE 指令
+
+在 `/settings` 的「LINE 指令」啟用後，可對本帳號傳訊息下指令：
+
+- **前綴**：預設 `!`
+- **允許來源**：留空 = 所有人；每行一個 mid 或 chat mid（建議限制來源，可用 `!id` 取得自己的 mid）
+- 指令：
+  - `!help`：顯示指令說明
+  - `!status`：登入狀態、好友 / 群組數、排程、佇列
+  - `!id`：顯示目前 chat 與自己的 mid
+  - `!send <對象> <訊息>`：透過本帳號發送訊息
+
+## 多組 API Token
+
+`/settings`「安全 / 來源」可維護**多組具名 API Token**（各自產生 / 刪除）。呼叫 webhook 時帶 `Authorization: Bearer <token>`，任一組或上方單一 API Token / HMAC / URL Token 通過即可。
+
+## 設定匯出 / 匯入
+
+`/settings`「匯出 / 匯入」：
+
+- **匯出設定**：下載 `settings.json`（含密鑰，請妥善保管）。
+- **匯入設定**：上傳 JSON 覆蓋目前設定（會即時套用）。
+
+## 訊息模板與排程
+
+### 訊息模板
+
+在 `/settings` 的「訊息模板」區塊新增模板，每筆包含**名稱**與**內容**；內容可用 `{{key}}` 變數。
+
+呼叫 webhook 時帶 `template` 名稱與 `vars` 物件即可套用：
+
+```sh
+curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data-binary '{"to":"小明","template":"每日報價","vars":{"name":"小明","amount":"100"}}'
+```
+
+- 模板內容 `您好 {{name}}，今日金額 {{amount}}` → `您好 小明，今日金額 100`。
+- 未提供的變數會**原樣保留**（例如 `{{unknown}}`）。
+- 若同時提供 `text`，以 `text` 為優先，模板僅在 `text` 為空時採用。
+- `vars` 也會套用到直接提供的 `text`。
+
+### 排程 / 延遲發送
+
+在 webhook body 加上 `delaySec`（秒）或 `sendAt`（ISO 8601 或 epoch 毫秒）即可排程：
+
+```sh
+# 60 秒後發送
+curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data-binary '{"to":"小明","text":"提醒","delaySec":60}'
+```
+
+- 成功回應：`{ "ok": true, "scheduled": true, "id": "<id>", "runAt": "<ISO>" }`。
+- 排程**持久化**於 `SCHEDULES_PATH`，最遠 30 天；**程序重啟後未到期的排程會自動恢復**。
+- 加上 `repeat`（5 欄 cron，例如 `0 9 * * 1-5` 表週一至五 09:00）可建立**重複**排程。
+- `/console` 頁面的「排程中的訊息」可檢視、**改變時間**與取消（`POST /settings/scheduled/update` / `cancel`）。
+
+## 統計 / 儀表板
+
+- 登入後首頁為 **`/dashboard`**：顯示總發送數、成功 / 失敗、成功率、近 `STATS_DAYS` 日長條圖與訊息類型分佈。
+- 每次發送（含 webhook、測試、排程、自動回覆）成功或失敗都會記錄於 `STATS_PATH`（JSONL，記憶體保留最近 5000 筆），並在啟動時載入。
+- 狀態摘要（登入狀態、QR / PIN、好友數、佇列、最後發送…）也整合在同一頁。
+
+## 媒體上傳
+
+- `/console` 測試發送可**直接上傳檔案**（存到 `UPLOADS_PATH`），上傳後自動帶入圖片欄位；`POST /settings/upload` 接受 raw body 與 `X-Filename`。
+- 發送可接受 URL、伺服器路徑或 `data:` base64；影片 / 語音分別對應 `video` / `audio` 欄位。
+
+## 訊息記錄（/messages）
+
+- 記錄**別人傳給本帳號**的訊息（自己送出的不記），涵蓋 1:1 與群組。
+- 預設只存在記憶體（最多 300 筆），**重啟即清空**。
+- 於 `/settings` 勾選「**持久化收到的訊息**」後，訊息會以 JSONL 追加寫入 `MESSAGES_PATH`
+  （預設 `./data/messages.jsonl`，於 `.env` 設定）；重啟時會載入最近 300 筆。
+- 檔案超過 5MB 會自動輪替（保留 3 個舊檔）。
+- 只記錄文字；圖片 / 檔案訊息的內容不記錄。
+
+## 運作流程
+
+1. 啟動 HTTP server
+2. 背景登入 LINE：優先使用 `storage.json` 的 token，失效則改用 QR（終端機與狀態頁會顯示可掃描的 QR 圖）
+3. 登入後抓取好友與群組，建立名稱→mid 對照表
+4. 定時健康檢查；失效時寄信 + 自動重登，狀態顯示於 `/status`
+5. Webhook 發送進入佇列：節流 → 失敗退避重試 → 回應結果
+
+詳見 [`docs/architecture.md`](docs/architecture.md)。
+
+## Docker
+
+```sh
+docker compose up -d --build
+```
+
+`docker-compose.yml` 會把 `./data` 掛載為 `/app/data` 保存 `storage.json` 與 log。
+首次啟動請查看容器日誌取得 QR 網址：
+
+```sh
+docker compose logs -f
+```
+
+## 專案結構
+
+```
+src/
+  index.ts              啟動 / graceful shutdown
+  config.ts             .env 驗證（zod）與 bootstrap 設定
+  settings.ts           可線上編輯設定（settings.json 載入 / 儲存 / 套用）
+  types.ts              型別
+  state.ts              登入狀態儲存
+  messages.ts           收到的訊息記錄（ring buffer + 可選持久化）
+  stats.ts              發送統計（JSONL + 儀表板彙總）
+  logger.ts             log（console + 檔案 + 記憶體 + 輪替）
+  rotate.ts             檔案輪替工具
+  line/client.ts        LINE 登入 / 聯絡人 / 發送（文字 / 檔案 / 圖片 / 影片 / 語音 / 貼圖 / 位置 / Flex）/ 自動回覆 / 重登
+  line/queue.ts         發送佇列（重試 + 節流）
+  line/scheduler.ts     排程 / 延遲 / 重複發送（持久化）
+  line/cron.ts          cron 表達式解析與下次執行時間
+  middleware/session.ts 管理頁登入 session（閒置 5 分鐘）
+  middleware/hmac.ts    HMAC 簽章 + 防重放 + idempotency
+  middleware/ip.ts      IP 白名單
+  middleware/rateLimit.ts 接收端速率限制
+  notify/mailer.ts      Email 通知
+  monitor/token.ts      健康檢查與重登
+  webhook/server.ts     HTTP server（webhook + 狀態 / 設定 / 訊息 / ReadMe 頁）
+docs/architecture.md    架構圖
+```
+
+## 疑難排解
+
+- **一直顯示「待驗證」**：用 LINE 內建掃描器掃終端機或 `/status` 上的 QR 圖，或點狀態頁的驗證連結在手機開啟。
+- **找不到目標（404）**：名稱需與 LINE 顯示名稱完全相同；建議改用 mid，或設定 `TARGETS`。
+- **收不到 Email**：確認 `SMTP_*` 與 `MAIL_FROM` / `MAIL_TO` 都已設定。
+- **對外接收 webhook**：本機需用 ngrok / Cloudflare Tunnel 打通道；記得設定 `HMAC_SECRET`。
+- **被擋 403 簽章錯誤**：確認簽章字串為 `${timestamp}.${body}`，且時間戳在誤差範圍內。

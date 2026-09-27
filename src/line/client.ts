@@ -1,0 +1,764 @@
+import { readFileSync } from "node:fs";
+import { basename, extname, resolve } from "node:path";
+import { Client, type TalkMessage } from "@evex/linejs";
+import { BaseClient } from "@evex/linejs/base";
+import { FileStorage } from "@evex/linejs/storage";
+import QRCode from "qrcode";
+import { config } from "../config.js";
+import { logger } from "../logger.js";
+import { recordMessage } from "../messages.js";
+import { recordSend } from "../stats.js";
+import { getState, setState } from "../state.js";
+import { SendQueue } from "./queue.js";
+import { SendScheduler, type ScheduledJobView } from "./scheduler.js";
+
+const AUTH_KEY = ".auth";
+const MID_PATTERN = /^[ucr][0-9a-f]{32}$/i;
+
+export class TargetNotFoundError extends Error {
+  constructor(to: string) {
+    super(`找不到目標：${to}`);
+    this.name = "TargetNotFoundError";
+  }
+}
+
+export class NotLoggedInError extends Error {
+  constructor() {
+    super("LINE 尚未登入");
+    this.name = "NotLoggedInError";
+  }
+}
+
+export interface StickerInput {
+  packageId: string;
+  stickerId: string;
+  version?: string;
+}
+
+export interface LocationInput {
+  title: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface FlexInput {
+  altText: string;
+  contents: Record<string, unknown>;
+}
+
+export interface SendInput {
+  to: string;
+  text?: string;
+  file?: string;
+  image?: string;
+  video?: string;
+  audio?: string;
+  filename?: string;
+  sticker?: StickerInput;
+  location?: LocationInput;
+  flex?: FlexInput;
+}
+
+export function inputType(input: SendInput): string {
+  if (input.image) return "image";
+  if (input.video) return "video";
+  if (input.audio) return "audio";
+  if (input.file) return "file";
+  if (input.sticker) return "sticker";
+  if (input.location) return "location";
+  if (input.flex) return "flex";
+  if (input.text) return "text";
+  return "unknown";
+}
+
+type SendMessageOptions = Parameters<BaseClient["talk"]["sendMessage"]>[0];
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface LooseContactRaw {
+  contact?: { displayName?: string; mid?: string };
+  targetProfileDetail?: { profileName?: string };
+  displayName?: string;
+  targetUserMid?: string;
+}
+
+function contactName(raw: unknown): string | undefined {
+  const value = raw as LooseContactRaw | undefined;
+  return (
+    value?.contact?.displayName ||
+    value?.targetProfileDetail?.profileName ||
+    value?.displayName ||
+    undefined
+  );
+}
+
+const MIME_TYPES: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".txt": "text/plain",
+  ".csv": "text/csv",
+  ".zip": "application/zip",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+
+function mimeFor(ext: string): string {
+  return MIME_TYPES[ext] ?? "application/octet-stream";
+}
+
+function extFor(kind: string, mime?: string): string {
+  const m = (mime ?? "").toLowerCase();
+  if (m.includes("png")) return "png";
+  if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
+  if (m.includes("gif")) return "gif";
+  if (m.includes("webp")) return "webp";
+  if (m.includes("mp4")) return "mp4";
+  if (m.includes("mpeg")) return "mp3";
+  if (m.includes("pdf")) return "pdf";
+  if (kind === "image") return "png";
+  if (kind === "video") return "mp4";
+  if (kind === "audio") return "mp3";
+  return "bin";
+}
+
+async function withRetry<T>(
+  label: string,
+  fn: () => Promise<T>,
+  attempts = 3,
+  baseMs = 800,
+): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (i < attempts - 1) {
+        const wait = baseMs * 2 ** i;
+        logger.warn(`${label}失敗，將重試`, {
+          attempt: i + 1,
+          waitMs: wait,
+          error: String(error),
+        });
+        await delay(wait);
+      }
+    }
+  }
+  throw lastError;
+}
+
+export class LineService {
+  private readonly storage = new FileStorage(config.line.storagePath);
+  private readonly queue: SendQueue;
+  private readonly scheduler: SendScheduler;
+  private base: BaseClient | null = null;
+  private client: Client | null = null;
+  private nameToMid = new Map<string, string>();
+  private midToName = new Map<string, string>();
+  private friendCount = 0;
+  private chatCount = 0;
+  private busy = false;
+  private loggedIn = false;
+  private myMid = "";
+  private listenAbort: AbortController | null = null;
+  private lastAutoReplyAt = new Map<string, number>();
+
+  constructor() {
+    this.queue = new SendQueue(() => ({
+      maxRetries: config.send.maxRetries,
+      retryBaseMs: config.send.retryBaseMs,
+      minIntervalMs: config.send.minIntervalMs,
+      isPermanent: (error) =>
+        error instanceof TargetNotFoundError || error instanceof NotLoggedInError,
+    }));
+    this.scheduler = new SendScheduler((inputs) => this.sendAdvanced(inputs));
+  }
+
+  async init(): Promise<void> {
+    this.busy = true;
+    try {
+      await this.doInit();
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private async doInit(): Promise<void> {
+    this.loggedIn = false;
+    const base = new BaseClient({
+      device: config.line.device,
+      storage: this.storage,
+    });
+    this.base = base;
+    this.client = new Client(base);
+
+    // 自訂登入時顯示的裝置名稱（LINE 會顯示「您目前已在「X」上登入」）
+    const loginProcess = base.loginProcess;
+    const originalForSecure = loginProcess.qrCodeLoginV2ForSecure.bind(loginProcess);
+    loginProcess.qrCodeLoginV2ForSecure = (
+      authSessionId,
+      nonce,
+      _modelName,
+      _systemName,
+      autoLoginIsRequired,
+    ) =>
+      originalForSecure(
+        authSessionId,
+        nonce,
+        config.line.modelName,
+        config.line.deviceName,
+        autoLoginIsRequired,
+      );
+
+    base.on("qrcall", (url) => {
+      logger.warn("需要 QR 驗證，請用手機 LINE 掃描（終端機或狀態頁）", { url });
+      setState({ status: "待驗證", qrUrl: url, pin: undefined });
+      void QRCode.toString(url, { type: "terminal", small: true })
+        .then((qr) => {
+          console.log("\n請用手機 LINE 的掃描功能掃描以下 QR Code：\n");
+          console.log(qr);
+        })
+        .catch(() => {});
+    });
+    base.on("pincall", (pin) => {
+      logger.warn("需要 PIN 驗證，請在手機輸入", { pin });
+      setState({ status: "待驗證", pin, qrUrl: undefined });
+    });
+    base.on("update:authtoken", (token) => {
+      void this.storage.set(AUTH_KEY, token).then(() => {
+        logger.info("authToken 已更新並儲存");
+      });
+    });
+
+    const cached = await this.storage.get(AUTH_KEY);
+    if (typeof cached === "string" && cached) {
+      try {
+        await base.loginProcess.login({ authToken: cached });
+      } catch (error) {
+        logger.warn("authToken 失效，改用 QR 驗證", { error: String(error) });
+        await base.loginProcess.login({ qr: true });
+      }
+    } else {
+      await base.loginProcess.login({ qr: true });
+    }
+
+    const profile = await this.client.getMyProfile();
+    await this.refreshContacts();
+    this.loggedIn = true;
+    this.myMid = profile.mid;
+
+    setState({
+      status: "已登入",
+      profileName: profile.displayName,
+      myMid: profile.mid,
+      lastLoginAt: new Date().toISOString(),
+      lastError: undefined,
+      qrUrl: undefined,
+      pin: undefined,
+    });
+    logger.info("LINE 登入完成", { name: profile.displayName, mid: profile.mid });
+    this.startListening();
+
+    if (this.friendCount === 0) {
+      setTimeout(() => {
+        if (this.loggedIn) void this.refreshContacts();
+      }, 5000).unref?.();
+    }
+  }
+
+  async refreshContacts(): Promise<void> {
+    const client = this.client;
+    if (!client) return;
+
+    const nameToMid = new Map<string, string>();
+    const midToName = new Map<string, string>();
+
+    try {
+      const users = await withRetry("抓取好友清單", () => client.fetchUsers());
+      this.friendCount = users.length;
+      for (const user of users) {
+        const name = contactName(user.raw);
+        if (name) {
+          nameToMid.set(name, user.mid);
+          midToName.set(user.mid, name);
+        }
+      }
+    } catch (error) {
+      logger.warn("抓取好友清單失敗", { error: String(error) });
+    }
+
+    try {
+      const chats = await withRetry("抓取群組清單", () => client.fetchJoinedChats());
+      this.chatCount = chats.length;
+      for (const chat of chats) {
+        if (chat.name) {
+          nameToMid.set(chat.name, chat.mid);
+          midToName.set(chat.mid, chat.name);
+        }
+      }
+    } catch (error) {
+      logger.warn("抓取群組清單失敗", { error: String(error) });
+    }
+
+    for (const [name, mid] of Object.entries(config.targets)) {
+      nameToMid.set(name, mid);
+      if (!midToName.has(mid)) midToName.set(mid, name);
+    }
+
+    this.nameToMid = nameToMid;
+    this.midToName = midToName;
+    setState({ friendCount: this.friendCount, chatCount: this.chatCount });
+    logger.info("聯絡人對照表已建立", {
+      friends: this.friendCount,
+      chats: this.chatCount,
+    });
+  }
+
+  resolveTarget(to: string): string | null {
+    const trimmed = to.trim();
+    const byName = this.nameToMid.get(trimmed);
+    if (byName) return byName;
+    if (this.midToName.has(trimmed) || MID_PATTERN.test(trimmed)) return trimmed;
+    return null;
+  }
+
+  async send(to: string, text: string): Promise<void> {
+    await this.queue.enqueue(() => this.rawSend(to, text));
+  }
+
+  private async rawSend(to: string, text: string): Promise<void> {
+    const client = this.client;
+    if (!client || !this.loggedIn) throw new NotLoggedInError();
+
+    const mid = this.resolveTarget(to);
+    if (!mid) throw new TargetNotFoundError(to);
+
+    await client.base.talk.sendMessage({ to: mid, text, e2ee: true });
+
+    recordSend({ time: new Date().toISOString(), to, type: "text", ok: true });
+    setState({
+      lastSendAt: new Date().toISOString(),
+      lastSendTo: this.midToName.get(mid) ?? mid,
+    });
+  }
+
+  async sendAdvanced(inputs: SendInput[]): Promise<void> {
+    const errors: unknown[] = [];
+    const messages: string[] = [];
+    for (const input of inputs) {
+      try {
+        await this.queue.enqueue(() => this.sendOne(input));
+      } catch (error) {
+        errors.push(error);
+        messages.push(`${input.to}: ${error instanceof Error ? error.message : String(error)}`);
+        recordSend({ time: new Date().toISOString(), to: input.to, type: inputType(input), ok: false });
+      }
+    }
+    if (errors.length === 1 && errors[0] instanceof Error) throw errors[0];
+    if (errors.length > 0) throw new Error(messages.join("; "));
+  }
+
+  private async sendOne(input: SendInput): Promise<void> {
+    const client = this.client;
+    if (!client || !this.loggedIn) throw new NotLoggedInError();
+
+    const mid = this.resolveTarget(input.to);
+    if (!mid) throw new TargetNotFoundError(input.to);
+
+    if (input.image) await this.sendMedia(mid, input.image, "image", input.filename);
+    if (input.video) await this.sendMedia(mid, input.video, "video", input.filename);
+    if (input.audio) await this.sendMedia(mid, input.audio, "audio", input.filename);
+    if (input.file) await this.sendMedia(mid, input.file, "file", input.filename);
+    if (input.sticker) await this.sendSticker(mid, input.sticker);
+    if (input.location) await this.sendLocation(mid, input.location);
+    if (input.flex) await this.sendFlex(mid, input.flex);
+    if (input.text) {
+      await client.base.talk.sendMessage({ to: mid, text: input.text, e2ee: true });
+    }
+
+    recordSend({ time: new Date().toISOString(), to: input.to, type: inputType(input), ok: true });
+    setState({
+      lastSendAt: new Date().toISOString(),
+      lastSendTo: this.midToName.get(mid) ?? mid,
+    });
+  }
+
+  private async sendSticker(to: string, sticker: StickerInput): Promise<void> {
+    const client = this.client;
+    if (!client) throw new NotLoggedInError();
+
+    await client.liff.shareMessage(to, {
+      type: "sticker",
+      packageId: String(sticker.packageId),
+      stickerId: String(sticker.stickerId),
+    });
+    logger.info("已傳送貼圖", {
+      to,
+      packageId: sticker.packageId,
+      stickerId: sticker.stickerId,
+    });
+  }
+
+  private async sendLocation(to: string, location: LocationInput): Promise<void> {
+    const client = this.client;
+    if (!client) throw new NotLoggedInError();
+
+    const payload = {
+      title: location.title,
+      address: location.address,
+      latitude: location.latitude,
+      longitude: location.longitude,
+    } as unknown as SendMessageOptions["location"];
+
+    await client.base.talk.sendMessage({
+      to,
+      location: payload,
+      contentType: "LOCATION",
+      e2ee: true,
+    });
+    logger.info("已傳送位置", { to, title: location.title });
+  }
+
+  private async sendFlex(to: string, flex: FlexInput): Promise<void> {
+    const client = this.client;
+    if (!client) throw new NotLoggedInError();
+
+    await client.liff.shareMessage(to, {
+      type: "flex",
+      altText: flex.altText,
+      contents: flex.contents,
+    });
+    logger.info("已傳送 Flex", { to, altText: flex.altText });
+  }
+
+  private async sendMedia(
+    to: string,
+    source: string,
+    kind: "image" | "video" | "audio" | "file",
+    filename?: string,
+  ): Promise<void> {
+    const client = this.client;
+    if (!client) throw new NotLoggedInError();
+
+    let data: Buffer;
+    let name: string;
+
+    const dataUrl = /^data:([^;,]*);base64,(.*)$/is.exec(source);
+    if (dataUrl) {
+      data = Buffer.from(dataUrl[2], "base64");
+      name = filename?.trim() || `upload.${extFor(kind, dataUrl[1])}`;
+    } else if (/^https?:\/\//i.test(source)) {
+      let resp: Response;
+      try {
+        resp = await fetch(source);
+      } catch {
+        throw new Error(`下載失敗：${source}`);
+      }
+      if (!resp.ok) throw new Error(`下載失敗：${source}（HTTP ${resp.status}）`);
+      data = Buffer.from(await resp.arrayBuffer());
+      name = filename?.trim() || basename(new URL(source).pathname) || "media.bin";
+    } else {
+      try {
+        data = readFileSync(source);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new Error(`檔案不存在：${resolve(source)}（請確認執行本程式的機器上的路徑）`);
+        }
+        throw error;
+      }
+      name = filename?.trim() || basename(source);
+    }
+
+    const ext = extname(name).toLowerCase();
+    const oType =
+      kind === "image" ? (ext === ".gif" ? "gif" : "image") : kind;
+    const blob = new Blob([data], { type: mimeFor(ext) });
+
+    await client.base.obs.uploadMediaByE2EE({ data: blob, oType, to, filename: name });
+    logger.info("已傳送媒體", { to, kind, file: name, bytes: data.length });
+  }
+
+  getQueueStats(): { pending: number; running: boolean } {
+    return this.queue.stats();
+  }
+
+  schedule(inputs: SendInput[], runAt: number, repeat?: string): ScheduledJobView {
+    return this.scheduler.add(inputs, runAt, repeat);
+  }
+
+  updateScheduled(
+    id: string,
+    patch: { runAt?: number; repeat?: string | null },
+  ): ScheduledJobView | null {
+    return this.scheduler.update(id, patch);
+  }
+
+  listScheduled(): ScheduledJobView[] {
+    return this.scheduler.list();
+  }
+
+  cancelScheduled(id: string): boolean {
+    return this.scheduler.cancel(id);
+  }
+
+  stopQueue(): void {
+    this.queue.stop();
+    this.scheduler.stop();
+  }
+
+  async healthCheck(): Promise<boolean> {
+    if (!this.client || !this.loggedIn) return false;
+    try {
+      await this.client.getMyProfile();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async recover(): Promise<boolean> {
+    if (this.busy) return false;
+    this.busy = true;
+    try {
+      await this.doInit();
+      return true;
+    } catch (error) {
+      logger.error("自動重登失敗，需人工重新驗證", { error: String(error) });
+      setState({ status: "需人工", lastError: String(error) });
+      return false;
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private startListening(): void {
+    const client = this.client;
+    if (!client) return;
+
+    client.on("message", (message) => {
+      void this.handleIncoming(message);
+    });
+
+    this.listenAbort?.abort();
+    this.listenAbort = new AbortController();
+    client.listen({ talk: true, square: false, signal: this.listenAbort.signal });
+    logger.info("已開始接收訊息（關鍵字自動回覆）");
+  }
+
+  stopListening(): void {
+    this.listenAbort?.abort();
+    this.listenAbort = null;
+  }
+
+  private async handleIncoming(message: TalkMessage): Promise<void> {
+    const client = this.client;
+    if (!client) return;
+
+    try {
+      if (message.isMyMessage) return;
+
+      const text = (message.text ?? "").trim();
+      const toId = message.to.id;
+      const chat = toId === this.myMid ? message.from.id : toId;
+      const fromName = this.midToName.get(message.from.id) ?? "";
+      const chatName = this.midToName.get(chat) ?? "";
+
+      recordMessage({
+        time: new Date().toISOString(),
+        fromMid: message.from.id,
+        fromName,
+        chatMid: chat,
+        chatType: String(message.to.type ?? ""),
+        text,
+      });
+
+      if (!chat) return;
+
+      await this.runCommand(text, chat, message.from.id);
+      await this.runForwardRules(text, chat, fromName, chatName);
+      await this.runAutoReply(text, chat, fromName);
+    } catch (error) {
+      logger.error("處理收到的訊息失敗", { error: String(error) });
+    }
+  }
+
+  private matchRule(
+    match: "exact" | "contains" | "regex",
+    keyword: string,
+    text: string,
+  ): boolean {
+    const key = keyword.trim();
+    if (!key) return false;
+    if (match === "contains") return text.includes(key);
+    if (match === "regex") {
+      try {
+        return new RegExp(key, "i").test(text);
+      } catch {
+        return false;
+      }
+    }
+    return key === text;
+  }
+
+  private async runAutoReply(text: string, chat: string, fromName: string): Promise<void> {
+    const client = this.client;
+    if (!client) return;
+    if (!config.autoReply.enabled || !text) return;
+
+    const rule = config.autoReply.rules.find((candidate) => {
+      if (!candidate.enabled) return false;
+      const keywords = candidate.keyword
+        .split("|")
+        .map((k) => k.trim())
+        .filter(Boolean);
+      if (candidate.match === "exact") {
+        return keywords.some((k) => this.matchRule("exact", k, text));
+      }
+      return keywords.some((k) => this.matchRule(candidate.match, k, text));
+    });
+    if (!rule) return;
+
+    const now = Date.now();
+    const last = this.lastAutoReplyAt.get(chat) ?? 0;
+    if (now - last < config.autoReply.cooldownSec * 1000) {
+      logger.info("自動回覆冷卻中，略過", { chat });
+      return;
+    }
+    this.lastAutoReplyAt.set(chat, now);
+
+    logger.info("觸發自動回覆", { keyword: rule.keyword, match: rule.match, to: chat });
+
+    const vars: Record<string, string> = {
+      name: fromName,
+      mid: chat,
+      keyword: rule.keyword,
+      text,
+    };
+    const render = (value: string): string =>
+      value.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (m, key: string) =>
+        Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : m,
+      );
+
+    if (rule.text) {
+      await client.base.talk.sendMessage({ to: chat, text: render(rule.text), e2ee: true });
+    }
+    if (rule.image) {
+      await this.sendMedia(chat, rule.image, "image", rule.filename);
+    }
+    if (rule.filePath) {
+      await this.sendMedia(chat, rule.filePath, "file", rule.filename);
+    }
+  }
+
+  private async runForwardRules(
+    text: string,
+    chat: string,
+    fromName: string,
+    chatName: string,
+  ): Promise<void> {
+    if (!text) return;
+    for (const rule of config.forward) {
+      if (!rule.enabled || !rule.target) continue;
+      if (rule.source && rule.source.trim() !== "" && rule.source.trim() !== chat) continue;
+
+      let matched: boolean;
+      if (rule.match === "all") matched = true;
+      else if (rule.match === "regex") {
+        try {
+          matched = new RegExp(rule.keyword, "i").test(text);
+        } catch {
+          matched = false;
+        }
+      } else {
+        const keywords = rule.keyword
+          .split("|")
+          .map((k) => k.trim())
+          .filter(Boolean);
+        matched = keywords.length === 0 || keywords.some((k) => text.includes(k));
+      }
+      if (!matched) continue;
+
+      const parts: string[] = [];
+      if (rule.prefix) parts.push(rule.prefix);
+      if (rule.includeSender) parts.push(`[${chatName || fromName || "未知"}]`);
+      parts.push(text);
+      const forwarded = parts.join(" ");
+
+      try {
+        await this.queue.enqueue(() => this.rawSend(rule.target, forwarded));
+        logger.info("訊息已轉發（規則）", { from: chat, to: rule.target });
+      } catch (error) {
+        logger.error("轉發規則失敗", { to: rule.target, error: String(error) });
+      }
+    }
+  }
+
+  private async runCommand(text: string, chat: string, fromMid: string): Promise<void> {
+    if (!config.commands.enabled) return;
+    const prefix = config.commands.prefix || "!";
+    if (!text.startsWith(prefix)) return;
+
+    const allow = config.commands.allowFrom.map((item) => item.trim()).filter(Boolean);
+    if (allow.length > 0 && !allow.includes(fromMid) && !allow.includes(chat)) {
+      logger.info("指令來源未授權，略過", { fromMid });
+      return;
+    }
+
+    const rest = text.slice(prefix.length).trim();
+    const spaceIdx = rest.indexOf(" ");
+    const command = (spaceIdx === -1 ? rest : rest.slice(0, spaceIdx)).toLowerCase();
+    const args = spaceIdx === -1 ? "" : rest.slice(spaceIdx + 1).trim();
+
+    try {
+      if (command === "help" || command === "指令") {
+        await this.replyTo(chat, "可用指令：help、status、send <對象> <訊息>、id");
+      } else if (command === "status") {
+        const state = getState();
+        const lines = [
+          `狀態：${state.status}`,
+          `帳號：${state.profileName ?? "-"}`,
+          `好友：${state.friendCount ?? 0} / 群組：${state.chatCount ?? 0}`,
+          `排程：${this.scheduler.list().length}`,
+          `佇列：${this.queue.stats().pending}`,
+        ];
+        await this.replyTo(chat, lines.join("\n"));
+      } else if (command === "id") {
+        await this.replyTo(chat, `chat=${chat}\nfrom=${fromMid}`);
+      } else if (command === "send") {
+        const sep = args.indexOf(" ");
+        if (sep <= 0) {
+          await this.replyTo(chat, "用法：send <對象> <訊息>");
+          return;
+        }
+        const target = args.slice(0, sep).trim();
+        const body = args.slice(sep + 1).trim();
+        await this.sendAdvanced([{ to: target, text: body }]);
+        await this.replyTo(chat, `已發送給 ${target}`);
+      } else {
+        await this.replyTo(chat, `未知指令：${command}（可用 help）`);
+      }
+    } catch (error) {
+      logger.error("執行指令失敗", { command, error: String(error) });
+      await this.replyTo(chat, `指令失敗：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async replyTo(chat: string, text: string): Promise<void> {
+    const client = this.client;
+    if (!client) return;
+    await client.base.talk.sendMessage({ to: chat, text, e2ee: true });
+  }
+
+  listTargets(): Array<{ name: string; mid: string }> {
+    return [...this.nameToMid.entries()].map(([name, mid]) => ({ name, mid }));
+  }
+}

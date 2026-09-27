@@ -1,0 +1,15 @@
+services:
+  line-webhook:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    env_file:
+      - .env
+    environment:
+      STORAGE_PATH: /app/data/storage.json
+      LOG_FILE: /app/data/logs/app.log
+      SETTINGS_PATH: /app/data/settings.json
+      MESSAGES_PATH: /app/data/messages.jsonl
+    volumes:
+      - ./data:/app/data
