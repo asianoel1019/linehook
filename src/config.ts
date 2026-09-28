@@ -36,6 +36,8 @@ const schema = z.object({
   STATUS_USER: z.string().default(""),
   STATUS_PASS: z.string().default(""),
   AUTH_PATH: z.string().default("./data/auth.json"),
+  LANGUAGE: z.enum(["zh", "en", "ja"]).default("zh"),
+  TIMEZONE: z.string().default("Asia/Taipei"),
   LINE_DEVICE: z.enum(DEVICES).default("DESKTOPWIN"),
   LINE_DEVICE_NAME: z.string().default("LINE Webhook"),
   LINE_MODEL_NAME: z.string().default("LINE Webhook"),
@@ -52,12 +54,15 @@ const schema = z.object({
   STATS_PATH: z.string().default("./data/stats.jsonl"),
   STATS_DAYS: z.coerce.number().int().min(1).default(14),
   UPLOADS_PATH: z.string().default("./data/uploads"),
+  SKILLS_PATH: z.string().default("./data/skills"),
+  CACHE_PATH: z.string().default("./data/cache"),
   MAX_BODY_MB: z.coerce.number().int().positive().default(25),
   SEND_MAX_RETRIES: z.coerce.number().int().min(0).default(3),
   SEND_RETRY_BASE_MS: z.coerce.number().int().positive().default(500),
   SEND_MIN_INTERVAL_MS: z.coerce.number().int().nonnegative().default(200),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
+  REPLY_MAX_CHARS: z.coerce.number().int().nonnegative().default(4000),
   SMTP_HOST: z.string().default(""),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_SECURE: boolDefault(false),
@@ -96,22 +101,6 @@ export interface SmtpConfig {
   to: string;
 }
 
-export interface AutoReplyRule {
-  keyword: string;
-  match: "exact" | "contains" | "regex";
-  text: string;
-  filePath: string;
-  filename: string;
-  image: string;
-  enabled: boolean;
-}
-
-export interface AutoReplyConfig {
-  enabled: boolean;
-  cooldownSec: number;
-  rules: AutoReplyRule[];
-}
-
 export interface ForwardRule {
   id: string;
   enabled: boolean;
@@ -134,6 +123,11 @@ export interface CommandConfig {
   allowFrom: string[];
 }
 
+export interface AssistantConfig {
+  enabled: boolean;
+  name: string;
+}
+
 export interface MessageTemplate {
   name: string;
   text: string;
@@ -143,6 +137,13 @@ export interface FlexTemplate {
   name: string;
   altText: string;
   contents: string;
+}
+
+export interface SkillConfig {
+  id: string;
+  enabled: boolean;
+  trigger: string;
+  config: Record<string, string>;
 }
 
 export interface Config {
@@ -161,6 +162,8 @@ export interface Config {
     pass: string;
   };
   authPath: string;
+  language: import("./i18n.js").Lang;
+  timezone: string;
   line: {
     device: Device;
     deviceName: string;
@@ -181,6 +184,8 @@ export interface Config {
   statsPath: string;
   statsDays: number;
   uploadsPath: string;
+  skillsPath: string;
+  cachePath: string;
   maxBodyMb: number;
   send: {
     maxRetries: number;
@@ -191,10 +196,12 @@ export interface Config {
     windowMs: number;
     max: number;
   };
+  replyMaxChars: number;
   smtp: SmtpConfig;
-  autoReply: AutoReplyConfig;
   forward: ForwardRule[];
   commands: CommandConfig;
+  assistant: AssistantConfig;
+  skills: SkillConfig[];
 }
 
 const rawEnv: Record<string, string | undefined> = {};
@@ -234,6 +241,8 @@ export const config: Config = {
     pass: env.STATUS_PASS,
   },
   authPath: env.AUTH_PATH,
+  language: env.LANGUAGE,
+  timezone: env.TIMEZONE,
   line: {
     device: env.LINE_DEVICE,
     deviceName: env.LINE_DEVICE_NAME,
@@ -254,6 +263,8 @@ export const config: Config = {
   statsPath: env.STATS_PATH,
   statsDays: env.STATS_DAYS,
   uploadsPath: env.UPLOADS_PATH,
+  skillsPath: env.SKILLS_PATH,
+  cachePath: env.CACHE_PATH,
   maxBodyMb: env.MAX_BODY_MB,
   send: {
     maxRetries: env.SEND_MAX_RETRIES,
@@ -264,6 +275,7 @@ export const config: Config = {
     windowMs: env.RATE_LIMIT_WINDOW_MS,
     max: env.RATE_LIMIT_MAX,
   },
+  replyMaxChars: env.REPLY_MAX_CHARS,
   smtp: {
     host: env.SMTP_HOST,
     port: env.SMTP_PORT,
@@ -273,15 +285,15 @@ export const config: Config = {
     from: env.MAIL_FROM,
     to: env.MAIL_TO,
   },
-  autoReply: {
-    enabled: false,
-    cooldownSec: 10,
-    rules: [],
-  },
   forward: [],
   commands: {
     enabled: false,
     prefix: "!",
     allowFrom: [],
   },
+  assistant: {
+    enabled: false,
+    name: "阿寶",
+  },
+  skills: [],
 };

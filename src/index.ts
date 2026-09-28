@@ -5,6 +5,7 @@ import { loadSettings } from "./settings.js";
 import { initAuth } from "./middleware/session.js";
 import { initMessages } from "./messages.js";
 import { initStats } from "./stats.js";
+import { loadSkills } from "./skills/index.js";
 import { setState } from "./state.js";
 import { LineService } from "./line/client.js";
 import { createServer } from "./webhook/server.js";
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
   initAuth();
   initMessages();
   initStats();
+  await loadSkills();
   logger.info("服務啟動中", { port: config.port });
 
   const line = new LineService();

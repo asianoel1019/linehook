@@ -10,6 +10,8 @@ const settingsSchema = z.object({
   hmacMaxSkewSec: z.coerce.number().int().nonnegative().default(300),
   webhookToken: z.string().trim().default(""),
   apiToken: z.string().trim().default(""),
+  language: z.enum(["zh", "en", "ja"]).default("zh"),
+  timezone: z.string().default("Asia/Taipei"),
   apiTokens: z
     .array(
       z.object({
@@ -52,6 +54,7 @@ const settingsSchema = z.object({
     windowMs: z.coerce.number().int().positive().default(60000),
     max: z.coerce.number().int().positive().default(60),
   }),
+  replyMaxChars: z.coerce.number().int().nonnegative().default(4000),
   line: z.object({
     device: z.enum(DEVICES).default("DESKTOPWIN"),
     deviceName: z.string().default("LINE Webhook"),
@@ -66,25 +69,6 @@ const settingsSchema = z.object({
     from: z.string().default(""),
     to: z.string().default(""),
   }),
-  autoReply: z
-    .object({
-      enabled: z.boolean().default(false),
-      cooldownSec: z.coerce.number().int().min(0).default(10),
-      rules: z
-        .array(
-          z.object({
-            keyword: z.string().default(""),
-            match: z.enum(["exact", "contains", "regex"]).default("exact"),
-            text: z.string().default(""),
-            filePath: z.string().default(""),
-            filename: z.string().default(""),
-            image: z.string().default(""),
-            enabled: z.boolean().default(true),
-          }),
-        )
-        .default([]),
-    })
-    .default({ enabled: false, cooldownSec: 10, rules: [] }),
   forward: z
     .array(
       z.object({
@@ -106,6 +90,22 @@ const settingsSchema = z.object({
       allowFrom: z.array(z.string()).default([]),
     })
     .default({ enabled: false, prefix: "!", allowFrom: [] }),
+  assistant: z
+    .object({
+      enabled: z.boolean().default(false),
+      name: z.string().default("阿寶"),
+    })
+    .default({ enabled: false, name: "阿寶" }),
+  skills: z
+    .array(
+      z.object({
+        id: z.string().default(""),
+        enabled: z.boolean().default(false),
+        trigger: z.string().default(""),
+        config: z.record(z.string(), z.string()).default({}),
+      }),
+    )
+    .default([]),
 });
 
 export type EditableSettings = z.infer<typeof settingsSchema>;
@@ -117,6 +117,8 @@ export function currentSettings(): EditableSettings {
     hmacMaxSkewSec: config.hmacMaxSkewSec,
     webhookToken: config.webhookToken,
     apiToken: config.apiToken,
+    language: config.language,
+    timezone: config.timezone,
     apiTokens: config.apiTokens.map((item) => ({ ...item })),
     statusPublic: config.statusPublic,
     adminPrivateOnly: config.adminPrivateOnly,
@@ -130,23 +132,29 @@ export function currentSettings(): EditableSettings {
     messagesPersist: config.messagesPersist,
     send: { ...config.send },
     rateLimit: { ...config.rateLimit },
+    replyMaxChars: config.replyMaxChars,
     line: {
       device: config.line.device,
       deviceName: config.line.deviceName,
       modelName: config.line.modelName,
     },
     smtp: { ...config.smtp },
-    autoReply: {
-      enabled: config.autoReply.enabled,
-      cooldownSec: config.autoReply.cooldownSec,
-      rules: config.autoReply.rules.map((rule) => ({ ...rule })),
-    },
     forward: config.forward.map((rule) => ({ ...rule })),
     commands: {
       enabled: config.commands.enabled,
       prefix: config.commands.prefix,
       allowFrom: [...config.commands.allowFrom],
     },
+    assistant: {
+      enabled: config.assistant.enabled,
+      name: config.assistant.name,
+    },
+    skills: config.skills.map((skill) => ({
+      id: skill.id,
+      enabled: skill.enabled,
+      trigger: skill.trigger,
+      config: { ...skill.config },
+    })),
   };
 }
 
@@ -156,6 +164,8 @@ function apply(settings: EditableSettings): void {
   config.hmacMaxSkewSec = settings.hmacMaxSkewSec;
   config.webhookToken = settings.webhookToken;
   config.apiToken = settings.apiToken;
+  config.language = settings.language;
+  config.timezone = settings.timezone;
   config.apiTokens = settings.apiTokens.map((item) => ({ ...item }));
   config.statusPublic = settings.statusPublic;
   config.adminPrivateOnly = settings.adminPrivateOnly;
@@ -169,21 +179,27 @@ function apply(settings: EditableSettings): void {
   config.messagesPersist = settings.messagesPersist;
   config.send = { ...settings.send };
   config.rateLimit = { ...settings.rateLimit };
+  config.replyMaxChars = settings.replyMaxChars;
   config.line.device = settings.line.device;
   config.line.deviceName = settings.line.deviceName;
   config.line.modelName = settings.line.modelName;
   config.smtp = { ...settings.smtp };
-  config.autoReply = {
-    enabled: settings.autoReply.enabled,
-    cooldownSec: settings.autoReply.cooldownSec,
-    rules: settings.autoReply.rules.map((rule) => ({ ...rule })),
-  };
   config.forward = settings.forward.map((rule) => ({ ...rule }));
   config.commands = {
     enabled: settings.commands.enabled,
     prefix: settings.commands.prefix,
     allowFrom: [...settings.commands.allowFrom],
   };
+  config.assistant = {
+    enabled: settings.assistant.enabled,
+    name: settings.assistant.name,
+  };
+  config.skills = settings.skills.map((skill) => ({
+    id: skill.id,
+    enabled: skill.enabled,
+    trigger: skill.trigger,
+    config: { ...skill.config },
+  }));
   resetMailer();
 }
 
@@ -213,12 +229,13 @@ export function loadSettings(): void {
       flexTemplates: data.flexTemplates ?? base.flexTemplates,
       apiTokens: data.apiTokens ?? base.apiTokens,
       forward: data.forward ?? base.forward,
+      skills: data.skills ?? base.skills,
       send: { ...base.send, ...(data.send ?? {}) },
       rateLimit: { ...base.rateLimit, ...(data.rateLimit ?? {}) },
       line: { ...base.line, ...(data.line ?? {}) },
       smtp: { ...base.smtp, ...(data.smtp ?? {}) },
-      autoReply: { ...base.autoReply, ...(data.autoReply ?? {}) },
       commands: { ...base.commands, ...(data.commands ?? {}) },
+      assistant: { ...base.assistant, ...(data.assistant ?? {}) },
     });
     logger.info("已載入 settings.json", { path });
   } catch (error) {

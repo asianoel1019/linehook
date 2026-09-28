@@ -2,13 +2,14 @@ import { appendFile, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { config } from "./config.js";
 import { rotateIfNeeded } from "./rotate.js";
+import { nowIso } from "./time.js";
 import type { LogEntry, LogLevel } from "./types.js";
 
 const buffer: LogEntry[] = [];
 
 function write(level: LogLevel, message: string, meta?: Record<string, unknown>): void {
   const entry: LogEntry = {
-    time: new Date().toISOString(),
+    time: nowIso(),
     level,
     message,
     ...(meta ? { meta } : {}),

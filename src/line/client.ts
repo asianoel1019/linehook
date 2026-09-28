@@ -11,6 +11,8 @@ import { recordSend } from "../stats.js";
 import { getState, setState } from "../state.js";
 import { SendQueue } from "./queue.js";
 import { SendScheduler, type ScheduledJobView } from "./scheduler.js";
+import { getSkill } from "../skills/index.js";
+import { effectiveMode, skillListText, skillUsageText } from "../skills/help.js";
 
 const AUTH_KEY = ".auth";
 const MID_PATTERN = /^[ucr][0-9a-f]{32}$/i;
@@ -76,6 +78,22 @@ type SendMessageOptions = Parameters<BaseClient["talk"]["sendMessage"]>[0];
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 將長文字切成多段，優先切在換行，其次空白，最後硬切。limit <= 0 表示不切。 */
+export function splitText(text: string, limit: number): string[] {
+  if (limit <= 0 || text.length <= limit) return [text];
+  const parts: string[] = [];
+  let rest = text;
+  while (rest.length > limit) {
+    let cut = rest.lastIndexOf("\n", limit);
+    if (cut <= 0) cut = rest.lastIndexOf(" ", limit);
+    if (cut <= 0) cut = limit;
+    parts.push(rest.slice(0, cut));
+    rest = rest.slice(cut).replace(/^\s+/, "");
+  }
+  if (rest.length > 0) parts.push(rest);
+  return parts;
 }
 
 interface LooseContactRaw {
@@ -170,7 +188,6 @@ export class LineService {
   private loggedIn = false;
   private myMid = "";
   private listenAbort: AbortController | null = null;
-  private lastAutoReplyAt = new Map<string, number>();
 
   constructor() {
     this.queue = new SendQueue(() => ({
@@ -584,78 +601,111 @@ export class LineService {
       if (!chat) return;
 
       await this.runCommand(text, chat, message.from.id);
+      await this.runSkills(text, chat, fromName, message.from.id);
       await this.runForwardRules(text, chat, fromName, chatName);
-      await this.runAutoReply(text, chat, fromName);
     } catch (error) {
       logger.error("處理收到的訊息失敗", { error: String(error) });
     }
   }
 
-  private matchRule(
-    match: "exact" | "contains" | "regex",
-    keyword: string,
+  private async runSkills(
     text: string,
-  ): boolean {
-    const key = keyword.trim();
-    if (!key) return false;
-    if (match === "contains") return text.includes(key);
-    if (match === "regex") {
-      try {
-        return new RegExp(key, "i").test(text);
-      } catch {
-        return false;
+    chat: string,
+    fromName: string,
+    fromMid: string,
+  ): Promise<void> {
+    if (!text) return;
+
+    const assistant = config.assistant.name.trim();
+    // 計算「助理前綴」後剩餘文字（僅 assistant 模式需要）
+    let rest = "";
+    let hasAssistantPrefix = false;
+    if (assistant && text.startsWith(assistant)) {
+      rest = text.slice(assistant.length).trim();
+      const polite = /^(請幫忙|請幫|幫忙|麻煩|幫我|幫)\s*/;
+      for (let i = 0; i < 3; i++) {
+        const next = rest.replace(polite, "");
+        if (next === rest) break;
+        rest = next;
       }
+      hasAssistantPrefix = true;
     }
-    return key === text;
-  }
 
-  private async runAutoReply(text: string, chat: string, fromName: string): Promise<void> {
-    const client = this.client;
-    if (!client) return;
-    if (!config.autoReply.enabled || !text) return;
-
-    const rule = config.autoReply.rules.find((candidate) => {
-      if (!candidate.enabled) return false;
-      const keywords = candidate.keyword
-        .split("|")
-        .map((k) => k.trim())
-        .filter(Boolean);
-      if (candidate.match === "exact") {
-        return keywords.some((k) => this.matchRule("exact", k, text));
-      }
-      return keywords.some((k) => this.matchRule(candidate.match, k, text));
-    });
-    if (!rule) return;
-
-    const now = Date.now();
-    const last = this.lastAutoReplyAt.get(chat) ?? 0;
-    if (now - last < config.autoReply.cooldownSec * 1000) {
-      logger.info("自動回覆冷卻中，略過", { chat });
+    // Layer 1：只喊助理名稱、未帶觸發詞 → 列出可用技能
+    if (config.assistant.enabled && hasAssistantPrefix && rest === "") {
+      logger.info("列出可用技能", { chat });
+      await this.replyTo(chat, skillListText(config.language));
       return;
     }
-    this.lastAutoReplyAt.set(chat, now);
 
-    logger.info("觸發自動回覆", { keyword: rule.keyword, match: rule.match, to: chat });
+    for (const skill of config.skills) {
+      if (!skill.enabled) continue;
+      const def = getSkill(skill.id);
+      if (!def) continue;
 
-    const vars: Record<string, string> = {
-      name: fromName,
-      mid: chat,
-      keyword: rule.keyword,
-      text,
-    };
-    const render = (value: string): string =>
-      value.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (m, key: string) =>
-        Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : m,
-      );
+      const mode = effectiveMode(skill, def);
+      let args: string | null = null;
 
-    if (rule.text) {
-      await client.base.talk.sendMessage({ to: chat, text: render(rule.text), e2ee: true });
-    }
-    if (rule.image) {
-      await this.sendMedia(chat, rule.image, "image", rule.filename);
-    }
-    if (rule.filePath) {
-      await this.sendMedia(chat, rule.filePath, "file", rule.filename);
+      if (mode === "any") {
+        args = text;
+      } else {
+        if (!config.assistant.enabled || !hasAssistantPrefix || !rest) continue;
+        const primary = (skill.trigger || def.defaultTrigger).trim();
+        const triggers = [primary, ...(def.triggerAliases ?? [])].filter(Boolean);
+        let matched = "";
+        for (const t of triggers) {
+          if (rest.startsWith(t)) {
+            matched = t;
+            break;
+          }
+        }
+        if (!matched) continue;
+        args = rest.slice(matched.length).trim();
+
+        // Layer 2：<觸發詞> ? → 顯示該技能用法
+        if (/^[?？]$/.test(args) || /^(help|用法|說明)$/i.test(args)) {
+          const primaryTrigger = (skill.trigger || def.defaultTrigger).trim();
+          logger.info("顯示技能用法", { skill: skill.id, chat });
+          await this.replyTo(chat, skillUsageText(def, primaryTrigger, config.language));
+          continue;
+        }
+      }
+      if (args === null) continue;
+
+      logger.info("觸發技能", { skill: skill.id, mode, chat });
+      try {
+        await def.run({
+          text,
+          args,
+          fromName,
+          chat,
+          fromMid,
+          config: skill.config,
+          reply: (t) => this.replyTo(chat, t),
+          sendImage: async (source, filename) => {
+            try {
+              await this.sendMedia(chat, source, "image", filename);
+              recordSend({ time: new Date().toISOString(), to: chat, type: "image", ok: true });
+            } catch (error) {
+              recordSend({ time: new Date().toISOString(), to: chat, type: "image", ok: false });
+              throw error;
+            }
+          },
+          sendFile: async (source, filename) => {
+            try {
+              await this.sendMedia(chat, source, "file", filename);
+              recordSend({ time: new Date().toISOString(), to: chat, type: "file", ok: true });
+            } catch (error) {
+              recordSend({ time: new Date().toISOString(), to: chat, type: "file", ok: false });
+              throw error;
+            }
+          },
+          schedule: (text, runAt) => this.schedule([{ to: chat, text }], runAt).id,
+        });
+      } catch (error) {
+        logger.error("技能執行失敗", { skill: skill.id, error: String(error) });
+        await this.replyTo(chat, `技能「${def.name}」執行失敗：${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 
@@ -720,7 +770,15 @@ export class LineService {
 
     try {
       if (command === "help" || command === "指令") {
-        await this.replyTo(chat, "可用指令：help、status、send <對象> <訊息>、id");
+        const asst = config.assistant.name.trim() || "助理";
+        await this.replyTo(
+          chat,
+          [
+            "可用指令：help、status、send <對象> <訊息>、id",
+            `技能清單：${asst}請幫忙`,
+            `技能用法：${asst}請幫忙 <觸發詞> ?`,
+          ].join("\n"),
+        );
       } else if (command === "status") {
         const state = getState();
         const lines = [
@@ -755,7 +813,19 @@ export class LineService {
   private async replyTo(chat: string, text: string): Promise<void> {
     const client = this.client;
     if (!client) return;
-    await client.base.talk.sendMessage({ to: chat, text, e2ee: true });
+    const parts = splitText(text, config.replyMaxChars);
+    for (let i = 0; i < parts.length; i++) {
+      const isLast = i === parts.length - 1;
+      const body = parts.length > 1 ? `(${i + 1}/${parts.length}) ${parts[i]}` : parts[i];
+      try {
+        await client.base.talk.sendMessage({ to: chat, text: body, e2ee: true });
+        recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: true });
+      } catch (error) {
+        recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: false });
+        throw error;
+      }
+      if (!isLast) await delay(config.send.minIntervalMs);
+    }
   }
 
   listTargets(): Array<{ name: string; mid: string }> {

@@ -1,0 +1,196 @@
+import { logger } from "../logger.js";
+
+export type LlmProvider = "openai" | "gemini" | "opencode" | "local" | "custom";
+
+export interface LlmConfig {
+  provider: LlmProvider;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  temperature: number;
+  maxTokens: number;
+  timeoutMs: number;
+}
+
+export interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+function providerDefaults(provider: LlmProvider): { baseUrl: string; model: string } {
+  switch (provider) {
+    case "gemini":
+      return { baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-2.0-flash" };
+    case "opencode":
+      return { baseUrl: "https://opencode.ai/zen/v1", model: "opencode/deepseek-v4.1-flash" };
+    case "local":
+      return { baseUrl: "http://localhost:11434/v1", model: "llama3.1" };
+    case "custom":
+      return { baseUrl: "", model: "" };
+    case "openai":
+    default:
+      return { baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" };
+  }
+}
+
+export function llmConfigFrom(raw: Record<string, string>): LlmConfig {
+  const provider = ((raw.provider || "openai").trim() as LlmProvider) || "openai";
+  const defaults = providerDefaults(provider);
+  return {
+    provider,
+    baseUrl: (raw.baseUrl || defaults.baseUrl).trim().replace(/\/+$/, ""),
+    apiKey: (raw.apiKey || "").trim(),
+    model: (raw.model || defaults.model).trim(),
+    systemPrompt: (raw.systemPrompt || "").trim(),
+    temperature: Number(raw.temperature ?? "0.7") || 0,
+    maxTokens: Number(raw.maxTokens ?? "2048") || 2048,
+    timeoutMs: Number(raw.timeoutMs ?? "30000") || 30_000,
+  };
+}
+
+/** 呼叫 LLM，回傳純文字；失敗丟錯。 */
+export async function chat(cfg: LlmConfig, messages: ChatMessage[]): Promise<string> {
+  if (!cfg.model) throw new Error("未設定模型（model）");
+  if (cfg.provider === "gemini") return geminiChat(cfg, messages);
+  return openaiCompatChat(cfg, messages, cfg.provider !== "local");
+}
+
+/** OpenAI-compatible：OpenAI、OpenCode、本地自建、custom 皆適用。 */
+async function openaiCompatChat(
+  cfg: LlmConfig,
+  messages: ChatMessage[],
+  requireKey: boolean,
+): Promise<string> {
+  if (requireKey && !cfg.apiKey) throw new Error("未設定 API key");
+  const base = cfg.baseUrl || "http://localhost:11434/v1";
+  const res = await fetch(`${base}/chat/completions`, {
+    method: "POST",
+    signal: AbortSignal.timeout(cfg.timeoutMs),
+    headers: {
+      "Content-Type": "application/json",
+      ...(cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {}),
+    },
+    body: JSON.stringify({
+      model: cfg.model,
+      messages,
+      temperature: cfg.temperature,
+      max_tokens: cfg.maxTokens,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`LLM HTTP ${res.status}${body ? `：${body.slice(0, 150)}` : ""}`);
+  }
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+  };
+  const choice = data.choices?.[0];
+  let text = choice?.message?.content;
+  if (typeof text !== "string" || !text.trim()) throw new Error("LLM 未回傳內容");
+  text = text.trim();
+  if (choice?.finish_reason === "length") {
+    text += "\n\n（回覆因長度上限中斷，可到技能設定調高「最大回覆 tokens」）";
+  }
+  return text;
+}
+
+/** Google Gemini generateContent。 */
+async function geminiChat(cfg: LlmConfig, messages: ChatMessage[]): Promise<string> {
+  if (!cfg.apiKey) throw new Error("未設定 Gemini API key");
+  const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
+  const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+  const contents = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+
+  const res = await fetch(`${base}/models/${cfg.model}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`, {
+    method: "POST",
+    signal: AbortSignal.timeout(cfg.timeoutMs),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents,
+      ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+      generationConfig: { temperature: cfg.temperature, maxOutputTokens: cfg.maxTokens },
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Gemini HTTP ${res.status}${body ? `：${body.slice(0, 150)}` : ""}`);
+  }
+  const data = (await res.json()) as {
+    candidates?: Array<{
+      content?: { parts?: Array<{ text?: string }> };
+      finishReason?: string;
+    }>;
+  };
+  const cand = data.candidates?.[0];
+  let text = cand?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+  if (!text.trim()) throw new Error("Gemini 未回傳內容");
+  text = text.trim();
+  if (cand?.finishReason === "MAX_TOKENS") {
+    text += "\n\n（回覆因長度上限中斷，可到技能設定調高「最大回覆 tokens」）";
+  }
+  return text;
+}
+
+/** 列出供應商支援的模型 id。 */
+export async function listModels(cfg: LlmConfig): Promise<string[]> {
+  if (cfg.provider === "gemini") return geminiListModels(cfg);
+  return openaiCompatListModels(cfg);
+}
+
+async function openaiCompatListModels(cfg: LlmConfig): Promise<string[]> {
+  const base = cfg.baseUrl || "http://localhost:11434/v1";
+  const res = await fetch(`${base}/models`, {
+    signal: AbortSignal.timeout(cfg.timeoutMs),
+    headers: cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {},
+  });
+  if (!res.ok) throw new Error(`列出模型失敗（HTTP ${res.status}）`);
+  const data = (await res.json()) as { data?: Array<{ id?: string }> };
+  return (data.data ?? []).map((m) => m.id ?? "").filter(Boolean).sort();
+}
+
+async function geminiListModels(cfg: LlmConfig): Promise<string[]> {
+  if (!cfg.apiKey) throw new Error("未設定 Gemini API key");
+  const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
+  const res = await fetch(`${base}/models?key=${encodeURIComponent(cfg.apiKey)}`, {
+    signal: AbortSignal.timeout(cfg.timeoutMs),
+  });
+  if (!res.ok) throw new Error(`列出模型失敗（HTTP ${res.status}）`);
+  const data = (await res.json()) as { models?: Array<{ name?: string; supportedGenerationMethods?: string[] }> };
+  return (data.models ?? [])
+    .filter((m) => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes("generateContent"))
+    .map((m) => (m.name ?? "").replace(/^models\//, ""))
+    .filter(Boolean)
+    .sort();
+}
+
+// ===== 對話記憶（記憶體，每個 chat 保留最近 N 輪）=====
+const memory = new Map<string, ChatMessage[]>();
+
+export function getHistory(chat: string): ChatMessage[] {
+  return [...(memory.get(chat) ?? [])];
+}
+
+export function pushHistory(chat: string, turns: ChatMessage[], keepTurns: number): void {
+  const max = Math.max(0, keepTurns) * 2;
+  const list = (memory.get(chat) ?? []).concat(turns);
+  if (max === 0) {
+    memory.delete(chat);
+    return;
+  }
+  while (list.length > max) list.shift();
+  memory.set(chat, list);
+}
+
+export function clearHistory(chat: string): void {
+  memory.delete(chat);
+}
+
+export function logLlmError(skill: string, error: unknown): void {
+  logger.error("LLM 呼叫失敗", {
+    skill,
+    error: error instanceof Error ? error.message : String(error),
+  });
+}

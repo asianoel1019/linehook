@@ -13,295 +13,283 @@ import { logger } from "../logger.js";
 import { getState } from "../state.js";
 import { currentSettings, saveSettings } from "../settings.js";
 import { getStats } from "../stats.js";
-import { LineService, NotLoggedInError, TargetNotFoundError, type FlexInput, type LocationInput, type SendInput, type StickerInput } from "../line/client.js";
+import { listSkills, isBuiltinSkill } from "../skills/index.js";
+import { resolveText } from "../skills/types.js";
+import { installZip, listInstalled, uninstallSkill } from "../skills/install.js";
+import { llmConfigFrom, listModels } from "../skills/llm.js";
+import { LANGS, LANG_LABELS, isLang, langMap, tr, type Lang } from "../i18n.js";
+import { NotLoggedInError, TargetNotFoundError, type FlexInput, type LineService, type LocationInput, type SendInput, type StickerInput } from "../line/client.js";
 import { isDuplicateIdempotency, markIdempotency, verifyWebhookAuth, type RawBodyRequest } from "../middleware/hmac.js";
 import { getMessages, reloadMessages } from "../messages.js";
 import { clientIp, ipGuard, isPrivateRequest } from "../middleware/ip.js";
 import { rateLimit } from "../middleware/rateLimit.js";
-import {
-  changePassword,
-  createSession,
-  currentUser,
-  destroySession,
-  hasSession,
-  requireSession,
-  sessionRemainingMs,
-  verifyCredentials,
-} from "../middleware/session.js";
+import { changePassword, createSession, currentUser, destroySession, hasSession, requireSession, sessionRemainingMs, verifyCredentials, } from "../middleware/session.js";
 
 function statusAccess(req: Request, res: Response, next: NextFunction): void {
-  if (config.adminPrivateOnly) {
-    if (!isPrivateRequest(req)) {
-      logger.warn("非私人 IP 存取管理頁面被拒", { ip: clientIp(req) });
-      res.status(403).send("Forbidden");
-      return;
+    if (config.adminPrivateOnly) {
+        if (!isPrivateRequest(req)) {
+            logger.warn("非私人 IP 存取管理頁面被拒", { ip: clientIp(req) });
+            res.status(403).send("Forbidden");
+            return;
+        }
     }
-  }
-  next();
+    next();
 }
-
 function sendError(res: Response, error: unknown): void {
-  if (error instanceof TargetNotFoundError) {
-    res.status(404).json({ ok: false, error: error.message });
-    return;
-  }
-  if (error instanceof NotLoggedInError) {
-    res.status(503).json({ ok: false, error: error.message });
-    return;
-  }
-  const message = error instanceof Error ? error.message : String(error);
-  res.status(500).json({ ok: false, error: message });
+    if (error instanceof TargetNotFoundError) {
+        res.status(404).json({ ok: false, error: error.message });
+        return;
+    }
+    if (error instanceof NotLoggedInError) {
+        res.status(503).json({ ok: false, error: error.message });
+        return;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(500).json({ ok: false, error: message });
 }
-
 const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000;
-
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : undefined;
 }
-
 function parseTargets(value: unknown): string[] {
-  const targets: string[] = [];
-  if (typeof value === "string") {
-    if (value.trim()) targets.push(value.trim());
-  } else if (Array.isArray(value)) {
-    for (const item of value) {
-      if (typeof item === "string" && item.trim()) targets.push(item.trim());
+    const targets: string[] = [];
+    if (typeof value === "string") {
+        if (value.trim())
+            targets.push(value.trim());
     }
-  }
-  return targets;
+    else if (Array.isArray(value)) {
+        for (const item of value) {
+            if (typeof item === "string" && item.trim())
+                targets.push(item.trim());
+        }
+    }
+    return targets;
 }
-
 function parseSticker(value: unknown): StickerInput | undefined {
-  const raw = asRecord(value);
-  if (!raw) return undefined;
-  const packageId = raw.packageId ?? raw.package_id;
-  const stickerId = raw.stickerId ?? raw.sticker_id;
-  if (packageId === undefined || stickerId === undefined) return undefined;
-  return {
-    packageId: String(packageId),
-    stickerId: String(stickerId),
-    version: raw.version === undefined ? undefined : String(raw.version),
-  };
-}
-
-function parseLocation(value: unknown): LocationInput | undefined {
-  const raw = asRecord(value);
-  if (!raw) return undefined;
-  const latitude = Number(raw.latitude);
-  const longitude = Number(raw.longitude);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return undefined;
-  return {
-    title: typeof raw.title === "string" ? raw.title : "",
-    address: typeof raw.address === "string" ? raw.address : "",
-    latitude,
-    longitude,
-  };
-}
-
-function parseFlex(value: unknown): FlexInput | undefined {
-  const raw = asRecord(value);
-  if (!raw) return undefined;
-  let contents: unknown = raw.contents ?? raw.json;
-  if (typeof contents === "string") {
-    try {
-      contents = JSON.parse(contents);
-    } catch {
-      return undefined;
-    }
-  }
-  const record = asRecord(contents);
-  if (!record) return undefined;
-  return {
-    altText: typeof raw.altText === "string" && raw.altText ? raw.altText : "Flex 訊息",
-    contents: record,
-  };
-}
-
-function renderTemplate(text: string, vars: Record<string, string>): string {
-  return text.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (match, key: string) =>
-    Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : match,
-  );
-}
-
-function parseVars(value: unknown): Record<string, string> {
-  const raw = asRecord(value);
-  if (!raw) return {};
-  const vars: Record<string, string> = {};
-  for (const [key, item] of Object.entries(raw)) {
-    if (item === undefined || item === null) continue;
-    vars[key] = typeof item === "string" ? item : String(item);
-  }
-  return vars;
-}
-
-function resolveRunAt(body: Record<string, unknown>): { runAt?: number; error?: string } {
-  const delaySec = body.delaySec;
-  if (delaySec !== undefined && delaySec !== null && delaySec !== "") {
-    const seconds = Number(delaySec);
-    if (!Number.isFinite(seconds) || seconds < 0) {
-      return { error: "delaySec 必須是非負數（秒）" };
-    }
-    return { runAt: Date.now() + seconds * 1000 };
-  }
-
-  const sendAt = body.sendAt;
-  if (sendAt === undefined || sendAt === null || sendAt === "") return {};
-
-  let runAt: number;
-  if (typeof sendAt === "number") {
-    runAt = sendAt < 1e12 ? sendAt * 1000 : sendAt;
-  } else if (typeof sendAt === "string") {
-    const trimmed = sendAt.trim();
-    const numeric = Number(trimmed);
-    if (trimmed !== "" && Number.isFinite(numeric)) {
-      runAt = numeric < 1e12 ? numeric * 1000 : numeric;
-    } else {
-      const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(trimmed)
-        ? trimmed.replace(" ", "T")
-        : trimmed;
-      runAt = Date.parse(normalized);
-    }
-  } else {
-    return { error: "sendAt 格式錯誤" };
-  }
-
-  if (!Number.isFinite(runAt)) return { error: "sendAt 無法解析" };
-  if (runAt < Date.now() - 60_000) return { error: "sendAt 不可早於現在" };
-  if (runAt > Date.now() + MAX_SCHEDULE_AHEAD_MS) {
-    return { error: "sendAt 最遠僅支援 30 天內" };
-  }
-  return { runAt };
-}
-
-function findFlexTemplate(name: string): FlexInput | undefined {
-  const tpl = config.flexTemplates.find((item) => item.name === name);
-  if (!tpl) return undefined;
-  try {
-    const contents = asRecord(JSON.parse(tpl.contents));
-    if (!contents) return undefined;
-    return { altText: tpl.altText || "Flex 訊息", contents };
-  } catch {
-    return undefined;
-  }
-}
-
-interface ParsedMessage {
-  text?: string;
-  file?: string;
-  image?: string;
-  video?: string;
-  audio?: string;
-  filename?: string;
-  sticker?: StickerInput;
-  location?: LocationInput;
-  flex?: FlexInput;
-}
-
-function buildInputFromMessage(to: string, msg: ParsedMessage): SendInput {
-  return {
-    to,
-    text: msg.text,
-    file: msg.file,
-    image: msg.image,
-    video: msg.video,
-    audio: msg.audio,
-    filename: msg.filename,
-    sticker: msg.sticker,
-    location: msg.location,
-    flex: msg.flex,
-  };
-}
-
-function parseMessage(raw: unknown): ParsedMessage | { error: string } {
-  const msg = asRecord(raw) ?? {};
-  const vars = parseVars(msg.vars);
-  let text = typeof msg.text === "string" ? msg.text : "";
-
-  const templateName = typeof msg.template === "string" ? msg.template.trim() : "";
-  if (templateName) {
-    const template = config.templates.find((item) => item.name === templateName);
-    if (!template) return { error: `找不到模板：${templateName}` };
-    if (!text) text = template.text;
-  }
-  if (text && Object.keys(vars).length > 0) text = renderTemplate(text, vars);
-
-  let flex = parseFlex(msg.flex);
-  const flexName = typeof msg.flexTemplate === "string" ? msg.flexTemplate.trim() : "";
-  if (!flex && flexName) {
-    flex = findFlexTemplate(flexName);
-    if (!flex) return { error: `找不到 Flex 樣板：${flexName}` };
-    if (Object.keys(vars).length > 0) {
-      flex = {
-        altText: renderTemplate(flex.altText, vars),
-        contents: JSON.parse(renderTemplate(JSON.stringify(flex.contents), vars)) as Record<
-          string,
-          unknown
-        >,
-      };
-    }
-  }
-
-  const file = typeof msg.file === "string" ? msg.file.trim() : "";
-  const image = typeof msg.image === "string" ? msg.image.trim() : "";
-  const video = typeof msg.video === "string" ? msg.video.trim() : "";
-  const audio = typeof msg.audio === "string" ? msg.audio.trim() : "";
-  const sticker = parseSticker(msg.sticker);
-  const location = parseLocation(msg.location);
-
-  if (!text && !file && !image && !video && !audio && !sticker && !location && !flex) {
+    const raw = asRecord(value);
+    if (!raw)
+        return undefined;
+    const packageId = raw.packageId ?? raw.package_id;
+    const stickerId = raw.stickerId ?? raw.sticker_id;
+    if (packageId === undefined || stickerId === undefined)
+        return undefined;
     return {
-      error: "訊息需提供 text / file / image / video / audio / sticker / location / flex 至少一項",
+        packageId: String(packageId),
+        stickerId: String(stickerId),
+        version: raw.version === undefined ? undefined : String(raw.version),
     };
-  }
-
-  return {
-    text,
-    file,
-    image,
-    video,
-    audio,
-    filename: typeof msg.filename === "string" ? msg.filename.trim() : "",
-    sticker,
-    location,
-    flex,
-  };
 }
-
-function resolveInputs(
-  body: Record<string, unknown>,
-  targets: string[],
-): SendInput[] | { error: string } {
-  const messagesRaw = body.messages;
-  if (Array.isArray(messagesRaw) && messagesRaw.length > 0) {
-    const perMessage: Array<{ to?: string; parsed: ParsedMessage }> = [];
-    for (const raw of messagesRaw) {
-      const result = parseMessage(raw);
-      if ("error" in result) return result;
-      const record = asRecord(raw);
-      const to = record && typeof record.to === "string" ? record.to.trim() : "";
-      perMessage.push({ to: to || undefined, parsed: result });
-    }
-
-    if (perMessage.every((item) => item.to)) {
-      return perMessage.map((item) => buildInputFromMessage(item.to as string, item.parsed));
-    }
-
-    const inputs: SendInput[] = [];
-    for (const to of targets) {
-      for (const item of perMessage) {
-        inputs.push(buildInputFromMessage(item.to ?? to, item.parsed));
-      }
-    }
-    return inputs;
-  }
-
-  const result = parseMessage(body);
-  if ("error" in result) return result;
-  return targets.map((to) => buildInputFromMessage(to, result));
+function parseLocation(value: unknown): LocationInput | undefined {
+    const raw = asRecord(value);
+    if (!raw)
+        return undefined;
+    const latitude = Number(raw.latitude);
+    const longitude = Number(raw.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude))
+        return undefined;
+    return {
+        title: typeof raw.title === "string" ? raw.title : "",
+        address: typeof raw.address === "string" ? raw.address : "",
+        latitude,
+        longitude,
+    };
 }
-
+function parseFlex(value: unknown): FlexInput | undefined {
+    const raw = asRecord(value);
+    if (!raw)
+        return undefined;
+    let contents: unknown = raw.contents ?? raw.json;
+    if (typeof contents === "string") {
+        try {
+            contents = JSON.parse(contents);
+        }
+        catch {
+            return undefined;
+        }
+    }
+    const record = asRecord(contents);
+    if (!record)
+        return undefined;
+    return {
+        altText: typeof raw.altText === "string" && raw.altText ? raw.altText : "Flex 訊息",
+        contents: record,
+    };
+}
+function renderTemplate(text: string, vars: Record<string, string>): string {
+    return text.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (match, key: string) => Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : match);
+}
+function parseVars(value: unknown): Record<string, string> {
+    const raw = asRecord(value);
+    if (!raw)
+        return {};
+    const vars: Record<string, string> = {};
+    for (const [key, item] of Object.entries(raw)) {
+        if (item === undefined || item === null)
+            continue;
+        vars[key] = typeof item === "string" ? item : String(item);
+    }
+    return vars;
+}
+function resolveRunAt(body: Record<string, unknown>): { runAt?: number; error?: string } {
+    const delaySec = body.delaySec;
+    if (delaySec !== undefined && delaySec !== null && delaySec !== "") {
+        const seconds = Number(delaySec);
+        if (!Number.isFinite(seconds) || seconds < 0) {
+            return { error: "delaySec 必須是非負數（秒）" };
+        }
+        return { runAt: Date.now() + seconds * 1000 };
+    }
+    const sendAt = body.sendAt;
+    if (sendAt === undefined || sendAt === null || sendAt === "")
+        return {};
+    let runAt: number;
+    if (typeof sendAt === "number") {
+        runAt = sendAt < 1e12 ? sendAt * 1000 : sendAt;
+    }
+    else if (typeof sendAt === "string") {
+        const trimmed = sendAt.trim();
+        const numeric = Number(trimmed);
+        if (trimmed !== "" && Number.isFinite(numeric)) {
+            runAt = numeric < 1e12 ? numeric * 1000 : numeric;
+        }
+        else {
+            const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(trimmed)
+                ? trimmed.replace(" ", "T")
+                : trimmed;
+            runAt = Date.parse(normalized);
+        }
+    }
+    else {
+        return { error: "sendAt 格式錯誤" };
+    }
+    if (!Number.isFinite(runAt))
+        return { error: "sendAt 無法解析" };
+    if (runAt < Date.now() - 60_000)
+        return { error: "sendAt 不可早於現在" };
+    if (runAt > Date.now() + MAX_SCHEDULE_AHEAD_MS) {
+        return { error: "sendAt 最遠僅支援 30 天內" };
+    }
+    return { runAt };
+}
+function findFlexTemplate(name: string): FlexInput | undefined {
+    const tpl = config.flexTemplates.find((item) => item.name === name);
+    if (!tpl)
+        return undefined;
+    try {
+        const contents = asRecord(JSON.parse(tpl.contents));
+        if (!contents)
+            return undefined;
+        return { altText: tpl.altText || "Flex 訊息", contents };
+    }
+    catch {
+        return undefined;
+    }
+}
+interface ParsedMessage {
+    text?: string;
+    file?: string;
+    image?: string;
+    video?: string;
+    audio?: string;
+    filename?: string;
+    sticker?: StickerInput;
+    location?: LocationInput;
+    flex?: FlexInput;
+}
+function buildInputFromMessage(to: string, msg: ParsedMessage): SendInput {
+    return {
+        to,
+        text: msg.text,
+        file: msg.file,
+        image: msg.image,
+        video: msg.video,
+        audio: msg.audio,
+        filename: msg.filename,
+        sticker: msg.sticker,
+        location: msg.location,
+        flex: msg.flex,
+    };
+}
+function parseMessage(raw: unknown): ParsedMessage | { error: string } {
+    const msg = asRecord(raw) ?? {};
+    const vars = parseVars(msg.vars);
+    let text = typeof msg.text === "string" ? msg.text : "";
+    const templateName = typeof msg.template === "string" ? msg.template.trim() : "";
+    if (templateName) {
+        const template = config.templates.find((item) => item.name === templateName);
+        if (!template)
+            return { error: `找不到模板：${templateName}` };
+        if (!text)
+            text = template.text;
+    }
+    if (text && Object.keys(vars).length > 0)
+        text = renderTemplate(text, vars);
+    let flex = parseFlex(msg.flex);
+    const flexName = typeof msg.flexTemplate === "string" ? msg.flexTemplate.trim() : "";
+    if (!flex && flexName) {
+        flex = findFlexTemplate(flexName);
+        if (!flex)
+            return { error: `找不到 Flex 樣板：${flexName}` };
+        if (Object.keys(vars).length > 0) {
+            flex = {
+                altText: renderTemplate(flex.altText, vars),
+                contents: JSON.parse(renderTemplate(JSON.stringify(flex.contents), vars)) as Record<string, unknown>,
+            };
+        }
+    }
+    const file = typeof msg.file === "string" ? msg.file.trim() : "";
+    const image = typeof msg.image === "string" ? msg.image.trim() : "";
+    const video = typeof msg.video === "string" ? msg.video.trim() : "";
+    const audio = typeof msg.audio === "string" ? msg.audio.trim() : "";
+    const sticker = parseSticker(msg.sticker);
+    const location = parseLocation(msg.location);
+    if (!text && !file && !image && !video && !audio && !sticker && !location && !flex) {
+        return {
+            error: "訊息需提供 text / file / image / video / audio / sticker / location / flex 至少一項",
+        };
+    }
+    return {
+        text,
+        file,
+        image,
+        video,
+        audio,
+        filename: typeof msg.filename === "string" ? msg.filename.trim() : "",
+        sticker,
+        location,
+        flex,
+    };
+}
+function resolveInputs(body: Record<string, unknown>, targets: string[]): SendInput[] | { error: string } {
+    const messagesRaw = body.messages;
+    if (Array.isArray(messagesRaw) && messagesRaw.length > 0) {
+        const perMessage: Array<{ to?: string; parsed: ParsedMessage }> = [];
+        for (const raw of messagesRaw) {
+            const result = parseMessage(raw);
+            if ("error" in result)
+                return result;
+            const record = asRecord(raw);
+            const to = record && typeof record.to === "string" ? record.to.trim() : "";
+            perMessage.push({ to: to || undefined, parsed: result });
+        }
+        if (perMessage.every((item) => item.to)) {
+            return perMessage.map((item) => buildInputFromMessage(item.to as string, item.parsed));
+        }
+        const inputs: SendInput[] = [];
+        for (const to of targets) {
+            for (const item of perMessage) {
+                inputs.push(buildInputFromMessage(item.to ?? to, item.parsed));
+            }
+        }
+        return inputs;
+    }
+    const result = parseMessage(body);
+    if ("error" in result)
+        return result;
+    return targets.map((to) => buildInputFromMessage(to, result));
+}
 const SETTINGS_STYLE = `
   * { box-sizing: border-box; }
   html, body { min-height: 100%; }
@@ -361,6 +349,14 @@ const SETTINGS_STYLE = `
   .fn-card.setting:hover { background: linear-gradient(90deg, rgba(244,114,182,.2), rgba(0,0,0,.3)); box-shadow: 0 0 16px rgba(244,114,182,.4); }
   .fn-card.setting.active { color: #fff; background: linear-gradient(90deg, rgba(244,114,182,.45), rgba(129,140,248,.25)); border-color: transparent; border-left: 3px solid #f472b6; box-shadow: 0 0 20px rgba(244,114,182,.5); }
   .user-dock { margin-top: auto; padding-top: 14px; position: relative; }
+  .lang-dock { position: relative; margin-bottom: 8px; }
+  .lang-toggle { padding: 4px 12px; font-size: 12px; border-radius: 999px; border: 1px solid rgba(34,211,238,.35); background: rgba(0,0,0,.3); color: #a5f3fc; cursor: pointer; }
+  .lang-toggle:hover { transform: none; box-shadow: 0 0 12px rgba(34,211,238,.45); }
+  .lang-menu { position: absolute; bottom: 34px; left: 0; z-index: 30; display: flex; flex-direction: column; gap: 2px; min-width: 110px; padding: 6px; background: rgba(15,10,40,.97); border: 1px solid rgba(34,211,238,.35); border-radius: 12px; box-shadow: 0 12px 28px rgba(0,0,0,.5), 0 0 18px rgba(34,211,238,.25); backdrop-filter: blur(10px); }
+  .lang-menu[hidden] { display: none; }
+  .lang-btn { padding: 7px 10px; font-size: 12px; text-align: left; border-radius: 8px; border: none; background: transparent; color: #cbd5e1; cursor: pointer; }
+  .lang-btn:hover { transform: none; box-shadow: none; background: linear-gradient(90deg, rgba(34,211,238,.28), rgba(244,114,182,.28)); }
+  .lang-btn.active { font-weight: 700; color: #fff; background: linear-gradient(90deg, rgba(34,211,238,.4), rgba(244,114,182,.3)); }
   .user-countdown { font-size: 12px; color: #94a3b8; font-variant-numeric: tabular-nums; letter-spacing: .06em; margin-bottom: 6px; }
   .user-avatar { width: 42px; height: 42px; padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 800; text-transform: uppercase; color: #0b1020; background: linear-gradient(135deg, #22d3ee, #f472b6); border: none; box-shadow: 0 0 18px rgba(34,211,238,.55); }
   .user-avatar:hover { transform: scale(1.08); box-shadow: 0 0 24px rgba(244,114,182,.7); }
@@ -386,6 +382,16 @@ const SETTINGS_STYLE = `
   .chart-bar.fail { background: linear-gradient(180deg, #f43f5e, #9f1239); }
   .chart-label { font-size: 10px; color: #94a3b8; margin-top: 4px; white-space: nowrap; }
   .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  #skillList { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 900px) { #skillList { grid-template-columns: 1fr; } }
+  .skill-card { margin: 0; border-left: 3px solid #22d3ee; align-self: start; }
+  .skill-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .skill-desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .skill-card.open { grid-column: 1 / -1; }
+  .sk-toggle { padding: 2px 10px; font-size: 14px; line-height: 1.4; border-radius: 8px; }
+  .skill-body { margin-top: 12px; }
+  .skill-body[hidden] { display: none; }
+  .skill-body .field input, .skill-body .field select, .skill-body .field textarea { max-width: 560px; }
   .fn-panel { display: none; }
   .fn-panel.active { display: block; }
   @media (max-width: 820px) {
@@ -401,6 +407,16 @@ const SETTINGS_STYLE = `
   }
   .login-center { min-height: 82vh; display: flex; align-items: center; justify-content: center; }
   .login-card { max-width: 380px; width: 100%; text-align: center; }
+  .login-head { display: flex; align-items: center; justify-content: center; position: relative; margin-bottom: 6px; }
+  .login-head h2 { margin: 0; }
+  .login-lang { position: absolute; right: 0; }
+  .login-lang-toggle { padding: 3px 9px; font-size: 11px; line-height: 1.4; border: 1px solid rgba(34,211,238,.3); border-radius: 999px; background: rgba(0,0,0,.3); color: #7dd3fc; cursor: pointer; font-weight: 600; }
+  .login-lang-toggle:hover { transform: none; box-shadow: 0 0 10px rgba(34,211,238,.4); background: rgba(34,211,238,.15); }
+  .login-lang-menu { position: absolute; top: 26px; right: 0; z-index: 20; display: flex; flex-direction: column; gap: 2px; min-width: 96px; padding: 5px; background: rgba(15,10,40,.97); border: 1px solid rgba(34,211,238,.35); border-radius: 10px; box-shadow: 0 12px 28px rgba(0,0,0,.5), 0 0 16px rgba(34,211,238,.25); backdrop-filter: blur(10px); text-align: left; }
+  .login-lang-menu[hidden] { display: none; }
+  .login-lang-item { padding: 6px 9px; font-size: 12px; text-align: left; border: none; border-radius: 7px; background: transparent; color: #cbd5e1; cursor: pointer; font-weight: 600; }
+  .login-lang-item:hover { transform: none; box-shadow: none; background: linear-gradient(90deg, rgba(34,211,238,.28), rgba(244,114,182,.28)); }
+  .login-lang-item.active { color: #fff; background: linear-gradient(90deg, rgba(34,211,238,.4), rgba(244,114,182,.3)); }
   .login-card h2 { margin: 0 0 6px; text-transform: none; letter-spacing: 0; font-size: 22px; }
   .login-card .sub { color: #94a3b8; font-size: 13px; margin-bottom: 22px; }
   .login-card input { width: 100%; margin-bottom: 12px; text-align: center; }
@@ -422,6 +438,7 @@ const SETTINGS_STYLE = `
   button { padding: 9px 18px; border: 1px solid rgba(34,211,238,.5); border-radius: 10px; cursor: pointer; color: #e0f2fe; background: rgba(34,211,238,.12); font-weight: 600; transition: all .5s ease; }
   button:hover { transform: scale(1.05); background: linear-gradient(90deg, rgba(34,211,238,.4), rgba(244,114,182,.4)); box-shadow: 0 0 22px rgba(34,211,238,.55); }
   input, select { padding: 9px 12px; border-radius: 10px; color: #e5e7eb; background: rgba(0,0,0,.35); border: 1px solid rgba(34,211,238,.3); outline: none; transition: all .5s ease; font-family: inherit; }
+  .icon-btn { padding: 8px 12px; font-size: 16px; line-height: 1; }
   input::placeholder, textarea::placeholder { color: #94a3b8; }
   input:focus, select:focus, textarea:focus { border-color: #22d3ee; box-shadow: 0 0 0 2px rgba(34,211,238,.3), 0 0 18px rgba(34,211,238,.35); }
   input[type="checkbox"] {
@@ -498,74 +515,73 @@ const SETTINGS_STYLE = `
   .md img { max-width: 100%; }
   .md a { color: #67e8f9; }
 `;
-
 function page(
-  title: string,
-  active: string,
-  body: string,
-  script: string,
-  options: { showNav?: boolean; sidebar?: string; showTitle?: boolean } = {},
+    title: string,
+    active: string,
+    body: string,
+    script: string,
+    options: { showNav?: boolean; sidebar?: string; showTitle?: boolean } = {},
 ): string {
-  const showNav = options.showNav ?? true;
-  const showTitle = options.showTitle ?? true;
-  const nav = [
-    ["/dashboard", "儀表板", "dashboard"],
-    ["/status", "狀態", "status"],
-    ["/console", "功能", "console"],
-    ["/settings", "設定", "settings"],
-    ["/messages", "訊息", "messages"],
-    ["/readme", "ReadMe", "readme"],
-  ]
-    .map(
-      ([href, label, key]) =>
-        `<a href="${href}" class="${key === active ? "active" : ""}">${label}</a>`,
-    )
-    .join("");
-
-  const username = currentUser();
-  const initial = (username.trim()[0] || "?").toUpperCase();
-  const esc = (value: string): string =>
-    value
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-
-  const userDock = showNav
-    ? `<div class="user-dock">
-<div class="user-countdown" id="user-countdown" title="閒置自動登出倒數">05:00</div>
+    const showNav = options.showNav ?? true;
+    const showTitle = options.showTitle ?? true;
+    const lang = config.language;
+    const nav = [
+        ["/dashboard", tr(lang, "nav_dashboard"), "dashboard"],
+        ["/console", tr(lang, "nav_console"), "console"],
+        ["/skills", tr(lang, "nav_skills"), "skills"],
+        ["/settings", tr(lang, "nav_settings"), "settings"],
+        ["/messages", tr(lang, "nav_messages"), "messages"],
+        ["/readme", tr(lang, "nav_readme"), "readme"],
+    ]
+        .map(([href, label, key]) => `<a href="${href}" class="${key === active ? "active" : ""}">${label}</a>`)
+        .join("");
+    const username = currentUser();
+    const initial = (username.trim()[0] || "?").toUpperCase();
+    const esc = (value: string): string => value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const langSwitcher = showNav
+        ? `<div class="lang-dock">
+<button type="button" class="lang-toggle" id="lang-toggle">${LANG_LABELS[lang]}</button>
+<div class="lang-menu" id="lang-menu" hidden>${LANGS.map((code) => `<button type="button" class="lang-btn${code === lang ? " active" : ""}" data-lang="${code}">${LANG_LABELS[code]}</button>`).join("")}</div>
+</div>`
+        : "";
+    const userDock = showNav
+        ? `<div class="user-dock">
+<div class="user-countdown" id="user-countdown" title="${esc(tr(lang, "idle_logout"))}">05:00</div>
+${langSwitcher}
 <button type="button" class="user-avatar" id="user-avatar" title="${esc(username)}">${esc(initial)}</button>
 <div class="user-menu" id="user-menu" hidden>
-  <button type="button" id="menu-password">變更密碼</button>
-  <button type="button" id="menu-logout">登出</button>
+  <button type="button" id="menu-password">${tr(lang, "change_password")}</button>
+  <button type="button" id="menu-logout">${tr(lang, "logout")}</button>
 </div>
 </div>`
-    : "";
-
-  const sidebar = showNav
-    ? `<aside class="sidebar">
+        : "";
+    const sidebar = showNav
+        ? `<aside class="sidebar">
 <div class="brand neon-text">LINE Webhook</div>
 <nav>${nav}</nav>
 ${options.sidebar ?? ""}
 ${userDock}
 </aside>`
-    : "";
-
-  const modal = showNav
-    ? `<div class="modal-backdrop" id="password-modal" hidden>
+        : "";
+    const modal = showNav
+        ? `<div class="modal-backdrop" id="password-modal" hidden>
 <div class="glass modal">
-  <h2 style="margin-top:0">變更密碼</h2>
-  <div class="field"><label>目前密碼</label><input id="pw-current" type="password" autocomplete="current-password"></div>
-  <div class="field"><label>新密碼</label><input id="pw-new" type="password" autocomplete="new-password"></div>
-  <div class="field"><label>確認新密碼</label><input id="pw-confirm" type="password" autocomplete="new-password"></div>
+  <h2 style="margin-top:0">${tr(lang, "change_password")}</h2>
+  <div class="field"><label>${tr(lang, "pw_current")}</label><input id="pw-current" type="password" autocomplete="current-password"></div>
+  <div class="field"><label>${tr(lang, "pw_new")}</label><input id="pw-new" type="password" autocomplete="new-password"></div>
+  <div class="field"><label>${tr(lang, "pw_confirm")}</label><input id="pw-confirm" type="password" autocomplete="new-password"></div>
   <p id="pw-msg" class="msg"></p>
-  <div class="actions"><button type="button" id="pw-cancel">取消</button><button type="button" id="pw-save">儲存</button></div>
+  <div class="actions"><button type="button" id="pw-cancel">${tr(lang, "pw_cancel")}</button><button type="button" id="pw-save">${tr(lang, "pw_save")}</button></div>
 </div>
 </div>`
-    : "";
-
-  return `<!doctype html>
-<html lang="zh-Hant">
+        : "";
+    const dictJson = JSON.stringify(langMap(lang)).replace(/</g, "\\u003c");
+    return `<!doctype html>
+<html lang="${lang === "zh" ? "zh-Hant" : lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -585,12 +601,25 @@ ${body}
 </div>
 ${modal}
 <script>
+var __LANG = ${JSON.stringify(lang)};
+var __DICT = ${dictJson};
+function T(k) { return (__DICT && __DICT[k]) || k; }
+function applyI18n() {
+  Array.prototype.forEach.call(document.querySelectorAll("[data-i18n]"), function (el) {
+    var k = el.getAttribute("data-i18n");
+    if (__DICT && __DICT[k]) el.textContent = __DICT[k];
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-i18n-ph]"), function (el) {
+    var k = el.getAttribute("data-i18n-ph");
+    if (__DICT && __DICT[k]) el.placeholder = __DICT[k];
+  });
+}
 ${script}${showNav ? USER_SCRIPT : ""}
+applyI18n();
 </script>
 </body>
 </html>`;
 }
-
 const HELPERS = `
   var $ = function (id) { return document.getElementById(id); };
   function td(text, className) {
@@ -607,7 +636,7 @@ const HELPERS = `
   function emptyRow(cols) {
     var cell = document.createElement("td");
     cell.colSpan = cols;
-    cell.textContent = "尚無資料";
+    cell.textContent = (typeof T === "function") ? T("no_data") : "尚無資料";
     return tr(cell);
   }
   function post(path, body) {
@@ -643,7 +672,6 @@ const HELPERS = `
     return ok;
   }
 `;
-
 const USER_SCRIPT = `
   (function () {
     var avatar = document.getElementById("user-avatar");
@@ -760,9 +788,31 @@ const USER_SCRIPT = `
     }, 1000);
     setInterval(syncSession, 30000);
     syncSession();
+
+    Array.prototype.forEach.call(document.querySelectorAll(".lang-btn"), function (btn) {
+      btn.addEventListener("click", function () {
+        var lang = btn.getAttribute("data-lang");
+        fetch("/settings/language", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lang: lang })
+        }).then(function () { window.location.reload(); })
+          .catch(function () { window.location.reload(); });
+      });
+    });
+
+    var langToggle = document.getElementById("lang-toggle");
+    var langMenu = document.getElementById("lang-menu");
+    if (langToggle && langMenu) {
+      langToggle.addEventListener("click", function (e) {
+        e.stopPropagation();
+        langMenu.hidden = !langMenu.hidden;
+      });
+      langMenu.addEventListener("click", function (e) { e.stopPropagation(); });
+      document.addEventListener("click", function () { langMenu.hidden = true; });
+    }
   })();
 `;
-
 const SESSION_SCRIPT = `
   function showSection(fn, configSections) {
     Array.prototype.forEach.call(document.querySelectorAll(".fn-card"), function (card) {
@@ -795,98 +845,8 @@ const SESSION_SCRIPT = `
     showSection(defaultFn, configSections);
   }
 `;
-
-function renderStatusHtml(): string {
-  const body = `
-<div><span id="badge" class="badge">-</span></div>
-<div id="qrbox" style="display:none">
-  <p><b>請用手機 LINE 的掃描功能掃描：</b></p>
-  <img id="qrimg" alt="LINE QR" style="width:280px;height:280px;background:#fff;border:1px solid #ddd;padding:8px">
-  <div id="qrlink" class="msg"></div>
-</div>
-<div id="verify"></div>
-<h2>摘要</h2>
-<div class="glass glass-hover"><table class="kv"><tbody id="summary"></tbody></table></div>
-`;
-
-  const script = `
-  ${HELPERS}
-  var qrBox = $("qrbox");
-  var qrImg = $("qrimg");
-  var qrLink = $("qrlink");
-  var lastQr = "";
-
-  function render(data) {
-    var s = data.state;
-    var badge = $("badge");
-    badge.textContent = s.status;
-    badge.className = "badge " + (s.status === "已登入" ? "ok" : (s.status === "待驗證" || s.status === "需人工" ? "bad" : "warn"));
-
-    var verify = $("verify");
-    verify.replaceChildren();
-    if (s.qrUrl) {
-      qrBox.style.display = "block";
-      if (s.qrUrl !== lastQr) {
-        lastQr = s.qrUrl;
-        qrImg.src = "/status/qr?t=" + Date.now();
-      }
-      var a = document.createElement("a");
-      a.href = s.qrUrl;
-      a.textContent = "或點此在手機開啟驗證連結";
-      a.target = "_blank";
-      qrLink.replaceChildren(a);
-    } else {
-      qrBox.style.display = "none";
-      lastQr = "";
-    }
-    if (s.pin) {
-      var p = document.createElement("p");
-      var b = document.createElement("b");
-      b.textContent = "PIN 驗證碼：";
-      var code = document.createElement("code");
-      code.textContent = s.pin;
-      p.append(b, code);
-      verify.appendChild(p);
-    }
-
-    var summary = [
-      ["登入狀態", s.status],
-      ["帳號名稱", s.profileName || "-"],
-      ["我的 MID", s.myMid || "-"],
-      ["好友數", String(s.friendCount == null ? 0 : s.friendCount)],
-      ["群組數", String(s.chatCount == null ? 0 : s.chatCount)],
-      ["佇列等待", String(data.queue.pending) + (data.queue.running ? "（發送中）" : "")],
-      ["最後登入", s.lastLoginAt || "-"],
-      ["最後發送時間", s.lastSendAt || "-"],
-      ["最後發送對象", s.lastSendTo || "-"],
-      ["最後錯誤", s.lastError || "-"],
-      ["啟動時間", s.startedAt || "-"]
-    ];
-    $("summary").replaceChildren.apply($("summary"), summary.map(function (pair) {
-      var th = document.createElement("th");
-      th.textContent = pair[0];
-      return tr(th, td(pair[1]));
-    }));
-  }
-
-  function refresh() {
-    fetch("/status.json", { cache: "no-store" })
-      .then(function (res) {
-        if (res.status === 401) { window.location.href = "/login"; return null; }
-        return res.ok ? res.json() : null;
-      })
-      .then(function (data) { if (data) render(data); })
-      .catch(function () {});
-  }
-
-  refresh();
-  setInterval(refresh, 5000);
-`;
-  return page("狀態", "status", body, script);
-}
-
-function renderDashboardHtml(): string {
-  const body = `
+function renderDashboardHtml() {
+    const body = `
 <div><span id="badge" class="badge">-</span></div>
 <div id="qrbox" style="display:none">
   <p><b>請用手機 LINE 的掃描功能掃描：</b></p>
@@ -895,13 +855,13 @@ function renderDashboardHtml(): string {
 </div>
 <div id="verify"></div>
 
-<h2>發送統計</h2>
+<h2 data-i18n="stats_title">發送統計</h2>
 <div class="glass">
   <div class="stat-cards">
-    <div class="stat-card"><div class="stat-num" id="stat-total">0</div><div class="stat-label">總發送</div></div>
-    <div class="stat-card"><div class="stat-num" id="stat-ok">0</div><div class="stat-label">成功</div></div>
-    <div class="stat-card"><div class="stat-num" id="stat-fail">0</div><div class="stat-label">失敗</div></div>
-    <div class="stat-card"><div class="stat-num" id="stat-rate">0%</div><div class="stat-label">成功率</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-total">0</div><div class="stat-label" data-i18n="stat_total">總發送</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-ok">0</div><div class="stat-label" data-i18n="stat_ok">成功</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-fail">0</div><div class="stat-label" data-i18n="stat_fail">失敗</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-rate">0%</div><div class="stat-label" data-i18n="stat_rate">成功率</div></div>
   </div>
   <div class="chart" id="chart"></div>
   <div class="msg" id="stat-types" style="margin-top:10px"></div>
@@ -909,17 +869,16 @@ function renderDashboardHtml(): string {
 
 <div class="dash-grid">
   <div class="glass">
-    <h2 style="margin-top:0">狀態摘要</h2>
+    <h2 style="margin-top:0" data-i18n="summary_title">狀態摘要</h2>
     <table class="kv"><tbody id="summary"></tbody></table>
   </div>
   <div class="glass">
-    <h2 style="margin-top:0">最近發送 / 紀錄</h2>
+    <h2 style="margin-top:0" data-i18n="recent_title">最近發送 / 紀錄</h2>
     <table><thead><tr><th>時間</th><th>等級</th><th>訊息</th></tr></thead><tbody id="logs"></tbody></table>
   </div>
 </div>
 `;
-
-  const script = `
+    const script = `
   ${HELPERS}
   var qrBox = $("qrbox");
   var qrImg = $("qrimg");
@@ -928,17 +887,17 @@ function renderDashboardHtml(): string {
 
   function renderSummary(s, queue) {
     var summary = [
-      ["登入狀態", s.status],
-      ["帳號名稱", s.profileName || "-"],
-      ["我的 MID", s.myMid || "-"],
-      ["好友數", String(s.friendCount == null ? 0 : s.friendCount)],
-      ["群組數", String(s.chatCount == null ? 0 : s.chatCount)],
-      ["佇列等待", String(queue.pending) + (queue.running ? "（發送中）" : "")],
-      ["最後登入", s.lastLoginAt || "-"],
-      ["最後發送時間", s.lastSendAt || "-"],
-      ["最後發送對象", s.lastSendTo || "-"],
-      ["最後錯誤", s.lastError || "-"],
-      ["啟動時間", s.startedAt || "-"]
+      [T("sum_status"), s.status],
+      [T("sum_name"), s.profileName || "-"],
+      [T("sum_mid"), s.myMid || "-"],
+      [T("sum_friends"), String(s.friendCount == null ? 0 : s.friendCount)],
+      [T("sum_groups"), String(s.chatCount == null ? 0 : s.chatCount)],
+      [T("sum_queue"), String(queue.pending) + (queue.running ? "（" + T("sending") + "）" : "")],
+      [T("sum_last_login"), s.lastLoginAt || "-"],
+      [T("sum_last_send"), s.lastSendAt || "-"],
+      [T("sum_last_to"), s.lastSendTo || "-"],
+      [T("sum_last_error"), s.lastError || "-"],
+      [T("sum_started"), s.startedAt || "-"]
     ];
     $("summary").replaceChildren.apply($("summary"), summary.map(function (pair) {
       var th = document.createElement("th");
@@ -1010,7 +969,7 @@ function renderDashboardHtml(): string {
     $("stat-rate").textContent = stats.successRate + "%";
     renderChart(stats.days || []);
     var types = Object.keys(stats.byType || {}).map(function (k) { return k + "：" + stats.byType[k]; });
-    $("stat-types").textContent = types.length ? "類型 " + types.join("、") : "尚無發送紀錄";
+    $("stat-types").textContent = types.length ? T("type_label") + " " + types.join("、") : T("no_send_records");
 
     var logs = (data.logs || []).slice(-12).reverse();
     var logBody = $("logs");
@@ -1036,213 +995,124 @@ function renderDashboardHtml(): string {
   refresh();
   setInterval(refresh, 5000);
 `;
-  return page("儀表板", "dashboard", body, script);
+    return page(tr(config.language, "title_dashboard"), "dashboard", body, script);
 }
-
-function renderSettingsHtml(): string {
-  const deviceOptions = [
-    "DESKTOPWIN",
-    "DESKTOPMAC",
-    "ANDROID",
-    "ANDROIDSECONDARY",
-    "IOS",
-    "IOSIPAD",
-    "WATCHOS",
-    "WEAROS",
-  ]
-    .map((d) => `<option value="${d}">${d}</option>`)
-    .join("");
-
-  const body = `
-<p class="msg">設定儲存於 <code>settings.json</code>，修改後立即生效（LINE 裝置名稱需重新登入才生效）；點左側卡片切換設定項目。</p>
+function renderSettingsHtml() {
+    const deviceOptions = [
+        "DESKTOPWIN",
+        "DESKTOPMAC",
+        "ANDROID",
+        "ANDROIDSECONDARY",
+        "IOS",
+        "IOSIPAD",
+        "WATCHOS",
+        "WEAROS",
+    ]
+        .map((d) => `<option value="${d}">${d}</option>`)
+        .join("");
+    const body = `
+<p class="msg" data-i18n="settings_note">設定儲存於 <code>settings.json</code>，修改後立即生效（LINE 裝置名稱需重新登入才生效）；點左側卡片切換設定項目。</p>
 
 <form id="settings-form" class="fn-panel active">
   <fieldset class="fn-panel active" data-fn="security">
-    <legend>安全 / 來源</legend>
-    <div class="field"><label>允許的來源 IP</label><textarea id="allowedIps" placeholder="逗號或換行分隔，留空 = 不限制"></textarea></div>
-    <div class="field"><label>HMAC 簽章密鑰</label><span style="display:flex;gap:8px"><input id="hmacSecret" type="text" style="flex:1"><button type="button" id="hmac-generate">隨機產生</button></span><div class="hint">留空 = 不驗證簽章</div></div>
-    <div class="field"><label>時間戳記容許誤差（秒）</label><input id="hmacMaxSkewSec" type="number" min="0"></div>
-    <div class="field"><label>Webhook URL Token</label><span style="display:flex;gap:8px"><input id="webhookToken" type="text" style="flex:1"><button type="button" id="token-generate">隨機產生</button></span><div class="hint">供無法簽章的來源：網址帶 <code>?token=...</code> 或標頭 <code>X-Webhook-Token</code>；與 HMAC 並存時任一通過即可</div></div>
-    <div class="field"><label>API Token（Bearer）</label><span style="display:flex;gap:8px"><input id="apiToken" type="text" style="flex:1"><button type="button" id="api-token-generate">隨機產生</button></span><div class="hint">呼叫 webhook 時帶 <code>Authorization: Bearer &lt;token&gt;</code>；與 HMAC / URL Token 並存時任一通過即可</div></div>
-    <div class="field"><label>多組 API Token</label><div id="apiTokens"></div><div class="hint" style="grid-column:1">具名 token，可各自撤銷；與上方 API Token、HMAC、URL Token 任一通過即可</div></div>
-    <div class="actions" style="margin:0 0 10px"><button type="button" id="api-token-add">新增 API Token</button></div>
-    <div class="field"><label>僅限私人 IP 存取管理頁面</label><input id="adminPrivateOnly" type="checkbox"><div class="hint">狀態頁 / 儀表板 / 功能頁 / 設定頁 / 訊息 / ReadMe / 登入頁僅允許內網（10.x / 172.16–31.x / 192.168.x / 127.x）存取；webhook 不受影響</div></div>
-    <div class="field"><label>速率限制視窗（ms）</label><input id="rateLimit-windowMs" type="number" min="1"></div>
-    <div class="field"><label>每 IP 最大請求數</label><input id="rateLimit-max" type="number" min="1"></div>
+    <legend data-i18n="legend_security">安全 / 來源</legend>
+    <div class="field"><label data-i18n="lbl_allowed_ips">允許的來源 IP</label><textarea id="allowedIps" data-i18n-ph="ph_allowed_ips" placeholder="逗號或換行分隔，留空 = 不限制"></textarea></div>
+    <div class="field"><label data-i18n="lbl_hmac">HMAC 簽章密鑰</label><span style="display:flex;gap:8px"><input id="hmacSecret" type="text" style="flex:1"><button type="button" id="hmac-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint" data-i18n="hint_hmac">留空 = 不驗證簽章</div></div>
+    <div class="field"><label data-i18n="lbl_skew">時間戳記容許誤差（秒）</label><input id="hmacMaxSkewSec" type="number" min="0"></div>
+    <div class="field"><label data-i18n="lbl_webhook_token">Webhook URL Token</label><span style="display:flex;gap:8px"><input id="webhookToken" type="text" style="flex:1"><button type="button" id="token-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint">供無法簽章的來源：網址帶 <code>?token=...</code> 或標頭 <code>X-Webhook-Token</code>；與 HMAC 並存時任一通過即可</div></div>
+    <div class="field"><label data-i18n="lbl_api_token">API Token（Bearer）</label><span style="display:flex;gap:8px"><input id="apiToken" type="text" style="flex:1"><button type="button" id="api-token-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint">呼叫 webhook 時帶 <code>Authorization: Bearer &lt;token&gt;</code>；與 HMAC / URL Token 並存時任一通過即可</div></div>
+    <div class="field"><label data-i18n="lbl_api_tokens">多組 API Token</label><div id="apiTokens"></div><div class="hint" style="grid-column:1">具名 token，可各自撤銷；與上方 API Token、HMAC、URL Token 任一通過即可</div></div>
+    <div class="actions" style="margin:0 0 10px"><button type="button" id="api-token-add" data-i18n="btn_add_api_token">新增 API Token</button></div>
+    <div class="field"><label data-i18n="lbl_admin_private">僅限私人 IP 存取管理頁面</label><input id="adminPrivateOnly" type="checkbox"><div class="hint">狀態頁 / 儀表板 / 功能頁 / 設定頁 / 訊息 / ReadMe / 登入頁僅允許內網（10.x / 172.16–31.x / 192.168.x / 127.x）存取；webhook 不受影響</div></div>
+    <div class="field"><label data-i18n="lbl_rate_window">速率限制視窗（ms）</label><input id="rateLimit-windowMs" type="number" min="1"></div>
+    <div class="field"><label data-i18n="lbl_rate_max">每 IP 最大請求數</label><input id="rateLimit-max" type="number" min="1"></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="line">
-    <legend>LINE 登入</legend>
-    <div class="field"><label>裝置類型</label><select id="line-device">${deviceOptions}</select></div>
-    <div class="field"><label>顯示名稱（systemName）</label><input id="line-deviceName" type="text"></div>
-    <div class="field"><label>機型（modelName）</label><input id="line-modelName" type="text"><div class="hint">顯示名稱需重新登入才生效</div></div>
+    <legend data-i18n="legend_line">LINE 登入</legend>
+    <div class="field"><label data-i18n="lbl_device">裝置類型</label><select id="line-device">${deviceOptions}</select></div>
+    <div class="field"><label data-i18n="lbl_device_name">顯示名稱（systemName）</label><input id="line-deviceName" type="text"></div>
+    <div class="field"><label data-i18n="lbl_model_name">機型（modelName）</label><input id="line-modelName" type="text"><div class="hint" data-i18n="hint_relogin_needed">顯示名稱需重新登入才生效</div></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="send">
-    <legend>發送 / 重試</legend>
-    <div class="field"><label>最大重試次數</label><input id="send-maxRetries" type="number" min="0"></div>
-    <div class="field"><label>重試退避基準（ms）</label><input id="send-retryBaseMs" type="number" min="1"></div>
-    <div class="field"><label>最小發送間隔（ms）</label><input id="send-minIntervalMs" type="number" min="0"></div>
+    <legend data-i18n="legend_send">發送 / 重試</legend>
+    <div class="field"><label data-i18n="lbl_max_retries">最大重試次數</label><input id="send-maxRetries" type="number" min="0"></div>
+    <div class="field"><label data-i18n="lbl_retry_base">重試退避基準（ms）</label><input id="send-retryBaseMs" type="number" min="1"></div>
+    <div class="field"><label data-i18n="lbl_min_interval">最小發送間隔（ms）</label><input id="send-minIntervalMs" type="number" min="0"></div>
+    <div class="field"><label data-i18n="lbl_reply_max">回覆文字上限（字元）</label><input id="replyMaxChars" type="number" min="0"><div class="hint" data-i18n="hint_reply_max">超過會自動分段送出；0 = 不限制</div></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="monitor">
-    <legend>監控 / Log</legend>
-    <div class="field"><label>健康檢查間隔（秒）</label><input id="healthCheckIntervalSec" type="number" min="1"></div>
-    <div class="field"><label>記憶體保留紀錄筆數</label><input id="logLimit" type="number" min="1"></div>
-    <div class="field"><label>Log 輪替大小（bytes）</label><input id="logMaxBytes" type="number" min="1"></div>
-    <div class="field"><label>Log 保留檔數</label><input id="logMaxFiles" type="number" min="1"></div>
-    <div class="field"><label>持久化收到的訊息</label><input id="messagesPersist" type="checkbox"><div class="hint">開啟後將收到的訊息寫入檔案（路徑：<code>${config.messagesPath}</code>，於 .env 設定）</div></div>
+    <legend data-i18n="legend_monitor">監控 / Log</legend>
+    <div class="field"><label data-i18n="lbl_timezone">時區</label><input id="timezone" type="text" placeholder="Asia/Taipei"><div class="hint" data-i18n="hint_timezone">IANA 時區名稱（例如 Asia/Taipei、UTC），影響 log 時間與技能（如「今天」的判斷）</div></div>
+    <div class="field"><label data-i18n="lbl_health_interval">健康檢查間隔（秒）</label><input id="healthCheckIntervalSec" type="number" min="1"></div>
+    <div class="field"><label data-i18n="lbl_log_limit">記憶體保留紀錄筆數</label><input id="logLimit" type="number" min="1"></div>
+    <div class="field"><label data-i18n="lbl_log_max_bytes">Log 輪替大小（bytes）</label><input id="logMaxBytes" type="number" min="1"></div>
+    <div class="field"><label data-i18n="lbl_log_max_files">Log 保留檔數</label><input id="logMaxFiles" type="number" min="1"></div>
+    <div class="field"><label data-i18n="lbl_messages_persist">持久化收到的訊息</label><input id="messagesPersist" type="checkbox"><div class="hint">開啟後將收到的訊息寫入檔案（路徑：<code>${config.messagesPath}</code>，於 .env 設定）</div></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="targets-config">
-    <legend>目標對照（TARGETS）</legend>
-    <div class="field"><label>名稱=mid</label><textarea id="targets" placeholder="每行一筆，例如：小明=u1234567890abcdef"></textarea></div>
+    <legend data-i18n="legend_targets">目標對照（TARGETS）</legend>
+    <div class="field"><label data-i18n="lbl_name_mid">名稱=mid</label><textarea id="targets" placeholder="每行一筆，例如：小明=u1234567890abcdef"></textarea></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="templates">
-    <legend>訊息模板（Templates）</legend>
+    <legend data-i18n="legend_templates">訊息模板（Templates）</legend>
     <div class="hint" style="margin-bottom:8px">webhook 帶 <code>template</code> 名稱與 <code>vars</code> 變數即可套用；模板內用 <code>{{key}}</code> 取用變數，未提供的變數會原樣保留。</div>
     <div id="templates"></div>
-    <div class="actions"><button type="button" id="template-add">新增模板</button></div>
+    <div class="actions"><button type="button" id="template-add" data-i18n="lbl_btn_add_template">新增模板</button></div>
     <div class="hint" style="margin:14px 0 8px">Flex 樣板：webhook 帶 <code>flexTemplate</code> 名稱即可套用；<code>contents</code> 為 Flex 容器 JSON（可用 <code>{{key}}</code> 變數）。</div>
     <div id="flexTemplates"></div>
-    <div class="actions"><button type="button" id="flex-template-add">新增 Flex 樣板</button></div>
-  </fieldset>
-
-  <fieldset class="fn-panel" data-fn="autoReply">
-    <legend>關鍵字自動回覆</legend>
-    <div class="field"><label>啟用自動回覆</label><input id="autoReply-enabled" type="checkbox"><div class="hint">依規則比對收到的訊息並回覆（可回文字與／或圖片、檔案）</div></div>
-    <div class="field"><label>回覆冷卻（秒）</label><input id="autoReply-cooldownSec" type="number" min="0"><div class="hint">同一個聊天於此時間內只回覆一次，避免被刷</div></div>
-    <div id="rules"></div>
-    <div class="actions"><button type="button" id="rule-add">新增規則</button></div>
-    <div class="hint">關鍵字可用 <code>|</code> 分隔多組；比對方式：完全相符 / 包含 / 正則（regex）。回覆文字與檔名可用 <code>{{name}}</code>（對方名稱）、<code>{{keyword}}</code>、<code>{{text}}</code>。</div>
+    <div class="actions"><button type="button" id="flex-template-add" data-i18n="lbl_btn_add_flex">新增 Flex 樣板</button></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="forward">
-    <legend>訊息轉發規則</legend>
+    <legend data-i18n="legend_forward">訊息轉發規則</legend>
     <div class="hint" style="margin-bottom:8px">收到訊息且符合條件時，自動轉發到指定的好友 / 群組（填入名稱或 mid）。</div>
     <div id="forwardRules"></div>
-    <div class="actions"><button type="button" id="forward-add">新增轉發規則</button></div>
+    <div class="actions"><button type="button" id="forward-add" data-i18n="btn_add_forward">新增轉發規則</button></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="commands">
-    <legend>LINE 指令</legend>
-    <div class="field"><label>啟用指令</label><input id="commands-enabled" type="checkbox"><div class="hint">允許在 LINE 對本帳號傳送指令（例如 <code>!help</code>）</div></div>
-    <div class="field"><label>指令前綴</label><input id="commands-prefix" type="text" placeholder="!"><div class="hint">預設 <code>!</code></div></div>
-    <div class="field"><label>允許來源</label><textarea id="commands-allowFrom" placeholder="留空 = 所有人；每行一個 mid 或 chat mid"></textarea><div class="hint">可用 <code>!id</code> 取得自己的 mid；建議限制來源避免被濫用</div></div>
+    <legend data-i18n="legend_commands">LINE 指令</legend>
+    <div class="field"><label data-i18n="lbl_commands_enabled">啟用指令</label><input id="commands-enabled" type="checkbox"><div class="hint">允許在 LINE 對本帳號傳送指令（例如 <code>!help</code>）</div></div>
+    <div class="field"><label data-i18n="lbl_commands_prefix">指令前綴</label><input id="commands-prefix" type="text" placeholder="!"><div class="hint">預設 <code>!</code></div></div>
+    <div class="field"><label data-i18n="lbl_commands_allow">允許來源</label><textarea id="commands-allowFrom" data-i18n-ph="ph_commands_allow" placeholder="留空 = 所有人；每行一個 mid 或 chat mid"></textarea><div class="hint">可用 <code>!id</code> 取得自己的 mid；建議限制來源避免被濫用</div></div>
     <div class="hint">可用指令：<code>help</code>、<code>status</code>、<code>id</code>、<code>send &lt;對象&gt; &lt;訊息&gt;</code></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="smtp">
-    <legend>Email 通知（SMTP）</legend>
+    <legend data-i18n="legend_smtp">Email 通知（SMTP）</legend>
     <div class="field"><label>SMTP Host</label><input id="smtp-host" type="text"></div>
     <div class="field"><label>SMTP Port</label><input id="smtp-port" type="number" min="1"></div>
     <div class="field"><label>SMTP Secure</label><input id="smtp-secure" type="checkbox"></div>
     <div class="field"><label>SMTP User</label><input id="smtp-user" type="text"></div>
     <div class="field"><label>SMTP Password</label><input id="smtp-pass" type="password"></div>
-    <div class="field"><label>寄件者（From）</label><input id="smtp-from" type="text"></div>
-    <div class="field"><label>收件者（To）</label><input id="smtp-to" type="text"></div>
+    <div class="field"><label data-i18n="lbl_smtp_from">寄件者（From）</label><input id="smtp-from" type="text"></div>
+    <div class="field"><label data-i18n="lbl_smtp_to">收件者（To）</label><input id="smtp-to" type="text"></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="backup">
-    <legend>設定匯出 / 匯入</legend>
+    <legend data-i18n="legend_backup">設定匯出 / 匯入</legend>
     <div class="hint" style="margin-bottom:8px">匯出為 JSON 檔（含密鑰，請妥善保管）；匯入會覆蓋目前設定。</div>
     <div class="actions">
-      <button type="button" id="settings-export">匯出設定</button>
-      <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">匯入設定<input id="settings-import-file" type="file" accept="application/json,.json" style="display:none"></label>
+      <button type="button" id="settings-export" data-i18n="btn_export">匯出設定</button>
+      <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><span data-i18n="btn_import">匯入設定</span><input id="settings-import-file" type="file" accept="application/json,.json" style="display:none"></label>
     </div>
   </fieldset>
 
   <div class="actions">
-    <button type="submit">儲存設定</button>
+    <button type="submit" data-i18n="save_settings">儲存設定</button>
     <span id="settings-msg" class="msg"></span>
   </div>
 </form>
 `;
-
-  const script = `
+    const script = `
   ${HELPERS}
   ${SESSION_SCRIPT}
-  var CONFIG_SECTIONS = ["security", "line", "send", "monitor", "targets-config", "templates", "autoReply", "forward", "commands", "smtp", "backup"];
-
-  function addRuleRow(rule) {
-    rule = rule || {};
-    var row = document.createElement("div");
-    row.className = "rule-row";
-    row.style.cssText = "border:1px solid rgba(34,211,238,.25);border-radius:12px;padding:10px 14px;margin-bottom:10px;background:rgba(0,0,0,.2)";
-
-    function field(labelText, input) {
-      var wrap = document.createElement("div");
-      wrap.className = "field";
-      var label = document.createElement("label");
-      label.textContent = labelText;
-      wrap.append(label, input);
-      return wrap;
-    }
-    function textInput(cls, value, placeholder) {
-      var input = document.createElement("input");
-      input.className = cls;
-      input.type = "text";
-      input.value = value || "";
-      if (placeholder) input.placeholder = placeholder;
-      return input;
-    }
-
-    var keyword = textInput("r-keyword", rule.keyword, "例如：報價單 | 價目");
-    var match = document.createElement("select");
-    match.className = "r-match";
-    [["exact", "完全相符"], ["contains", "包含"], ["regex", "正則"]].forEach(function (opt) {
-      var o = document.createElement("option");
-      o.value = opt[0];
-      o.textContent = opt[1];
-      if ((rule.match || "exact") === opt[0]) o.selected = true;
-      match.appendChild(o);
-    });
-    var text = textInput("r-text", rule.text, "回覆文字（可留空，支援 {{name}}）");
-    var image = textInput("r-image", rule.image, "回覆圖片（URL 或路徑，選填）");
-    var filePath = textInput("r-filePath", rule.filePath, "檔案路徑，例如 C:\\\\quotes\\\\quote.pdf");
-    var filename = textInput("r-filename", rule.filename, "顯示檔名（選填）");
-    var enabled = document.createElement("input");
-    enabled.type = "checkbox";
-    enabled.className = "r-enabled";
-    enabled.checked = rule.enabled !== false;
-
-    row.append(field("關鍵字（| 分隔）", keyword));
-    row.append(field("比對方式", match));
-    row.append(field("回覆文字", text));
-    row.append(field("回覆圖片", image));
-    row.append(field("檔案路徑", filePath));
-    row.append(field("檔名", filename));
-    row.append(field("啟用", enabled));
-
-    var actions = document.createElement("div");
-    actions.className = "actions";
-    var remove = document.createElement("button");
-    remove.type = "button";
-    remove.textContent = "刪除規則";
-    remove.addEventListener("click", function () { row.remove(); });
-    actions.appendChild(remove);
-    row.appendChild(actions);
-
-    $("rules").appendChild(row);
-  }
-
-  function collectRules() {
-    var out = [];
-    var rows = $("rules").querySelectorAll(".rule-row");
-    Array.prototype.forEach.call(rows, function (row) {
-      out.push({
-        keyword: row.querySelector(".r-keyword").value,
-        match: row.querySelector(".r-match").value,
-        text: row.querySelector(".r-text").value,
-        image: row.querySelector(".r-image").value,
-        filePath: row.querySelector(".r-filePath").value,
-        filename: row.querySelector(".r-filename").value,
-        enabled: row.querySelector(".r-enabled").checked
-      });
-    });
-    return out;
-  }
+  var CONFIG_SECTIONS = ["security", "line", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
 
   function addForwardRow(rule) {
     rule = rule || {};
@@ -1269,17 +1139,17 @@ function renderSettingsHtml(): string {
 
     var match = document.createElement("select");
     match.className = "f-match";
-    [["contains", "包含"], ["regex", "正則"], ["all", "全部"]].forEach(function (opt) {
+    [["contains", "match_contains"], ["regex", "match_regex"], ["all", "match_all"]].forEach(function (opt) {
       var o = document.createElement("option");
       o.value = opt[0];
-      o.textContent = opt[1];
+      o.textContent = T(opt[1]);
       if ((rule.match || "contains") === opt[0]) o.selected = true;
       match.appendChild(o);
     });
-    var keyword = textInput("f-keyword", rule.keyword, "關鍵字（| 分隔）");
-    var source = textInput("f-source", rule.source, "來源聊天（留空 = 全部）");
-    var target = textInput("f-target", rule.target, "轉發對象（名稱或 mid）");
-    var prefix = textInput("f-prefix", rule.prefix, "前綴文字（選填）");
+    var keyword = textInput("f-keyword", rule.keyword, T("lbl_keyword"));
+    var source = textInput("f-source", rule.source, T("lbl_source"));
+    var target = textInput("f-target", rule.target, T("lbl_forward_target"));
+    var prefix = textInput("f-prefix", rule.prefix, T("lbl_prefix"));
     var includeSender = document.createElement("input");
     includeSender.type = "checkbox";
     includeSender.className = "f-includeSender";
@@ -1289,19 +1159,19 @@ function renderSettingsHtml(): string {
     enabled.className = "f-enabled";
     enabled.checked = rule.enabled !== false;
 
-    row.append(field("比對方式", match));
-    row.append(field("關鍵字", keyword));
-    row.append(field("來源", source));
-    row.append(field("轉發對象", target));
-    row.append(field("前綴", prefix));
-    row.append(field("附上來源名稱", includeSender));
-    row.append(field("啟用", enabled));
+    row.append(field(T("lbl_match_type"), match));
+    row.append(field(T("lbl_keyword"), keyword));
+    row.append(field(T("lbl_source"), source));
+    row.append(field(T("lbl_forward_target"), target));
+    row.append(field(T("lbl_prefix"), prefix));
+    row.append(field(T("lbl_include_sender"), includeSender));
+    row.append(field(T("lbl_enabled"), enabled));
 
     var actions = document.createElement("div");
     actions.className = "actions";
     var remove = document.createElement("button");
     remove.type = "button";
-    remove.textContent = "刪除規則";
+    remove.textContent = T("btn_delete_rule");
     remove.addEventListener("click", function () { row.remove(); });
     actions.appendChild(remove);
     row.appendChild(actions);
@@ -1336,7 +1206,7 @@ function renderSettingsHtml(): string {
     name.type = "text";
     name.className = "at-name";
     name.value = item.name || "";
-    name.placeholder = "名稱";
+    name.placeholder = T("lbl_name");
     name.style.flex = "0 0 120px";
     var token = document.createElement("input");
     token.type = "text";
@@ -1387,21 +1257,21 @@ function renderSettingsHtml(): string {
     name.type = "text";
     name.className = "t-name";
     name.value = tpl.name || "";
-    name.placeholder = "例如：每日報價";
+    name.placeholder = T("lbl_name");
 
     var text = document.createElement("textarea");
     text.className = "t-text";
     text.value = tpl.text || "";
-    text.placeholder = "可用 {{name}} 之類的變數";
+    text.placeholder = T("lbl_content");
 
-    row.append(field("名稱", name));
-    row.append(field("內容", text));
+    row.append(field(T("lbl_name"), name));
+    row.append(field(T("lbl_content"), text));
 
     var actions = document.createElement("div");
     actions.className = "actions";
     var remove = document.createElement("button");
     remove.type = "button";
-    remove.textContent = "刪除模板";
+    remove.textContent = T("btn_delete_template");
     remove.addEventListener("click", function () { row.remove(); });
     actions.appendChild(remove);
     row.appendChild(actions);
@@ -1440,28 +1310,28 @@ function renderSettingsHtml(): string {
     name.type = "text";
     name.className = "ft-name";
     name.value = tpl.name || "";
-    name.placeholder = "例如：公告卡片";
+    name.placeholder = T("lbl_name");
 
     var alt = document.createElement("input");
     alt.type = "text";
     alt.className = "ft-alt";
     alt.value = tpl.altText || "";
-    alt.placeholder = "替代文字（altText）";
+    alt.placeholder = T("lbl_alt_text");
 
     var contents = document.createElement("textarea");
     contents.className = "ft-contents";
     contents.value = tpl.contents || "";
     contents.placeholder = '{"type":"bubble","body":{...}}';
 
-    row.append(field("名稱", name));
-    row.append(field("altText", alt));
-    row.append(field("Flex JSON", contents));
+    row.append(field(T("lbl_name"), name));
+    row.append(field(T("lbl_alt_text"), alt));
+    row.append(field(T("lbl_flex_json"), contents));
 
     var actions = document.createElement("div");
     actions.className = "actions";
     var remove = document.createElement("button");
     remove.type = "button";
-    remove.textContent = "刪除樣板";
+    remove.textContent = T("btn_delete_flex");
     remove.addEventListener("click", function () { row.remove(); });
     actions.appendChild(remove);
     row.appendChild(actions);
@@ -1497,11 +1367,13 @@ function renderSettingsHtml(): string {
     $("send-maxRetries").value = s.send.maxRetries;
     $("send-retryBaseMs").value = s.send.retryBaseMs;
     $("send-minIntervalMs").value = s.send.minIntervalMs;
+    $("replyMaxChars").value = s.replyMaxChars;
     $("healthCheckIntervalSec").value = s.healthCheckIntervalSec;
     $("logLimit").value = s.logLimit;
     $("logMaxBytes").value = s.logMaxBytes;
     $("logMaxFiles").value = s.logMaxFiles;
     $("messagesPersist").checked = !!s.messagesPersist;
+    $("timezone").value = s.timezone || "Asia/Taipei";
     $("targets").value = Object.keys(s.targets || {}).map(function (k) { return k + "=" + s.targets[k]; }).join("\\n");
     $("smtp-host").value = s.smtp.host || "";
     $("smtp-port").value = s.smtp.port;
@@ -1510,10 +1382,6 @@ function renderSettingsHtml(): string {
     $("smtp-pass").value = s.smtp.pass || "";
     $("smtp-from").value = s.smtp.from || "";
     $("smtp-to").value = s.smtp.to || "";
-    $("autoReply-enabled").checked = !!(s.autoReply && s.autoReply.enabled);
-    $("autoReply-cooldownSec").value = (s.autoReply && s.autoReply.cooldownSec) || 0;
-    $("rules").replaceChildren();
-    ((s.autoReply && s.autoReply.rules) || []).forEach(addRuleRow);
     $("templates").replaceChildren();
     (s.templates || []).forEach(addTemplateRow);
     $("flexTemplates").replaceChildren();
@@ -1563,6 +1431,7 @@ function renderSettingsHtml(): string {
       logMaxBytes: Number($("logMaxBytes").value),
       logMaxFiles: Number($("logMaxFiles").value),
       messagesPersist: $("messagesPersist").checked,
+      timezone: $("timezone").value.trim() || "Asia/Taipei",
       send: {
         maxRetries: Number($("send-maxRetries").value),
         retryBaseMs: Number($("send-retryBaseMs").value),
@@ -1572,6 +1441,7 @@ function renderSettingsHtml(): string {
         windowMs: Number($("rateLimit-windowMs").value),
         max: Number($("rateLimit-max").value)
       },
+      replyMaxChars: Number($("replyMaxChars").value),
       line: {
         device: $("line-device").value,
         deviceName: $("line-deviceName").value,
@@ -1585,11 +1455,6 @@ function renderSettingsHtml(): string {
         pass: $("smtp-pass").value,
         from: $("smtp-from").value,
         to: $("smtp-to").value
-      },
-      autoReply: {
-        enabled: $("autoReply-enabled").checked,
-        cooldownSec: Number($("autoReply-cooldownSec").value),
-        rules: collectRules()
       },
       commands: {
         enabled: $("commands-enabled").checked,
@@ -1620,10 +1485,6 @@ function renderSettingsHtml(): string {
   $("api-token-generate").addEventListener("click", function () {
     $("apiToken").value = randomHex(32);
     $("settings-msg").textContent = "已產生新 API Token，請按「儲存設定」";
-  });
-
-  $("rule-add").addEventListener("click", function () {
-    addRuleRow({});
   });
 
   $("template-add").addEventListener("click", function () {
@@ -1675,92 +1536,87 @@ function renderSettingsHtml(): string {
   setupCards(CONFIG_SECTIONS, "security");
   loadForm();
 `;
-
-  const sidebar = `
-<div class="side-section">設定</div>
+    const sidebar = `
+<div class="side-section">${tr(config.language, "section_settings")}</div>
 <div class="fn-list">
-  <button type="button" class="fn-card setting active" data-fn="security">安全 / 來源</button>
-  <button type="button" class="fn-card setting" data-fn="line">LINE 登入</button>
-  <button type="button" class="fn-card setting" data-fn="send">發送 / 重試</button>
-  <button type="button" class="fn-card setting" data-fn="monitor">監控 / Log</button>
-  <button type="button" class="fn-card setting" data-fn="targets-config">目標對照</button>
-  <button type="button" class="fn-card setting" data-fn="templates">訊息模板</button>
-  <button type="button" class="fn-card setting" data-fn="autoReply">關鍵字自動回覆</button>
-  <button type="button" class="fn-card setting" data-fn="forward">訊息轉發規則</button>
-  <button type="button" class="fn-card setting" data-fn="commands">LINE 指令</button>
-  <button type="button" class="fn-card setting" data-fn="smtp">Email 通知</button>
-  <button type="button" class="fn-card setting" data-fn="backup">匯出 / 匯入</button>
+  <button type="button" class="fn-card setting active" data-fn="security">${tr(config.language, "card_security")}</button>
+  <button type="button" class="fn-card setting" data-fn="line">${tr(config.language, "card_line")}</button>
+  <button type="button" class="fn-card setting" data-fn="send">${tr(config.language, "card_send")}</button>
+  <button type="button" class="fn-card setting" data-fn="monitor">${tr(config.language, "card_monitor")}</button>
+  <button type="button" class="fn-card setting" data-fn="targets-config">${tr(config.language, "card_targets_config")}</button>
+  <button type="button" class="fn-card setting" data-fn="templates">${tr(config.language, "card_templates")}</button>
+  <button type="button" class="fn-card setting" data-fn="forward">${tr(config.language, "card_forward")}</button>
+  <button type="button" class="fn-card setting" data-fn="commands">${tr(config.language, "card_commands")}</button>
+  <button type="button" class="fn-card setting" data-fn="smtp">${tr(config.language, "card_smtp")}</button>
+  <button type="button" class="fn-card setting" data-fn="backup">${tr(config.language, "card_backup")}</button>
 </div>`;
-
-  return page("設定", "settings", body, script, { sidebar });
+    return page(tr(config.language, "title_settings"), "settings", body, script, { sidebar });
 }
-
-function renderConsoleHtml(): string {
-  const body = `
+function renderConsoleHtml() {
+    const body = `
 <div class="fn-panel active" data-fn="test">
-<h2 style="margin-top:0">測試發送</h2>
+<h2 style="margin-top:0" data-i18n="panel_test">測試發送</h2>
 <div class="glass glass-hover">
 <form id="test-form">
-  <div class="field"><label>對象</label><input id="test-to" placeholder="好友名稱或 mid" required></div>
-  <div class="field"><label>文字</label><input id="test-text" placeholder="訊息內容（可留空）"></div>
-  <div class="field"><label>檔案路徑</label><input id="test-file" placeholder="伺服器上的檔案路徑，例如 /opt/app/quote.pdf"></div>
-  <div class="field"><label>圖片（URL 或路徑）</label><input id="test-image" placeholder="https://... 或 /opt/app/a.jpg"></div>
-  <div class="field"><label>影片（URL 或路徑）</label><input id="test-video" placeholder="https://... 或 /opt/app/a.mp4"></div>
-  <div class="field"><label>語音（URL 或路徑）</label><input id="test-audio" placeholder="https://... 或 /opt/app/a.m4a"></div>
-  <div class="field"><label>顯示檔名</label><input id="test-filename" placeholder="選填"></div>
+  <div class="field"><label data-i18n="lbl_to">對象</label><input id="test-to" placeholder="好友名稱或 mid" required></div>
+  <div class="field"><label data-i18n="lbl_text">文字</label><input id="test-text" placeholder="訊息內容（可留空）"></div>
+  <div class="field"><label data-i18n="lbl_file_path">檔案路徑</label><input id="test-file" placeholder="伺服器上的檔案路徑，例如 /opt/app/quote.pdf"></div>
+  <div class="field"><label data-i18n="lbl_image">圖片（URL 或路徑）</label><input id="test-image" placeholder="https://... 或 /opt/app/a.jpg"></div>
+  <div class="field"><label data-i18n="lbl_video">影片（URL 或路徑）</label><input id="test-video" placeholder="https://... 或 /opt/app/a.mp4"></div>
+  <div class="field"><label data-i18n="lbl_audio">語音（URL 或路徑）</label><input id="test-audio" placeholder="https://... 或 /opt/app/a.m4a"></div>
+  <div class="field"><label data-i18n="lbl_display_filename">顯示檔名</label><input id="test-filename" placeholder="選填"></div>
   <details>
-    <summary>進階（貼圖 / 位置 / Flex / 延遲）</summary>
-    <div class="field"><label>貼圖 packageId</label><input id="test-sticker-pkg" placeholder="例如 446"></div>
-    <div class="field"><label>貼圖 stickerId</label><input id="test-sticker-id" placeholder="例如 1988"></div>
-    <div class="field"><label>位置標題</label><input id="test-loc-title" placeholder="選填"></div>
-    <div class="field"><label>位置地址</label><input id="test-loc-address" placeholder="選填"></div>
-    <div class="field"><label>緯度 / 經度</label><span style="display:flex;gap:8px"><input id="test-loc-lat" placeholder="25.033" style="flex:1"><input id="test-loc-lng" placeholder="121.565" style="flex:1"></span></div>
-    <div class="field"><label>Flex altText</label><input id="test-flex-alt" placeholder="選填，預設「Flex 訊息」"></div>
-    <div class="field"><label>Flex JSON</label><textarea id="test-flex-json" placeholder='{"type":"bubble","body":{"type":"box","layout":"vertical","contents":[{"type":"text","text":"Hi"}]}}'></textarea></div>
-    <div class="field"><label>延遲發送</label><span style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input id="test-delay" type="text" placeholder="秒數（例如 60）或 2026-01-01 09:00:00" style="flex:1;min-width:200px"><input id="test-datetime" type="datetime-local" style="width:auto"><button type="button" id="test-datetime-now">現在+1分</button></span><div class="hint">可填「秒數」或「年月日 時:分:秒」；也可用日曆選時間（會帶入左欄）。留空 = 立即發送，可在「排程中的訊息」取消</div></div>
+    <summary data-i18n="summary_advanced">進階（貼圖 / 位置 / Flex / 延遲）</summary>
+    <div class="field"><label data-i18n="lbl_sticker_pkg">貼圖 packageId</label><input id="test-sticker-pkg" placeholder="例如 446"></div>
+    <div class="field"><label data-i18n="lbl_sticker_id">貼圖 stickerId</label><input id="test-sticker-id" placeholder="例如 1988"></div>
+    <div class="field"><label data-i18n="lbl_loc_title">位置標題</label><input id="test-loc-title" placeholder="選填"></div>
+    <div class="field"><label data-i18n="lbl_loc_address">位置地址</label><input id="test-loc-address" placeholder="選填"></div>
+    <div class="field"><label data-i18n="lbl_lat_lng">緯度 / 經度</label><span style="display:flex;gap:8px"><input id="test-loc-lat" placeholder="25.033" style="flex:1"><input id="test-loc-lng" placeholder="121.565" style="flex:1"></span></div>
+    <div class="field"><label data-i18n="lbl_flex_alt">Flex altText</label><input id="test-flex-alt" placeholder="選填"></div>
+    <div class="field"><label data-i18n="lbl_flex_json">Flex JSON</label><textarea id="test-flex-json" placeholder='{"type":"bubble","body":{"type":"box","layout":"vertical","contents":[{"type":"text","text":"Hi"}]}}'></textarea></div>
+    <div class="field"><label data-i18n="lbl_delay">延遲發送</label><span style="display:flex;gap:8px;align-items:center"><input id="test-delay" type="text" placeholder="秒數（例如 60）或 2026-01-01 09:00:00" style="flex:1;min-width:200px"><input id="test-datetime" type="datetime-local" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0"><button type="button" id="test-datetime-btn" class="icon-btn" title="選擇日期時間">&#128197;</button></span><div class="hint">可填「秒數」或「年月日 時:分:秒」；點日曆圖示選時間會帶入欄位。留空 = 立即發送</div></div>
   </details>
-  <div class="field"><label>插入媒體</label><span style="display:flex;gap:8px;flex-wrap:wrap"><input id="test-upload" type="file" style="flex:1"><button type="button" id="test-upload-btn">上傳並填入</button><span id="test-upload-msg" class="msg"></span></span><div class="hint">上傳後會填入「圖片（URL 或路徑）」欄位；影片 / 語音請改填對應欄位</div></div>
-  <div class="actions"><button type="submit">發送</button><span id="test-msg" class="msg"></span></div>
+  <div class="field"><label>插入媒體</label><span style="display:flex;gap:8px;flex-wrap:wrap"><input id="test-upload" type="file" style="flex:1"><button type="button" id="test-upload-btn">上傳並填入</button><span id="test-upload-msg" class="msg"></span></span></div>
+  <div class="actions"><button type="submit" data-i18n="btn_send">發送</button><span id="test-msg" class="msg"></span></div>
 </form>
 </div>
 </div>
 
 <div class="fn-panel" data-fn="targets-list">
-<h2 style="margin-top:0">目標清單</h2>
+<h2 style="margin-top:0" data-i18n="panel_targets">目標清單</h2>
 <div class="glass">
 <details id="targets-details" open>
-  <summary>清單（<span id="target-count">0</span>）</summary>
+  <summary><span data-i18n="list_count">清單</span>（<span id="target-count">0</span>）</summary>
   <div style="margin:8px 0">
-    <input id="target-search" placeholder="搜尋名稱或 MID" style="width:280px">
+    <input id="target-search" data-i18n-ph="ph_search" placeholder="搜尋名稱或 MID" style="width:280px">
     <span id="target-msg" class="msg"></span>
   </div>
-  <table class="targets-table"><thead><tr><th>名稱</th><th>MID</th><th class="th-actions" style="width:180px">操作</th></tr></thead><tbody id="targets"></tbody></table>
+  <table class="targets-table"><thead><tr><th data-i18n="th_name">名稱</th><th>MID</th><th class="th-actions" style="width:180px" data-i18n="th_actions">操作</th></tr></thead><tbody id="targets"></tbody></table>
 </details>
 </div>
 </div>
 
 <div class="fn-panel" data-fn="logs">
-<h2 style="margin-top:0">最近紀錄</h2>
+<h2 style="margin-top:0" data-i18n="panel_logs">最近紀錄</h2>
 <div class="glass">
 <details open>
-  <summary>清單</summary>
-  <table><thead><tr><th>時間</th><th>等級</th><th>訊息</th><th>內容</th></tr></thead><tbody id="logs"></tbody></table>
+  <summary data-i18n="list_count">清單</summary>
+  <table><thead><tr><th data-i18n="th_time">時間</th><th data-i18n="th_level">等級</th><th data-i18n="th_message">訊息</th><th data-i18n="th_content">內容</th></tr></thead><tbody id="logs"></tbody></table>
 </details>
 </div>
 </div>
 
 <div class="fn-panel" data-fn="scheduled">
-<h2 style="margin-top:0">排程中的訊息</h2>
+<h2 style="margin-top:0" data-i18n="panel_scheduled">排程中的訊息</h2>
 <div class="glass">
 <details open>
-  <summary>清單（<span id="scheduled-count">0</span>）</summary>
-  <table><thead><tr><th>時間</th><th>對象</th><th>內容</th><th>重複</th><th style="width:190px">操作</th></tr></thead><tbody id="scheduled"></tbody></table>
+  <summary><span data-i18n="list_count">清單</span>（<span id="scheduled-count">0</span>）</summary>
+  <table><thead><tr><th data-i18n="th_time">時間</th><th data-i18n="th_target">對象</th><th data-i18n="th_content">內容</th><th data-i18n="th_repeat">重複</th><th style="width:190px" data-i18n="th_actions">操作</th></tr></thead><tbody id="scheduled"></tbody></table>
 </details>
 </div>
 </div>
 `;
-
-  const script = `
+    const script = `
   ${HELPERS}
   ${SESSION_SCRIPT}
   var allTargets = [];
@@ -1778,7 +1634,7 @@ function renderConsoleHtml(): string {
     }
     body.replaceChildren.apply(body, list.map(function (t) {
       var copyBtn = document.createElement("button");
-      copyBtn.textContent = "複製對應";
+      copyBtn.textContent = T("btn_copy_mapping");
       copyBtn.addEventListener("click", function () {
         var text = t.name + "=" + t.mid;
         copyText(text).then(function (ok) {
@@ -1786,7 +1642,7 @@ function renderConsoleHtml(): string {
         });
       });
       var testBtn = document.createElement("button");
-      testBtn.textContent = "測試";
+      testBtn.textContent = T("btn_test");
       testBtn.addEventListener("click", function () {
         $("test-to").value = t.name;
         $("test-to").focus();
@@ -1810,13 +1666,13 @@ function renderConsoleHtml(): string {
     body.replaceChildren.apply(body, jobs.map(function (j) {
       var cancel = document.createElement("button");
       cancel.type = "button";
-      cancel.textContent = "取消";
+      cancel.textContent = T("btn_cancel");
       cancel.addEventListener("click", function () {
         post("settings/scheduled/cancel", { id: j.id }).then(function () { refreshData(); });
       });
       var edit = document.createElement("button");
       edit.type = "button";
-      edit.textContent = "改變時間";
+      edit.textContent = T("btn_edit_time");
       edit.addEventListener("click", function () {
         var input = window.prompt("幾秒後發送，或輸入時間（例：2026-01-01 09:00:00）", "60");
         if (input === null) return;
@@ -1919,11 +1775,23 @@ function renderConsoleHtml(): string {
   }
 
   $("test-datetime").addEventListener("change", setDelayFromPicker);
-  $("test-datetime-now").addEventListener("click", function () {
-    var d = new Date(Date.now() + 60000);
-    d.setSeconds(0, 0);
-    $("test-datetime").value = toLocalInput(d);
-    setDelayFromPicker();
+  $("test-datetime-btn").addEventListener("click", function () {
+    var input = $("test-datetime");
+    if (!input.value) {
+      var d = new Date(Date.now() + 60000);
+      d.setSeconds(0, 0);
+      input.value = toLocalInput(d);
+    }
+    if (typeof input.showPicker === "function") {
+      try { input.showPicker(); return; } catch (e) { /* fall through */ }
+    }
+    input.style.position = "static";
+    input.style.opacity = "1";
+    input.style.pointerEvents = "auto";
+    input.style.width = "auto";
+    input.style.height = "auto";
+    input.focus();
+    input.click();
   });
 
   $("test-form").addEventListener("submit", function (e) {
@@ -1981,43 +1849,560 @@ function renderConsoleHtml(): string {
   refreshData();
   setInterval(refreshData, 10000);
 `;
-
-  const sidebar = `
-<div class="side-section">功能</div>
+    const sidebar = `
+<div class="side-section">${tr(config.language, "section_functions")}</div>
 <div class="fn-list">
-  <button type="button" class="fn-card active" data-fn="test">測試發送</button>
-  <button type="button" class="fn-card" data-fn="targets-list">目標清單</button>
-  <button type="button" class="fn-card" data-fn="logs">最近紀錄</button>
-  <button type="button" class="fn-card" data-fn="scheduled">排程中的訊息</button>
+  <button type="button" class="fn-card active" data-fn="test">${tr(config.language, "card_test")}</button>
+  <button type="button" class="fn-card" data-fn="targets-list">${tr(config.language, "card_targets")}</button>
+  <button type="button" class="fn-card" data-fn="logs">${tr(config.language, "card_logs")}</button>
+  <button type="button" class="fn-card" data-fn="scheduled">${tr(config.language, "card_scheduled")}</button>
 </div>
-<div class="side-section">操作</div>
+<div class="side-section">${tr(config.language, "section_actions")}</div>
 <div class="fn-list">
-  <button type="button" class="fn-card" id="btn-relogin">Line重新登入</button>
-  <button type="button" class="fn-card" id="btn-refresh">重新整理聯絡人</button>
+  <button type="button" class="fn-card" id="btn-relogin">${tr(config.language, "relogin")}</button>
+  <button type="button" class="fn-card" id="btn-refresh">${tr(config.language, "refresh_contacts")}</button>
 </div>
 <p id="action-msg" class="msg" style="align-self:stretch; word-break:break-word; margin:6px 2px 0"></p>`;
-
-  return page("功能", "console", body, script, { sidebar });
+    return page(tr(config.language, "title_console"), "console", body, script, { sidebar });
 }
+function renderSkillsHtml() {
+    const skillDefs = listSkills().map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        description: resolveText(skill.description, config.language),
+        defaultTrigger: skill.defaultTrigger,
+        triggerMode: skill.triggerMode ?? "assistant",
+        hideTrigger: skill.hideTrigger ?? false,
+        fields: skill.fields.map((f) => ({
+            ...f,
+            label: resolveText(f.label, config.language),
+            hint: f.hint === undefined ? undefined : resolveText(f.hint, config.language),
+        })),
+        ruleFields: (skill.ruleFields ?? []).map((f) => ({
+            ...f,
+            label: resolveText(f.label, config.language),
+            hint: f.hint === undefined ? undefined : resolveText(f.hint, config.language),
+        })),
+        ruleKey: skill.ruleKey ?? "rules",
+    }));
+    const body = `
+<div class="glass">
+  <div class="field"><label data-i18n="lbl_assistant_enabled">啟用助理</label><input id="assistant-enabled" type="checkbox"><div class="hint" data-i18n="hint_assistant">開啟後，訊息以「名稱」開頭即會呼叫技能，例如「阿寶請幫忙 火車 台北 到 高雄」</div></div>
+  <div class="field"><label data-i18n="lbl_assistant_name">助理名稱</label><input id="assistant-name" type="text" placeholder="阿寶"></div>
+  <div class="actions"><button type="button" id="skills-save" data-i18n="save_settings">儲存</button><span id="skills-msg" class="msg"></span></div>
+</div>
 
-function renderLoginHtml(): string {
-  const body = `
+<h2 data-i18n="title_skills">技能</h2>
+<div class="glass">
+  <div class="field"><label data-i18n="lbl_install_skill">安裝技能（上傳 .zip）</label><span style="display:flex;gap:8px;align-items:center"><input id="skill-zip" type="file" accept=".zip,application/zip" style="flex:1"><button type="button" id="skill-install-btn" data-i18n="btn_install">安裝</button><span id="install-msg" class="msg"></span></span><div class="hint" data-i18n="hint_install">zip 內含技能的 index.js（可含 skill.json）。安裝後立即生效。</div></div>
+  <div id="installed-list"></div>
+</div>
+
+<div id="skillList"></div>
+`;
+    const script = `
+  ${HELPERS}
+  var SKILL_DEFS = ${JSON.stringify(skillDefs).replace(/</g, "\\u003c")};
+
+  function loadInstalled() {
+    fetch("/skills/installed.json", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (d) {
+        if (!d) return;
+        var host = $("installed-list");
+        var rows = [];
+        (d.installed || []).forEach(function (s) {
+          var row = document.createElement("div");
+          row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-top:1px solid rgba(34,211,238,.12)";
+          var label = document.createElement("div");
+          label.textContent = s.name + (s.version ? " v" + s.version : "") + "（" + s.id + "）";
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = T("btn_uninstall");
+          btn.addEventListener("click", function () {
+            if (!window.confirm("移除技能 " + s.id + "？")) return;
+            fetch("/skills/uninstall", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: s.id })
+            }).then(function (r) {
+              return r.json().catch(function () { return {}; }).then(function (x) { return { ok: r.ok, data: x }; });
+            }).then(function (r) {
+              if (r.ok) { loadInstalled(); loadSkills(); }
+              else { alert("移除失敗：" + (r.data.error || "")); }
+            });
+          });
+          row.append(label, btn);
+          rows.push(row);
+        });
+        if (rows.length === 0) {
+          var empty = document.createElement("div");
+          empty.className = "msg";
+          empty.textContent = T("no_installed");
+          host.replaceChildren(empty);
+        } else {
+          host.replaceChildren.apply(host, rows);
+        }
+      })
+      .catch(function () {});
+  }
+
+  $("skill-install-btn").addEventListener("click", function () {
+    var input = $("skill-zip");
+    if (!input.files || !input.files[0]) { $("install-msg").textContent = "請先選擇 zip"; return; }
+    var file = input.files[0];
+    $("install-msg").textContent = "上傳安裝中…";
+    file.arrayBuffer().then(function (buf) {
+      return fetch("/skills/install", {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: buf
+      });
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (x) { return { ok: r.ok, data: x }; });
+    }).then(function (r) {
+      if (!r.ok) { $("install-msg").textContent = "安裝失敗：" + (r.data.error || ""); return; }
+      $("install-msg").textContent = "已安裝：" + r.data.id + "（" + r.data.files + " 檔）";
+      input.value = "";
+      loadInstalled();
+      loadSkills();
+    }).catch(function () { $("install-msg").textContent = "安裝失敗"; });
+  });
+
+  function skillDef(id) {
+    for (var i = 0; i < SKILL_DEFS.length; i++) if (SKILL_DEFS[i].id === id) return SKILL_DEFS[i];
+    return null;
+  }
+
+  function fieldWrap(labelText, input) {
+    var wrap = document.createElement("div");
+    wrap.className = "field";
+    var label = document.createElement("label");
+    label.textContent = labelText;
+    wrap.append(label, input);
+    return wrap;
+  }
+
+  function buildFieldInput(f) {
+    var input;
+    if (f.type === "textarea") {
+      input = document.createElement("textarea");
+      input.style.minHeight = "110px";
+    } else if (f.type === "select") {
+      input = document.createElement("select");
+      (f.options || []).forEach(function (opt) {
+        var o = document.createElement("option");
+        o.value = opt.value;
+        o.textContent = opt.label;
+        input.appendChild(o);
+      });
+    } else {
+      input = document.createElement("input");
+      input.type = f.secret ? "password" : "text";
+    }
+    input.className = "sf";
+    input.setAttribute("data-key", f.key);
+    input.style.width = "100%";
+    if (f.hint) input.placeholder = f.hint;
+    return input;
+  }
+
+  function buildFileField(f) {
+    var wrap = document.createElement("div");
+    var input = document.createElement("input");
+    input.type = "text";
+    input.className = "sf";
+    input.setAttribute("data-key", f.key);
+    input.style.flex = "1";
+    if (f.hint) input.placeholder = f.hint;
+    var fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.style.display = "none";
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = T("btn_upload");
+    var status = document.createElement("span");
+    status.className = "msg";
+    btn.addEventListener("click", function () { fileInput.click(); });
+    fileInput.addEventListener("change", function () {
+      if (!fileInput.files || !fileInput.files[0]) return;
+      var file = fileInput.files[0];
+      status.textContent = "上傳中…";
+      file.arrayBuffer().then(function (buf) {
+        return fetch("/settings/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream", "X-Filename": encodeURIComponent(file.name) },
+          body: buf
+        });
+      }).then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, data: data }; });
+      }).then(function (r) {
+        if (!r.ok) { status.textContent = "失敗：" + (r.data.error || ""); return; }
+        input.value = r.data.path;
+        status.textContent = "已上傳（" + r.data.bytes + " bytes）";
+      }).catch(function () { status.textContent = "上傳失敗"; });
+      fileInput.value = "";
+    });
+    var row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:8px;align-items:center";
+    row.append(input, btn, fileInput, status);
+    wrap.append(row);
+    return wrap;
+  }
+
+  function buildRuleRow(def, rule) {
+    rule = rule || {};
+    var row = document.createElement("div");
+    row.className = "rule-row";
+    row.style.cssText = "border:1px solid rgba(34,211,238,.2);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:rgba(0,0,0,.18)";
+    (def.ruleFields || []).forEach(function (f) {
+      var input = buildFieldInput(f);
+      input.className = "rf";
+      input.value = rule[f.key] != null ? String(rule[f.key]) : (f.type === "select" && f.options ? f.options[0].value : "");
+      if (f.type === "select") input.value = rule[f.key] || (f.options ? f.options[0].value : "");
+      row.appendChild(fieldWrap(f.label, input));
+    });
+    var actions = document.createElement("div");
+    actions.className = "actions";
+    var remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = T("btn_delete_rule");
+    remove.addEventListener("click", function () { row.remove(); });
+    actions.appendChild(remove);
+    row.appendChild(actions);
+    return row;
+  }
+
+  var openCards = [];
+
+  function setCardOpen(entry, value) {
+    entry.open = value;
+    entry.body.hidden = !value;
+    entry.toggleBtn.textContent = value ? "\u25be" : "\u25b8";
+    entry.card.classList.toggle("open", value);
+  }
+
+  function openCard(entry) {
+    openCards.forEach(function (other) { if (other !== entry) setCardOpen(other, false); });
+    setCardOpen(entry, true);
+  }
+
+  function buildSkillCard(skill) {
+    skill = skill || {};
+    var def = skillDef(skill.id);
+    if (!def) return null;
+    var enabledFlag = skill.enabled === true;
+
+    var card = document.createElement("div");
+    card.className = "glass skill-card";
+    card.setAttribute("data-skill-id", def.id);
+
+    var head = document.createElement("div");
+    head.className = "skill-head";
+    var title = document.createElement("div");
+    var h = document.createElement("div");
+    h.style.cssText = "font-weight:700;color:#a5f3fc;font-size:16px";
+    h.textContent = def.name;
+    title.appendChild(h);
+    var desc = document.createElement("div");
+    desc.className = "msg skill-desc";
+    desc.textContent = def.description || "";
+    title.appendChild(desc);
+    var healthBox = document.createElement("div");
+    healthBox.className = "skill-health";
+    healthBox.style.cssText = "margin-top:4px;font-size:12px";
+    healthBox.setAttribute("data-skill-id", def.id);
+    title.appendChild(healthBox);
+    var enableWrap = document.createElement("label");
+    enableWrap.style.cssText = "display:flex;align-items:center;gap:8px;white-space:nowrap";
+    var enabled = document.createElement("input");
+    enabled.type = "checkbox";
+    enabled.className = "sk-enabled";
+    enabled.checked = enabledFlag;
+    enableWrap.append(enabled, document.createTextNode(T("lbl_enabled")));
+
+    var toggleBtn = document.createElement("button");
+    toggleBtn.type = "button";
+    toggleBtn.className = "sk-toggle";
+    toggleBtn.title = T("lbl_expand");
+
+    var right = document.createElement("div");
+    right.style.cssText = "display:flex;align-items:center;gap:8px;white-space:nowrap";
+    right.append(enableWrap, toggleBtn);
+
+    head.append(title, right);
+    card.appendChild(head);
+
+    var body = document.createElement("div");
+    body.className = "skill-body";
+
+    if (def.triggerMode === "any") {
+      var anyNote = document.createElement("div");
+      anyNote.className = "msg";
+      anyNote.style.cssText = "margin:4px 0 10px";
+      anyNote.textContent = T("skill_trigger_any");
+      body.appendChild(anyNote);
+    } else if (!def.hideTrigger) {
+      var trigger = document.createElement("input");
+      trigger.type = "text";
+      trigger.className = "sk-trigger";
+      trigger.value = skill.trigger || def.defaultTrigger || "";
+      trigger.placeholder = def.defaultTrigger || T("lbl_trigger");
+      body.appendChild(fieldWrap(T("lbl_trigger"), trigger));
+    }
+
+    (def.fields || []).forEach(function (f) {
+      if (f.type === "file") {
+        body.appendChild(fieldWrap(f.label, buildFileField(f)));
+        return;
+      }
+      var input = buildFieldInput(f);
+      input.value = (skill.config && skill.config[f.key]) || (f.type === "select" && f.options ? f.options[0].value : "");
+
+      if (f.key === "model") {
+        var listId = "models-" + def.id;
+        var dl = document.createElement("datalist");
+        dl.id = listId;
+        input.setAttribute("list", listId);
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = T("btn_list_models");
+        var msg = document.createElement("span");
+        msg.className = "msg";
+        btn.addEventListener("click", function () {
+          msg.textContent = "…";
+          var cfg = {};
+          Array.prototype.forEach.call(card.querySelectorAll(".sf"), function (el) {
+            cfg[el.getAttribute("data-key")] = el.value.trim();
+          });
+          fetch("/skills/llm/models", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg)
+          }).then(function (r) {
+            return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, data: d }; });
+          }).then(function (r) {
+            if (!r.ok) { msg.textContent = "失敗：" + (r.data.error || ""); return; }
+            dl.replaceChildren.apply(dl, (r.data.models || []).map(function (m) {
+              var o = document.createElement("option");
+              o.value = m;
+              return o;
+            }));
+            msg.textContent = "共 " + (r.data.models || []).length + " 個";
+            if (!input.value && r.data.models && r.data.models.length) input.value = r.data.models[0];
+          }).catch(function () { msg.textContent = "讀取失敗"; });
+        });
+        var row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:8px;align-items:center";
+        row.append(input, btn, msg);
+        body.appendChild(fieldWrap(f.label, row));
+        body.appendChild(dl);
+        return;
+      }
+
+      body.appendChild(fieldWrap(f.label, input));
+    });
+
+    if (def.ruleFields && def.ruleFields.length > 0) {
+      var host = document.createElement("div");
+      host.className = "rule-list";
+      var parsed = [];
+      try { parsed = JSON.parse((skill.config && skill.config[def.ruleKey]) || "[]") || []; } catch (e) { parsed = []; }
+      if (parsed.length === 0) parsed = [{}];
+      parsed.forEach(function (r) { host.appendChild(buildRuleRow(def, r)); });
+      var ruleActions = document.createElement("div");
+      ruleActions.className = "actions";
+      var addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.textContent = T("btn_add_rule");
+      addBtn.addEventListener("click", function () { host.appendChild(buildRuleRow(def, {})); });
+      ruleActions.appendChild(addBtn);
+      body.appendChild(host);
+      body.appendChild(ruleActions);
+    }
+
+    card.appendChild(body);
+
+    var entry = { card: card, body: body, toggleBtn: toggleBtn, open: false };
+    openCards.push(entry);
+    setCardOpen(entry, false); // 預設全部收合
+
+    toggleBtn.addEventListener("click", function () {
+      if (entry.open) setCardOpen(entry, false);
+      else openCard(entry);
+    });
+
+    enabled.addEventListener("change", function () {
+      // 啟用後自動展開（並收合其他卡片），取消啟用則收合
+      if (enabled.checked) openCard(entry);
+      else setCardOpen(entry, false);
+    });
+
+    return card;
+  }
+
+  function renderSkillList(skills) {
+    openCards = [];
+    var byId = {};
+    (skills || []).forEach(function (s) { byId[s.id] = s; });
+    var list = $("skillList");
+    var cards = [];
+    SKILL_DEFS.forEach(function (def) {
+      var card = buildSkillCard(byId[def.id] || { id: def.id, enabled: false, trigger: def.defaultTrigger, config: {} });
+      if (card) cards.push(card);
+    });
+    if (cards.length === 0) {
+      var empty = document.createElement("div");
+      empty.className = "glass msg";
+      empty.textContent = T("no_skills");
+      list.replaceChildren(empty);
+      return;
+    }
+    list.replaceChildren.apply(list, cards);
+  }
+
+  function collectSkills() {
+    var out = [];
+    var cards = $("skillList").querySelectorAll(".skill-card");
+    Array.prototype.forEach.call(cards, function (card) {
+      var id = card.getAttribute("data-skill-id") || "";
+      var def = skillDef(id);
+      if (!def) return;
+      var config = {};
+      Array.prototype.forEach.call(card.querySelectorAll(".sf"), function (input) {
+        config[input.getAttribute("data-key")] = input.value.trim();
+      });
+      if (def.ruleFields && def.ruleFields.length > 0) {
+        var rules = [];
+        Array.prototype.forEach.call(card.querySelectorAll(".rule-row"), function (rowEl) {
+          var rule = {};
+          Array.prototype.forEach.call(rowEl.querySelectorAll(".rf"), function (input) {
+            rule[input.getAttribute("data-key")] = input.value.trim();
+          });
+          if (rule.keyword && rule.keyword.length > 0) rules.push(rule);
+        });
+        config[def.ruleKey] = JSON.stringify(rules);
+      }
+      out.push({
+        id: id,
+        enabled: card.querySelector(".sk-enabled").checked,
+        trigger: card.querySelector(".sk-trigger") ? card.querySelector(".sk-trigger").value.trim() : "",
+        config: config
+      });
+    });
+    return out.filter(function (s) { return s.id; });
+  }
+
+  function loadSkills() {
+    fetch("/settings.json", { cache: "no-store" })
+      .then(function (res) {
+        if (res.status === 401) { window.location.href = "/login"; return null; }
+        return res.ok ? res.json() : null;
+      })
+      .then(function (s) {
+        if (!s) return;
+        $("assistant-enabled").checked = !!(s.assistant && s.assistant.enabled);
+        $("assistant-name").value = (s.assistant && s.assistant.name) || "阿寶";
+        renderSkillList(s.skills);
+        loadHealth();
+      })
+      .catch(function () {});
+  }
+
+  function loadHealth() {
+    fetch("/skills/health", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data || !data.health) return;
+        Array.prototype.forEach.call(document.querySelectorAll(".skill-health"), function (box) {
+          var id = box.getAttribute("data-skill-id");
+          var list = data.health[id];
+          if (!list || list.length === 0) return;
+          var parts = list.map(function (h) {
+            return (h.ok ? "\u2705 " : "\u274c ") + h.name + (h.detail ? "（" + h.detail + "）" : "");
+          });
+          box.textContent = parts.join("　");
+        });
+      })
+      .catch(function () {});
+  }
+
+  $("skills-save").addEventListener("click", function () {
+    $("skills-msg").textContent = "儲存中…";
+    var payload = {
+      assistant: {
+        enabled: $("assistant-enabled").checked,
+        name: $("assistant-name").value.trim() || "阿寶"
+      },
+      skills: collectSkills()
+    };
+    fetch("/skills", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(function (res) {
+      if (res.status === 401) { window.location.href = "/login"; return null; }
+      return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, data: d }; });
+    }).then(function (r) {
+      if (!r) return;
+      $("skills-msg").textContent = r.ok ? T("saved") : ("失敗：" + (r.data.error || ""));
+    }).catch(function () { $("skills-msg").textContent = "失敗"; });
+  });
+
+  loadSkills();
+  loadInstalled();
+`;
+    return page(tr(config.language, "title_skills"), "skills", body, script);
+}
+function renderLoginHtml() {
+    const lang = config.language;
+    const shortLabels = { zh: "中", en: "EN", ja: "日" };
+    const langMenu = LANGS.map((code) => `<button type="button" class="login-lang-item${code === lang ? " active" : ""}" data-lang="${code}">${LANG_LABELS[code]}</button>`).join("");
+    const body = `
 <div class="login-center">
   <div class="glass login-card">
-    <h2 class="neon-text">LINE Webhook</h2>
-    <div class="sub">請登入以管理</div>
+    <div class="login-head">
+      <h2 class="neon-text">LINE Webhook</h2>
+      <div class="login-lang" id="login-lang">
+        <button type="button" class="login-lang-toggle" id="login-lang-toggle">${shortLabels[lang] || "中"} &#9662;</button>
+        <div class="login-lang-menu" id="login-lang-menu" hidden>${langMenu}</div>
+      </div>
+    </div>
+    <div class="sub">${tr(config.language, "login_sub")}</div>
     <form id="login-form">
-      <input id="login-user" placeholder="帳號" autocomplete="username" required>
-      <input id="login-pass" type="password" placeholder="密碼" autocomplete="current-password" required>
-      <button type="submit">登入</button>
+      <input id="login-user" placeholder="${tr(config.language, "login_user")}" autocomplete="username" required>
+      <input id="login-pass" type="password" placeholder="${tr(config.language, "login_pass")}" autocomplete="current-password" required>
+      <button type="submit">${tr(config.language, "login_submit")}</button>
       <p id="login-msg" class="msg" style="margin:12px 0 0"></p>
     </form>
   </div>
 </div>
 `;
-
-  const script = `
+    const script = `
   ${HELPERS}
+  (function () {
+    function switchLang(code) {
+      fetch("/settings/language", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lang: code })
+      }).then(function () { window.location.reload(); })
+        .catch(function () { window.location.reload(); });
+    }
+    var toggle = $("login-lang-toggle");
+    var menu = $("login-lang-menu");
+    if (toggle && menu) {
+      toggle.addEventListener("click", function (e) {
+        e.stopPropagation();
+        menu.hidden = !menu.hidden;
+      });
+      menu.addEventListener("click", function (e) { e.stopPropagation(); });
+      document.addEventListener("click", function () { menu.hidden = true; });
+    }
+    Array.prototype.forEach.call(document.querySelectorAll(".login-lang-item"), function (btn) {
+      btn.addEventListener("click", function () { switchLang(btn.getAttribute("data-lang")); });
+    });
+  })();
   $("login-form").addEventListener("submit", function (e) {
     e.preventDefault();
     $("login-msg").textContent = "登入中…";
@@ -2033,36 +2418,33 @@ function renderLoginHtml(): string {
     }).catch(function () { $("login-msg").textContent = "登入失敗"; });
   });
 `;
-  return page("登入", "", body, script, { showNav: false, showTitle: false });
+    return page(tr(config.language, "title_login"), "", body, script, { showNav: false, showTitle: false });
 }
-
 let readmeCache: string | null = null;
-
-function readmeHtml(): string {
-  if (readmeCache !== null) return readmeCache;
-  try {
-    const markdown = readFileSync("./README.md", "utf8");
-    readmeCache = marked.parse(markdown, { async: false }) as string;
-  } catch (error) {
-    readmeCache = `<p>無法讀取 README.md：${String(error)}</p>`;
-  }
-  return readmeCache;
+function readmeHtml() {
+    if (readmeCache !== null)
+        return readmeCache;
+    try {
+        const markdown = readFileSync("./README.md", "utf8");
+        readmeCache = marked.parse(markdown, { async: false });
+    }
+    catch (error) {
+        readmeCache = `<p>無法讀取 README.md：${String(error)}</p>`;
+    }
+    return readmeCache;
 }
-
-function renderReadmeHtml(): string {
-  const body = `<div class="glass md">${readmeHtml()}</div>`;
-  return page("ReadMe", "readme", body, "");
+function renderReadmeHtml() {
+    const body = `<div class="glass md">${readmeHtml()}</div>`;
+    return page("ReadMe", "readme", body, "");
 }
-
-function renderMessagesHtml(): string {
-  const body = `
+function renderMessagesHtml() {
+    const body = `
 <div class="glass glass-hover">
-<h2 style="margin-top:0">收到的訊息</h2>
-<table><thead><tr><th>時間</th><th>來源</th><th>對話</th><th>內容</th></tr></thead><tbody id="messages"></tbody></table>
+<h2 style="margin-top:0" data-i18n="title_messages">收到的訊息</h2>
+<table><thead><tr><th data-i18n="th_time">時間</th><th data-i18n="th_source">來源</th><th data-i18n="th_chat">對話</th><th data-i18n="th_content">內容</th></tr></thead><tbody id="messages"></tbody></table>
 </div>
 `;
-
-  const script = `
+    const script = `
   ${HELPERS}
   function render(data) {
     var bodyEl = $("messages");
@@ -2092,431 +2474,502 @@ function renderMessagesHtml(): string {
   refresh();
   setInterval(refresh, 5000);
 `;
-  return page("收到的訊息", "messages", body, script);
+    return page(tr(config.language, "title_messages"), "messages", body, script);
 }
-
 export function createServer(line: LineService): express.Express {
-  const app = express();
-  app.disable("x-powered-by");
-  app.set("trust proxy", true);
-
-  app.use(
-    express.json({
-      limit: `${config.maxBodyMb}mb`,
-      verify: (req, _res, buf) => {
-        (req as RawBodyRequest).rawBody = buf;
-      },
-    }),
-  );
-
-  app.get("/", (_req, res) => res.redirect("/dashboard"));
-
-  app.get("/health", (_req, res) => {
-    const ok = getState().status === "已登入";
-    res.json({ status: ok ? "ok" : "bad" });
-  });
-
-  app.get("/dashboard", statusAccess, requireSession, (_req, res) => {
-    res.type("html").send(renderDashboardHtml());
-  });
-
-  app.get("/dashboard.json", statusAccess, requireSession, (_req, res) => {
-    res.json({
-      state: getState(),
-      logs: logger.getRecent(),
-      targets: line.listTargets(),
-      queue: line.getQueueStats(),
-      scheduled: line.listScheduled(),
-      stats: getStats(),
-      messages: getMessages().slice(-50),
+    const app = express();
+    app.disable("x-powered-by");
+    app.set("trust proxy", true);
+    app.use(express.json({
+        limit: `${config.maxBodyMb}mb`,
+        verify: (req, _res, buf) => {
+            (req as RawBodyRequest).rawBody = buf;
+        },
+    }));
+    app.get("/", (_req, res) => res.redirect("/dashboard"));
+    app.get("/health", (_req, res) => {
+        const ok = getState().status === "已登入";
+        res.json({ status: ok ? "ok" : "bad" });
     });
-  });
-
-  app.get("/status", statusAccess, requireSession, (_req, res) => {
-    res.type("html").send(renderStatusHtml());
-  });
-
-  app.get("/status.json", statusAccess, requireSession, (_req, res) => {
-    res.json({
-      state: getState(),
-      logs: logger.getRecent(),
-      targets: line.listTargets(),
-      queue: line.getQueueStats(),
-      scheduled: line.listScheduled(),
+    app.get("/dashboard", statusAccess, requireSession, (_req, res) => {
+        res.type("html").send(renderDashboardHtml());
     });
-  });
-
-  app.get("/status/qr", statusAccess, requireSession, async (_req, res) => {
-    const { qrUrl } = getState();
-    if (!qrUrl) {
-      res.status(404).send("no qr");
-      return;
-    }
-    try {
-      const buffer = await QRCode.toBuffer(qrUrl, { width: 360, margin: 1 });
-      res.set("Cache-Control", "no-store");
-      res.type("png").send(buffer);
-    } catch {
-      res.status(500).send("qr error");
-    }
-  });
-
-  app.get("/login", statusAccess, (req, res) => {
-    if (hasSession(req)) {
-      res.redirect("/dashboard");
-      return;
-    }
-    res.type("html").send(renderLoginHtml());
-  });
-
-  app.post("/login", statusAccess, (req, res) => {
-    const body = req.body as { user?: unknown; pass?: unknown } | undefined;
-    const user = typeof body?.user === "string" ? body.user : "";
-    const pass = typeof body?.pass === "string" ? body.pass : "";
-    if (!verifyCredentials(user, pass)) {
-      logger.warn("登入失敗", { ip: req.ip });
-      res.status(401).json({ ok: false, error: "帳號或密碼錯誤" });
-      return;
-    }
-    createSession(req, res);
-    logger.info("登入成功", { ip: req.ip });
-    res.json({ ok: true });
-  });
-
-  // 舊路徑已移除：/settings/login、/settings/logout
-
-  app.post("/logout", (req, res) => {
-    destroySession(req, res);
-    res.json({ ok: true });
-  });
-
-  // 檢查 session 是否有效（不續期，供前端偵測逾時與同步倒數）
-  app.get("/settings/session", statusAccess, (req, res) => {
-    const remainingMs = sessionRemainingMs(req, false);
-    if (remainingMs !== null) {
-      res.json({ ok: true, remainingMs });
-      return;
-    }
-    res.status(401).json({ ok: false, error: "需要登入" });
-  });
-
-  // 使用者有操作時續期
-  app.post("/settings/touch", statusAccess, (req, res) => {
-    const remainingMs = sessionRemainingMs(req, true);
-    if (remainingMs !== null) {
-      res.json({ ok: true, remainingMs });
-      return;
-    }
-    res.status(401).json({ ok: false, error: "需要登入" });
-  });
-
-  app.get("/console", statusAccess, requireSession, (_req, res) => {
-    res.type("html").send(renderConsoleHtml());
-  });
-
-  app.get("/settings", statusAccess, requireSession, (_req, res) => {
-    res.type("html").send(renderSettingsHtml());
-  });
-
-  app.get("/readme", statusAccess, requireSession, (_req, res) => {
-    res.type("html").send(renderReadmeHtml());
-  });
-
-  app.get("/messages", statusAccess, requireSession, (_req, res) => {
-    res.type("html").send(renderMessagesHtml());
-  });
-
-  app.get("/messages.json", statusAccess, requireSession, (_req, res) => {
-    res.json({ messages: getMessages() });
-  });
-
-  app.get("/settings.json", statusAccess, requireSession, (_req, res) => {
-    res.json(currentSettings());
-  });
-
-  app.get("/settings/export", statusAccess, requireSession, (_req, res) => {
-    const data = currentSettings();
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="linehook-settings-${Date.now()}.json"`,
-    );
-    res.type("application/json").send(JSON.stringify(data, null, 2));
-  });
-
-  app.post("/settings/import", statusAccess, requireSession, (req, res) => {
-    try {
-      const body = asRecord(req.body) ?? {};
-      const incoming = body.settings ?? req.body;
-      const saved = saveSettings(incoming);
-      reloadMessages();
-      logger.info("已匯入設定", { ip: req.ip });
-      res.json({ ok: true, settings: saved });
-    } catch (error) {
-      res.status(400).json({
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  });
-
-  app.post("/settings", statusAccess, requireSession, (req, res) => {
-    try {
-      const saved = saveSettings(req.body);
-      reloadMessages();
-      res.json({ ok: true, settings: saved });
-    } catch (error) {
-      res.status(400).json({
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  });
-
-  app.post("/settings/password", statusAccess, requireSession, (req, res) => {
-    const body = asRecord(req.body) ?? {};
-    const current = typeof body.current === "string" ? body.current : "";
-    const next = typeof body.next === "string" ? body.next : "";
-    const result = changePassword(current, next);
-    if (!result.ok) {
-      res.status(400).json({ ok: false, error: result.error ?? "變更失敗" });
-      return;
-    }
-    res.json({ ok: true });
-  });
-
-  app.post(
-    "/settings/upload",
-    statusAccess,
-    requireSession,
-    express.raw({ type: "*/*", limit: `${config.maxBodyMb}mb` }),
-    (req, res) => {
-      const name =
-        decodeURIComponent(String(req.header("x-filename") ?? "upload")).trim() || "upload";
-      const data = Buffer.isBuffer(req.body) ? req.body : (req as RawBodyRequest).rawBody;
-      if (!data || data.length === 0) {
-        res.status(400).json({ ok: false, error: "沒有收到檔案內容" });
-        return;
-      }
-      try {
-        mkdirSync(config.uploadsPath, { recursive: true });
-        const safe = basename(name).replace(/[^\w.\-]+/g, "_") || "upload.bin";
-        const stored = `${Date.now()}-${safe}`;
-        const fullPath = resolve(config.uploadsPath, stored);
-        writeFileSync(fullPath, data);
-        logger.info("已上傳檔案", { file: stored, bytes: data.length });
-        res.json({ ok: true, path: fullPath, filename: safe, bytes: data.length });
-      } catch (error) {
-        res.status(500).json({ ok: false, error: `儲存失敗：${String(error)}` });
-      }
-    },
-  );
-
-  app.post("/settings/relogin", statusAccess, requireSession, (_req, res) => {
-    logger.info("手動觸發重新登入");
-    void line.recover();
-    res.json({ ok: true });
-  });
-
-  app.post("/settings/refresh", statusAccess, requireSession, async (_req, res) => {
-    try {
-      await line.refreshContacts();
-      res.json({ ok: true });
-    } catch (error) {
-      sendError(res, error);
-    }
-  });
-
-  app.post("/settings/test", statusAccess, requireSession, async (req, res) => {
-    const body = asRecord(req.body) ?? {};
-    const to = typeof body.to === "string" ? body.to.trim() : "";
-    if (!to) {
-      res.status(400).json({ ok: false, error: "to 必填" });
-      return;
-    }
-
-    const parsed = resolveInputs({ ...body, to }, [to]);
-    if ("error" in parsed) {
-      res.status(400).json({ ok: false, error: parsed.error });
-      return;
-    }
-
-    const { runAt, error: runAtError } = resolveRunAt(body);
-    if (runAtError) {
-      res.status(400).json({ ok: false, error: runAtError });
-      return;
-    }
-    const repeat = typeof body.repeat === "string" ? body.repeat.trim() : "";
-
-    try {
-      if (runAt !== undefined) {
-        const job = line.schedule(parsed, runAt, repeat || undefined);
-        res.json({ ok: true, scheduled: true, id: job.id, runAt: job.runAt, repeat: job.repeat });
-        return;
-      }
-      await line.sendAdvanced(parsed);
-      res.json({ ok: true });
-    } catch (error) {
-      sendError(res, error);
-    }
-  });
-
-  app.post("/settings/scheduled/cancel", statusAccess, requireSession, (req, res) => {
-    const body = asRecord(req.body) ?? {};
-    const id = typeof body.id === "string" ? body.id : "";
-    if (!id || !line.cancelScheduled(id)) {
-      res.status(404).json({ ok: false, error: "找不到排程" });
-      return;
-    }
-    res.json({ ok: true });
-  });
-
-  app.post("/settings/scheduled/update", statusAccess, requireSession, (req, res) => {
-    const body = asRecord(req.body) ?? {};
-    const id = typeof body.id === "string" ? body.id : "";
-    if (!id) {
-      res.status(400).json({ ok: false, error: "id 必填" });
-      return;
-    }
-
-    const patch: { runAt?: number; repeat?: string | null } = {};
-    if (body.delaySec !== undefined && body.delaySec !== null && body.delaySec !== "") {
-      const seconds = Number(body.delaySec);
-      if (!Number.isFinite(seconds) || seconds < 0) {
-        res.status(400).json({ ok: false, error: "delaySec 必須是非負數（秒）" });
-        return;
-      }
-      patch.runAt = Date.now() + seconds * 1000;
-    } else if (body.sendAt !== undefined && body.sendAt !== null && body.sendAt !== "") {
-      const resolved = resolveRunAt({ sendAt: body.sendAt });
-      if (resolved.error || resolved.runAt === undefined) {
-        res.status(400).json({ ok: false, error: resolved.error ?? "sendAt 無效" });
-        return;
-      }
-      patch.runAt = resolved.runAt;
-    }
-    if (body.repeat !== undefined) {
-      const repeat = typeof body.repeat === "string" ? body.repeat.trim() : "";
-      patch.repeat = repeat || null;
-    }
-
-    try {
-      const job = line.updateScheduled(id, patch);
-      if (!job) {
-        res.status(404).json({ ok: false, error: "找不到排程" });
-        return;
-      }
-      res.json({ ok: true, job });
-    } catch (error) {
-      res.status(400).json({
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  });
-
-  app.post("/webhook", ipGuard, rateLimit, verifyWebhookAuth, async (req, res) => {
-    const body = asRecord(req.body) ?? {};
-
-    const targets = parseTargets(body.to);
-    const allowedExtraTo =
-      Array.isArray(body.messages) &&
-      (body.messages as unknown[]).every((item) => {
-        const record = asRecord(item);
-        return record && typeof record.to === "string" && record.to.trim();
-      });
-
-    if (targets.length === 0 && !allowedExtraTo) {
-      res.status(400).json({ ok: false, error: "to 必填（字串或字串陣列）" });
-      return;
-    }
-
-    const resolved = resolveInputs(body, targets);
-    if ("error" in resolved) {
-      res.status(400).json({ ok: false, error: resolved.error });
-      return;
-    }
-    const inputs = resolved;
-
-    const { runAt, error: runAtError } = resolveRunAt(body);
-    if (runAtError) {
-      res.status(400).json({ ok: false, error: runAtError });
-      return;
-    }
-    const repeat = typeof body.repeat === "string" ? body.repeat.trim() : "";
-
-    const dedupKey =
-      typeof req.header("x-idempotency-key") === "string"
-        ? (req.header("x-idempotency-key") as string).trim()
-        : "";
-    if (dedupKey && isDuplicateIdempotency(dedupKey)) {
-      logger.info("重複的 idempotency key，略過", { ip: req.ip, dedupKey });
-      res.json({ ok: true, duplicate: true });
-      return;
-    }
-
-    try {
-      if (runAt !== undefined) {
-        const job = line.schedule(inputs, runAt, repeat || undefined);
-        if (dedupKey) markIdempotency(dedupKey);
-        logger.info("訊息已排程", {
-          ip: req.ip,
-          count: inputs.length,
-          runAt: job.runAt,
-          repeat: job.repeat,
-        });
+    app.get("/dashboard.json", statusAccess, requireSession, (_req, res) => {
         res.json({
-          ok: true,
-          scheduled: true,
-          id: job.id,
-          runAt: job.runAt,
-          repeat: job.repeat,
-          count: inputs.length,
+            state: getState(),
+            logs: logger.getRecent(),
+            targets: line.listTargets(),
+            queue: line.getQueueStats(),
+            scheduled: line.listScheduled(),
+            stats: getStats(),
+            messages: getMessages().slice(-50),
         });
-        return;
-      }
-
-      await line.sendAdvanced(inputs);
-      if (dedupKey) markIdempotency(dedupKey);
-      logger.info("訊息已轉發", { ip: req.ip, count: inputs.length });
-      res.json({ ok: true, count: inputs.length });
-    } catch (error) {
-      logger.error("轉發失敗", {
-        ip: req.ip,
-        targets,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      sendError(res, error);
-    }
-  });
-
-  const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
-    const status =
-      typeof err?.status === "number"
-        ? err.status
-        : typeof err?.statusCode === "number"
-          ? err.statusCode
-          : 500;
-
-    if (status >= 400 && status < 500) {
-      logger.warn("請求錯誤", {
-        ip: req.ip,
-        path: req.path,
-        status,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      const message = err?.type === "entity.parse.failed" ? "JSON 格式錯誤" : "請求格式錯誤";
-      res.status(status).json({ ok: false, error: message });
-      return;
-    }
-
-    logger.error("未處理的錯誤", {
-      ip: req.ip,
-      path: req.path,
-      error: err instanceof Error ? err.message : String(err),
     });
-    res.status(500).json({ ok: false, error: "內部錯誤" });
-  };
-  app.use(errorHandler);
-
-  return app;
+    app.get("/status.json", statusAccess, requireSession, (_req, res) => {
+        res.json({
+            state: getState(),
+            logs: logger.getRecent(),
+            targets: line.listTargets(),
+            queue: line.getQueueStats(),
+            scheduled: line.listScheduled(),
+        });
+    });
+    app.get("/status/qr", statusAccess, requireSession, async (_req, res) => {
+        const { qrUrl } = getState();
+        if (!qrUrl) {
+            res.status(404).send("no qr");
+            return;
+        }
+        try {
+            const buffer = await QRCode.toBuffer(qrUrl, { width: 360, margin: 1 });
+            res.set("Cache-Control", "no-store");
+            res.type("png").send(buffer);
+        }
+        catch {
+            res.status(500).send("qr error");
+        }
+    });
+    app.get("/login", statusAccess, (req, res) => {
+        if (hasSession(req)) {
+            res.redirect("/dashboard");
+            return;
+        }
+        res.type("html").send(renderLoginHtml());
+    });
+    app.post("/login", statusAccess, (req, res) => {
+        const body = req.body;
+        const user = typeof body?.user === "string" ? body.user : "";
+        const pass = typeof body?.pass === "string" ? body.pass : "";
+        if (!verifyCredentials(user, pass)) {
+            logger.warn("登入失敗", { ip: req.ip });
+            res.status(401).json({ ok: false, error: "帳號或密碼錯誤" });
+            return;
+        }
+        createSession(req, res);
+        logger.info("登入成功", { ip: req.ip });
+        res.json({ ok: true });
+    });
+    // 舊路徑已移除：/settings/login、/settings/logout
+    app.post("/logout", (req, res) => {
+        destroySession(req, res);
+        res.json({ ok: true });
+    });
+    // 檢查 session 是否有效（不續期，供前端偵測逾時與同步倒數）
+    app.get("/settings/session", statusAccess, (req, res) => {
+        const remainingMs = sessionRemainingMs(req, false);
+        if (remainingMs !== null) {
+            res.json({ ok: true, remainingMs });
+            return;
+        }
+        res.status(401).json({ ok: false, error: "需要登入" });
+    });
+    // 使用者有操作時續期
+    app.post("/settings/touch", statusAccess, (req, res) => {
+        const remainingMs = sessionRemainingMs(req, true);
+        if (remainingMs !== null) {
+            res.json({ ok: true, remainingMs });
+            return;
+        }
+        res.status(401).json({ ok: false, error: "需要登入" });
+    });
+    app.get("/console", statusAccess, requireSession, (_req, res) => {
+        res.type("html").send(renderConsoleHtml());
+    });
+    app.get("/skills", statusAccess, requireSession, (_req, res) => {
+        res.type("html").send(renderSkillsHtml());
+    });
+    app.get("/skills/health", statusAccess, requireSession, async (_req, res) => {
+        const result: Record<string, Array<{ name: string; ok: boolean; detail?: string }>> = {};
+        await Promise.all(listSkills().map(async (skill) => {
+            if (!skill.health)
+                return;
+            try {
+                result[skill.id] = await skill.health();
+            }
+            catch (error) {
+                result[skill.id] = [{ name: "health", ok: false, detail: String(error) }];
+            }
+        }));
+        res.json({ health: result });
+    });
+    app.post("/skills/llm/models", statusAccess, requireSession, async (req, res) => {
+        const body = asRecord(req.body) ?? {};
+        const raw: Record<string, string> = {};
+        for (const [k, v] of Object.entries(body))
+            if (typeof v === "string")
+                raw[k] = v;
+        try {
+            const cfg = llmConfigFrom(raw);
+            const models = await listModels(cfg);
+            res.json({ ok: true, models });
+        }
+        catch (error) {
+            res.status(400).json({
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    });
+    app.get("/skills/installed.json", statusAccess, requireSession, (_req, res) => {
+        res.json({
+            installed: listInstalled(),
+            builtin: listSkills()
+                .filter((s) => isBuiltinSkill(s.id))
+                .map((s) => ({ id: s.id, name: s.name })),
+        });
+    });
+    app.post("/skills/install", statusAccess, requireSession, express.raw({ type: "*/*", limit: `${config.maxBodyMb}mb` }), async (req, res) => {
+        const data = Buffer.isBuffer(req.body) ? req.body : (req as RawBodyRequest).rawBody;
+        if (!data || data.length === 0) {
+            res.status(400).json({ ok: false, error: "沒有收到檔案內容" });
+            return;
+        }
+        try {
+            const result = await installZip(data);
+            res.json({ ok: true, ...result });
+        }
+        catch (error) {
+            res.status(400).json({
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    });
+    app.post("/skills/uninstall", statusAccess, requireSession, async (req, res) => {
+        const body = asRecord(req.body) ?? {};
+        const id = typeof body.id === "string" ? body.id : "";
+        if (!id) {
+            res.status(400).json({ ok: false, error: "id 必填" });
+            return;
+        }
+        const removed = await uninstallSkill(id);
+        if (!removed) {
+            res.status(404).json({ ok: false, error: "找不到技能" });
+            return;
+        }
+        res.json({ ok: true });
+    });
+    app.post("/skills", statusAccess, requireSession, (req, res) => {
+        try {
+            const body = asRecord(req.body) ?? {};
+            const assistant = asRecord(body.assistant);
+            const skills = Array.isArray(body.skills) ? body.skills : [];
+            const current = currentSettings();
+            const saved = saveSettings({
+                ...current,
+                assistant: assistant
+                    ? {
+                        enabled: assistant.enabled === true,
+                        name: typeof assistant.name === "string" && assistant.name.trim() ? assistant.name.trim() : "阿寶",
+                    }
+                    : current.assistant,
+                skills: skills.map((item: unknown) => {
+                    const s = asRecord(item) ?? {};
+                    const config = asRecord(s.config) ?? {};
+                    const configOut: Record<string, string> = {};
+                    for (const [k, v] of Object.entries(config))
+                        configOut[k] = String(v ?? "");
+                    return {
+                        id: typeof s.id === "string" ? s.id : "",
+                        enabled: s.enabled === true,
+                        trigger: typeof s.trigger === "string" ? s.trigger : "",
+                        config: configOut,
+                    };
+                }),
+            });
+            res.json({ ok: true, assistant: saved.assistant, skills: saved.skills });
+        }
+        catch (error) {
+            res.status(400).json({
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    });
+    app.get("/settings", statusAccess, requireSession, (_req, res) => {
+        res.type("html").send(renderSettingsHtml());
+    });
+    app.get("/readme", statusAccess, requireSession, (_req, res) => {
+        res.type("html").send(renderReadmeHtml());
+    });
+    app.get("/messages", statusAccess, requireSession, (_req, res) => {
+        res.type("html").send(renderMessagesHtml());
+    });
+    app.get("/messages.json", statusAccess, requireSession, (_req, res) => {
+        res.json({ messages: getMessages() });
+    });
+    app.get("/settings.json", statusAccess, requireSession, (_req, res) => {
+        res.json(currentSettings());
+    });
+    app.get("/settings/export", statusAccess, requireSession, (_req, res) => {
+        const data = currentSettings();
+        res.setHeader("Content-Disposition", `attachment; filename="linehook-settings-${Date.now()}.json"`);
+        res.type("application/json").send(JSON.stringify(data, null, 2));
+    });
+    app.post("/settings/import", statusAccess, requireSession, (req, res) => {
+        try {
+            const body = asRecord(req.body) ?? {};
+            const incoming = body.settings ?? req.body;
+            const saved = saveSettings(incoming);
+            reloadMessages();
+            logger.info("已匯入設定", { ip: req.ip });
+            res.json({ ok: true, settings: saved });
+        }
+        catch (error) {
+            res.status(400).json({
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    });
+    app.post("/settings", statusAccess, requireSession, (req, res) => {
+        try {
+            const saved = saveSettings(req.body);
+            reloadMessages();
+            res.json({ ok: true, settings: saved });
+        }
+        catch (error) {
+            res.status(400).json({
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    });
+    app.post("/settings/language", statusAccess, (req, res) => {
+        const body = asRecord(req.body) ?? {};
+        if (!isLang(body.lang)) {
+            res.status(400).json({ ok: false, error: "unsupported language" });
+            return;
+        }
+        try {
+            saveSettings({ ...currentSettings(), language: body.lang });
+            res.json({ ok: true, language: body.lang });
+        }
+        catch (error) {
+            res.status(500).json({ ok: false, error: String(error) });
+        }
+    });
+    app.post("/settings/password", statusAccess, requireSession, (req, res) => {
+        const body = asRecord(req.body) ?? {};
+        const current = typeof body.current === "string" ? body.current : "";
+        const next = typeof body.next === "string" ? body.next : "";
+        const result = changePassword(current, next);
+        if (!result.ok) {
+            res.status(400).json({ ok: false, error: result.error ?? "變更失敗" });
+            return;
+        }
+        res.json({ ok: true });
+    });
+    app.post("/settings/upload", statusAccess, requireSession, express.raw({ type: "*/*", limit: `${config.maxBodyMb}mb` }), (req, res) => {
+        const name = decodeURIComponent(String(req.header("x-filename") ?? "upload")).trim() || "upload";
+        const data = Buffer.isBuffer(req.body) ? req.body : (req as RawBodyRequest).rawBody;
+        if (!data || data.length === 0) {
+            res.status(400).json({ ok: false, error: "沒有收到檔案內容" });
+            return;
+        }
+        try {
+            mkdirSync(config.uploadsPath, { recursive: true });
+            const safe = basename(name).replace(/[^\w.\-]+/g, "_") || "upload.bin";
+            const stored = `${Date.now()}-${safe}`;
+            const fullPath = resolve(config.uploadsPath, stored);
+            writeFileSync(fullPath, data);
+            logger.info("已上傳檔案", { file: stored, bytes: data.length });
+            res.json({ ok: true, path: fullPath, filename: safe, bytes: data.length });
+        }
+        catch (error) {
+            res.status(500).json({ ok: false, error: `儲存失敗：${String(error)}` });
+        }
+    });
+    app.post("/settings/relogin", statusAccess, requireSession, (_req, res) => {
+        logger.info("手動觸發重新登入");
+        void line.recover();
+        res.json({ ok: true });
+    });
+    app.post("/settings/refresh", statusAccess, requireSession, async (_req, res) => {
+        try {
+            await line.refreshContacts();
+            res.json({ ok: true });
+        }
+        catch (error) {
+            sendError(res, error);
+        }
+    });
+    app.post("/settings/test", statusAccess, requireSession, async (req, res) => {
+        const body = asRecord(req.body) ?? {};
+        const to = typeof body.to === "string" ? body.to.trim() : "";
+        if (!to) {
+            res.status(400).json({ ok: false, error: "to 必填" });
+            return;
+        }
+        const parsed = resolveInputs({ ...body, to }, [to]);
+        if ("error" in parsed) {
+            res.status(400).json({ ok: false, error: parsed.error });
+            return;
+        }
+        const { runAt, error: runAtError } = resolveRunAt(body);
+        if (runAtError) {
+            res.status(400).json({ ok: false, error: runAtError });
+            return;
+        }
+        const repeat = typeof body.repeat === "string" ? body.repeat.trim() : "";
+        try {
+            if (runAt !== undefined) {
+                const job = line.schedule(parsed, runAt, repeat || undefined);
+                res.json({ ok: true, scheduled: true, id: job.id, runAt: job.runAt, repeat: job.repeat });
+                return;
+            }
+            await line.sendAdvanced(parsed);
+            res.json({ ok: true });
+        }
+        catch (error) {
+            sendError(res, error);
+        }
+    });
+    app.post("/settings/scheduled/cancel", statusAccess, requireSession, (req, res) => {
+        const body = asRecord(req.body) ?? {};
+        const id = typeof body.id === "string" ? body.id : "";
+        if (!id || !line.cancelScheduled(id)) {
+            res.status(404).json({ ok: false, error: "找不到排程" });
+            return;
+        }
+        res.json({ ok: true });
+    });
+    app.post("/settings/scheduled/update", statusAccess, requireSession, (req, res) => {
+        const body = asRecord(req.body) ?? {};
+        const id = typeof body.id === "string" ? body.id : "";
+        if (!id) {
+            res.status(400).json({ ok: false, error: "id 必填" });
+            return;
+        }
+        const patch: { runAt?: number; repeat?: string | null } = {};
+        if (body.delaySec !== undefined && body.delaySec !== null && body.delaySec !== "") {
+            const seconds = Number(body.delaySec);
+            if (!Number.isFinite(seconds) || seconds < 0) {
+                res.status(400).json({ ok: false, error: "delaySec 必須是非負數（秒）" });
+                return;
+            }
+            patch.runAt = Date.now() + seconds * 1000;
+        }
+        else if (body.sendAt !== undefined && body.sendAt !== null && body.sendAt !== "") {
+            const resolved = resolveRunAt({ sendAt: body.sendAt });
+            if (resolved.error || resolved.runAt === undefined) {
+                res.status(400).json({ ok: false, error: resolved.error ?? "sendAt 無效" });
+                return;
+            }
+            patch.runAt = resolved.runAt;
+        }
+        if (body.repeat !== undefined) {
+            const repeat = typeof body.repeat === "string" ? body.repeat.trim() : "";
+            patch.repeat = repeat || null;
+        }
+        try {
+            const job = line.updateScheduled(id, patch);
+            if (!job) {
+                res.status(404).json({ ok: false, error: "找不到排程" });
+                return;
+            }
+            res.json({ ok: true, job });
+        }
+        catch (error) {
+            res.status(400).json({
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    });
+    app.post("/webhook", ipGuard, rateLimit, verifyWebhookAuth, async (req, res) => {
+        const body = asRecord(req.body) ?? {};
+        const targets = parseTargets(body.to);
+        const allowedExtraTo = Array.isArray(body.messages) &&
+            body.messages.every((item: unknown) => {
+                const record = asRecord(item);
+                return record && typeof record.to === "string" && record.to.trim();
+            });
+        if (targets.length === 0 && !allowedExtraTo) {
+            res.status(400).json({ ok: false, error: "to 必填（字串或字串陣列）" });
+            return;
+        }
+        const resolved = resolveInputs(body, targets);
+        if ("error" in resolved) {
+            res.status(400).json({ ok: false, error: resolved.error });
+            return;
+        }
+        const inputs = resolved;
+        const { runAt, error: runAtError } = resolveRunAt(body);
+        if (runAtError) {
+            res.status(400).json({ ok: false, error: runAtError });
+            return;
+        }
+        const repeat = typeof body.repeat === "string" ? body.repeat.trim() : "";
+        const dedupKey = typeof req.header("x-idempotency-key") === "string"
+            ? (req.header("x-idempotency-key") as string).trim()
+            : "";
+        if (dedupKey && isDuplicateIdempotency(dedupKey)) {
+            logger.info("重複的 idempotency key，略過", { ip: req.ip, dedupKey });
+            res.json({ ok: true, duplicate: true });
+            return;
+        }
+        try {
+            if (runAt !== undefined) {
+                const job = line.schedule(inputs, runAt, repeat || undefined);
+                if (dedupKey)
+                    markIdempotency(dedupKey);
+                logger.info("訊息已排程", {
+                    ip: req.ip,
+                    count: inputs.length,
+                    runAt: job.runAt,
+                    repeat: job.repeat,
+                });
+                res.json({
+                    ok: true,
+                    scheduled: true,
+                    id: job.id,
+                    runAt: job.runAt,
+                    repeat: job.repeat,
+                    count: inputs.length,
+                });
+                return;
+            }
+            await line.sendAdvanced(inputs);
+            if (dedupKey)
+                markIdempotency(dedupKey);
+            logger.info("訊息已轉發", { ip: req.ip, count: inputs.length });
+            res.json({ ok: true, count: inputs.length });
+        }
+        catch (error) {
+            logger.error("轉發失敗", {
+                ip: req.ip,
+                targets,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            sendError(res, error);
+        }
+    });
+    const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
+        const status = typeof err?.status === "number"
+            ? err.status
+            : typeof err?.statusCode === "number"
+                ? err.statusCode
+                : 500;
+        if (status >= 400 && status < 500) {
+            logger.warn("請求錯誤", {
+                ip: req.ip,
+                path: req.path,
+                status,
+                error: err instanceof Error ? err.message : String(err),
+            });
+            const message = err?.type === "entity.parse.failed" ? "JSON 格式錯誤" : "請求格式錯誤";
+            res.status(status).json({ ok: false, error: message });
+            return;
+        }
+        logger.error("未處理的錯誤", {
+            ip: req.ip,
+            path: req.path,
+            error: err instanceof Error ? err.message : String(err),
+        });
+        res.status(500).json({ ok: false, error: "內部錯誤" });
+    };
+    app.use(errorHandler);
+    return app;
 }
+//# sourceMappingURL=server.js.map

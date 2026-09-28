@@ -11,10 +11,10 @@
 - Webhook 接收 `{ to, text }` 並轉發到指定好友 / 群組；支援**多訊息類型**（`text` / `file` / `image` / `sticker` / `location` / `flex`）、**訊息模板 + 變數**（`template` / `vars`）、**排程 / 延遲發送**（`sendAt` / `delaySec`）與**多收件人**（`to` 陣列）
 - **發送佇列**：序列化發送、最小間隔節流、失敗自動退避重試
 - 來源 IP 白名單 + HMAC-SHA256 簽章（含 timestamp / nonce 防重放）+ 速率限制 + **idempotency 去重**（`X-Idempotency-Key`）
-- **管理頁面一律需登入**（`/dashboard`、`/status`、`/console`、`/settings`、`/messages`、`/readme`），閒置 5 分鐘自動登出並導回登入頁；側欄底部為使用者圓形按鈕（顯示帳號首字，上方顯示**閒置登出倒數**），點擊可**登出**或**變更密碼**
+- **管理頁面一律需登入**（`/dashboard`、`/console`、`/skills`、`/settings`、`/messages`、`/readme`），閒置 5 分鐘自動登出並導回登入頁；側欄底部為使用者圓形按鈕（顯示帳號首字，上方顯示**閒置登出倒數**），點擊可**登出**或**變更密碼**；側欄可切換**語言（中文 / English / 日本語）**
 - **儀表板 `/dashboard`**（登入後首頁）：發送統計（總數 / 成功 / 失敗 / 成功率、近 N 日長條圖、類型分佈）、狀態摘要（登入狀態、QR/PIN、好友數、佇列、最後發送…）、最近紀錄
-- **狀態頁 `/status`**：登入狀態、QR / PIN、摘要（好友數、佇列、最後發送…）
 - **功能頁 `/console`**：左側「功能」卡片（測試發送含媒體上傳、目標清單、最近紀錄、排程中的訊息可改變時間 / 取消）與「操作」（LINE 重新登入 / 重新整理聯絡人）
+- **技能頁 `/skills`**：啟用助理與名稱、每個技能（資料夾）一張卡片可 enable/disable 與設定參數
 - **設定頁 `/settings`**：左側設定卡片，**線上編輯設定**（存於 `settings.json`，立即生效）
 - **訊息頁 `/messages`**：記錄收到的訊息（唯讀瀏覽；可選持久化到檔案）
 - **關鍵字自動回覆**：收到訊息且內容與關鍵字「完全相符」時，自動回覆文字與／或檔案，含**每聊天冷卻**（於 `/settings` 設定）
@@ -74,6 +74,8 @@ npm run typecheck
 | `MAX_BODY_MB` | `25` | 請求 body 大小上限（MB） |
 | `STATUS_USER` / `STATUS_PASS` | 空 | 設定頁登入帳密（一律需要登入；留空會自動產生臨時密碼並顯示於 console） |
 | `AUTH_PATH` | `./data/auth.json` | 於網頁「變更密碼」後，新密碼（scrypt 雜湊）儲存位置；存在時覆蓋 `STATUS_USER` / `STATUS_PASS` |
+| `LANGUAGE` | `zh` | 介面語言初始值（`zh` / `en` / `ja`）；之後可在側欄切換，存於 `settings.json` |
+| `TIMEZONE` | `Asia/Taipei` | IANA 時區；影響 log 時間與技能（如「今天」判斷），可在 `/settings` 修改 |
 
 ### `/settings` 可線上修改
 
@@ -89,7 +91,7 @@ npm run typecheck
 
 ### 只讓 webhook 對外、管理頁面限內網
 
-想要「`/webhook` 公開給外部服務打、但 `/status` `/console` `/settings` `/messages` `/readme` 只能內網開」時：
+想要「`/webhook` 公開給外部服務打、但 `/dashboard` `/console` `/settings` `/messages` `/readme` 只能內網開」時：
 
 - `ALLOWED_IPS` 留空（webhook 不限制來源）
 - 勾選 `/settings` 的「僅限私人 IP 存取管理頁面」（或 `.env` 設 `ADMIN_PRIVATE_ONLY=true`）
@@ -241,10 +243,11 @@ curl -sS -X POST "http://localhost:8090/webhook" \
 | `GET /` | 導向 `/dashboard` |
 | `GET /dashboard` | 儀表板（需登入）：發送統計、狀態摘要、最近紀錄 |
 | `GET /dashboard.json` | 儀表板 JSON（需登入） |
-| `GET /status` | 狀態頁（需登入）：登入狀態、QR / PIN、摘要 |
 | `GET /status.json` | 狀態 / log / 目標 / 佇列 / 排程 JSON（需登入） |
 | `GET /status/qr` | 目前登入 QR 的 PNG 圖（需登入） |
 | `GET /console` | 功能頁（需登入）：測試發送、目標清單、最近紀錄、排程中的訊息 |
+| `GET /skills` | 技能頁（需登入）：啟用助理、各技能設定 |
+| `POST /skills` | 儲存助理與技能設定（需登入），body `{ assistant, skills }` |
 | `GET /settings` | 設定頁（需登入）：左側設定卡片 + 設定表單 |
 | `GET /login` | 登入畫面（無導覽列） |
 | `POST /login` | 登入，body `{ user, pass }`，成功設定 session cookie（閒置 5 分鐘） |
@@ -256,6 +259,7 @@ curl -sS -X POST "http://localhost:8090/webhook" \
 | `POST /settings/import` | 匯入設定（需登入），body `{ settings }` 或設定 JSON |
 | `POST /settings` | 儲存設定（需登入，body = 設定 JSON） |
 | `POST /settings/password` | 變更登入密碼（需登入），body `{ current, next }`；新密碼以 scrypt 雜湊存至 `AUTH_PATH` |
+| `POST /settings/language` | 切換介面語言（需登入），body `{ lang }`（`zh` / `en` / `ja`） |
 | `POST /settings/relogin` | 手動觸發重新登入（需登入） |
 | `POST /settings/refresh` | 重新整理好友 / 群組清單（需登入） |
 | `POST /settings/test` | 測試發送（需登入），body `{ to, text, file, image, video, audio, filename, sticker?, location?, flex?, sendAt?, delaySec?, repeat? }` |
@@ -315,6 +319,117 @@ curl -sS -X POST "http://localhost:8090/webhook" \
   - `!status`：登入狀態、好友 / 群組數、排程、佇列
   - `!id`：顯示目前 chat 與自己的 mid
   - `!send <對象> <訊息>`：透過本帳號發送訊息
+
+## 技能（Skills）
+
+技能是可插拔的子專案，**每個技能是一個資料夾**，放在 `src/skills/<id>/index.ts`，並以 `export default` 匯出 `SkillDefinition`。系統啟動時會掃描 `src/skills/` 下的資料夾並動態載入；**資料夾不存在或載入失敗，該技能就不會被載入**（不會報錯中斷）。
+
+在 `/skills` 頁面（頂層導覽，非設定子選單）：
+
+- **啟用助理**：開啟後才會處理需前綴的技能呼叫。
+- **助理名稱**：預設「阿寶」，可自訂。
+- **每個技能一張卡片**：
+  - **未啟用的技能會收合**成一張小卡（只顯示名稱與說明），勾選「啟用」才展開設定。
+  - 需要參數的技能可填寫欄位；欄位型別支援文字、密碼、下拉、以及**檔案上傳**（上傳後自動填入伺服器路徑）。
+  - 需要多筆規則的技能（如關鍵字自動回覆）提供**規則列編輯器**：可「新增規則 / 刪除規則」，逐欄填寫，不需手寫 JSON。
+- 技能卡片由載入到的資料夾自動產生（無法載入的技能不會出現）。
+
+觸發格式：`<助理名稱>請幫忙 <觸發詞> <參數>`（「請幫忙 / 請幫 / 幫忙 / 麻煩 / 幫我 / 幫」皆可省略）。
+技能可設定 `triggerMode`：`assistant`（預設，需前綴呼叫）或 `any`（每則訊息都呼叫，如關鍵字自動回覆）。
+技能可用 `fields` 宣告參數欄位（支援 `text`/`password`/`textarea`/`select`/`file`），或用 `ruleFields` + `ruleKey` 宣告可重複的規則編輯器。
+執行順序：`LINE 指令` → `技能` → `轉發規則`。
+
+### 新增一個技能
+
+1. 建立資料夾 `src/skills/myskill/`，新增 `index.ts`：
+
+```ts
+import type { SkillDefinition } from "../types.js";
+
+const skill: SkillDefinition = {
+  id: "myskill",
+  name: "我的技能",
+  description: "說明",
+  defaultTrigger: "查",
+  fields: [], // 需要使用者填的參數欄位
+  async run(ctx) {
+    await ctx.reply(`你說了：${ctx.args}`);
+  },
+};
+
+export default skill;
+```
+
+2. 重啟服務即會自動載入（不需修改其他程式）。移除該資料夾即停用該技能。
+
+### 內建技能：關鍵字自動回覆
+
+收到訊息符合關鍵字時自動回覆（**每則訊息都會檢查，不需觸發詞**，`triggerMode: "any"`）。
+
+- 在 `/skills` 啟用後，用「規則列編輯器」逐筆新增規則，每筆可填：
+  - **關鍵字**（可用 `|` 分隔多組，例如 `報價|價目`）
+  - **比對方式**（包含 / 完全相符 / 正則）
+  - **回覆文字**（可用 `{{name}}`、`{{keyword}}`、`{{text}}`）
+  - **回覆圖片**（可上傳檔案或填 URL / 路徑）
+  - **回覆檔案**（可上傳檔案或填伺服器路徑）
+  - **顯示檔名**（選填）
+- **回覆冷卻（秒）**：同一個聊天於該時間內只回覆一次。
+- 規則以 JSON 儲存於該技能的 `config.rules`。
+
+### 內建技能：火車時刻表
+
+查詢台鐵時刻表，資料來源為交通部 **TDX 運輸資料流通服務**（官方）。
+
+- 需自備 TDX API key：至 <https://tdx.transportdata.tw> 註冊後，於 `/skills` 的該技能填入 `TDX Client ID` / `Client Secret`。
+- 用法：`阿寶請幫忙 火車 <起站> 到 <迄站> [日期] [時間]`（日期可用「今天 / 明天 / 後天」或 `2026-01-01`、`1/1`；時間為出發時間）。
+- 未設定 key 時會回覆提示訊息而不報錯。
+
+### 內建技能：匯率換算
+
+即時匯率（來源 `open.er-api.com`，免 key）。
+
+- 用法：`匯率 1000 日幣 台幣`、`匯率 美金 100`（中／英文幣別皆可）。
+- 只填一種幣別時，會轉成「預設目標幣別」（技能設定 `defaultCurrency`，預設 `TWD`）。
+
+### 內建技能：高鐵時刻
+
+查詢台灣高鐵時刻（沿用 TDX key）。
+
+- 用法：`高鐵 台北 到 左營 明天 08:00`（未指定時間時，從**現在**起算回覆 8 班）。
+
+### 內建技能：油價
+
+查詢中油汽柴油零售牌價（來源：中油開放資料，免 key，每週更新）。
+
+- 用法：`油價`。
+
+### 內建技能：統一發票 / 樂透
+
+- 統一發票：`發票`（預設最新一期）、`發票 上一期`。來源：財政部稅務入口網（抓「最近已開獎期別」）。
+- 樂透：`樂透`（大樂透）、`威力彩`；`上一期` 可查前一期。來源：台灣彩券官方 API。
+
+### 內建技能：郵遞區號
+
+內建台灣郵遞區號資料，免網路。
+
+- 用法：`郵遞區號 台北市大安區` → `106`。
+
+### 內建技能：空氣品質
+
+查詢 AQI（多來源備援，免 key）。
+
+- 用法：`空品 高雄`（預設台北）。來源以 WAQI 為主；可在技能設定填入 WAQI token 提高額度。
+
+### 內建技能：漢堡王 / 摩斯優惠
+
+查詢當期優惠（HTML 擷取 + 各品牌健康狀態）。
+
+- 用法：`漢堡王 100`、`摩斯`（可帶價格，回傳該價位附近優惠）。
+
+## 時區
+
+- `TIMEZONE`（`/settings` 可改，存於 `settings.json`）：IANA 時區，例如 `Asia/Taipei`、`UTC`。
+- 影響範圍：**log 時間戳**（帶時區偏移，如 `2026-09-27T14:50:24+08:00`）與**技能**（例如「今天 / 明天」的判斷）。
 
 ## 多組 API Token
 
@@ -387,7 +502,7 @@ curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
 1. 啟動 HTTP server
 2. 背景登入 LINE：優先使用 `storage.json` 的 token，失效則改用 QR（終端機與狀態頁會顯示可掃描的 QR 圖）
 3. 登入後抓取好友與群組，建立名稱→mid 對照表
-4. 定時健康檢查；失效時寄信 + 自動重登，狀態顯示於 `/status`
+4. 定時健康檢查；失效時寄信 + 自動重登，狀態顯示於 `/dashboard`
 5. Webhook 發送進入佇列：節流 → 失敗退避重試 → 回應結果
 
 詳見 [`docs/architecture.md`](docs/architecture.md)。
@@ -422,6 +537,12 @@ src/
   line/queue.ts         發送佇列（重試 + 節流）
   line/scheduler.ts     排程 / 延遲 / 重複發送（持久化）
   line/cron.ts          cron 表達式解析與下次執行時間
+  skills/index.ts       技能對外匯出（loadSkills / getSkill）
+  skills/loader.ts      掃描資料夾並動態載入技能
+  skills/train/index.ts 火車時刻表技能（TDX API，一個技能一個資料夾）
+  skills/auto-reply/index.ts 關鍵字自動回覆技能（triggerMode: any）
+  skills/types.ts       技能介面型別
+  time.ts               時區格式化工具
   middleware/session.ts 管理頁登入 session（閒置 5 分鐘）
   middleware/hmac.ts    HMAC 簽章 + 防重放 + idempotency
   middleware/ip.ts      IP 白名單
@@ -434,7 +555,7 @@ docs/architecture.md    架構圖
 
 ## 疑難排解
 
-- **一直顯示「待驗證」**：用 LINE 內建掃描器掃終端機或 `/status` 上的 QR 圖，或點狀態頁的驗證連結在手機開啟。
+- **一直顯示「待驗證」**：用 LINE 內建掃描器掃終端機或 `/dashboard` 上的 QR 圖，或點儀表板的驗證連結在手機開啟。
 - **找不到目標（404）**：名稱需與 LINE 顯示名稱完全相同；建議改用 mid，或設定 `TARGETS`。
 - **收不到 Email**：確認 `SMTP_*` 與 `MAIL_FROM` / `MAIL_TO` 都已設定。
 - **對外接收 webhook**：本機需用 ngrok / Cloudflare Tunnel 打通道；記得設定 `HMAC_SECRET`。
