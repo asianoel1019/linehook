@@ -50,6 +50,28 @@ function sendError(res: Response, error: unknown): void {
     res.status(500).json({ ok: false, error: message });
 }
 const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000;
+const LANG_COOKIE = "lw_lang";
+const LANG_COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
+
+/** 讀取瀏覽器的語言偏好 cookie（僅登入頁使用，不寫入設定檔）；無效回 undefined。 */
+function readLangCookie(req: Request): Lang | undefined {
+    const header = req.headers.cookie;
+    if (!header) return undefined;
+    for (const part of header.split(";")) {
+        const index = part.indexOf("=");
+        if (index < 0) continue;
+        if (part.slice(0, index).trim() !== LANG_COOKIE) continue;
+        let raw = part.slice(index + 1).trim();
+        try {
+            raw = decodeURIComponent(raw);
+        } catch {
+            return undefined;
+        }
+        if (isLang(raw)) return raw;
+        return undefined;
+    }
+    return undefined;
+}
 function asRecord(value: unknown): Record<string, unknown> | undefined {
     return value && typeof value === "object" && !Array.isArray(value)
         ? (value as Record<string, unknown>)
@@ -543,11 +565,11 @@ function page(
     active: string,
     body: string,
     script: string,
-    options: { showNav?: boolean; sidebar?: string; showTitle?: boolean } = {},
+    options: { showNav?: boolean; sidebar?: string; showTitle?: boolean; lang?: Lang } = {},
 ): string {
     const showNav = options.showNav ?? true;
     const showTitle = options.showTitle ?? true;
-    const lang = config.language;
+    const lang = options.lang ?? config.language;
     const nav = [
         ["/dashboard", tr(lang, "nav_dashboard"), "dashboard"],
         ["/console", tr(lang, "nav_console"), "console"],
@@ -2377,8 +2399,7 @@ function renderSkillsHtml() {
 `;
     return page(tr(config.language, "title_skills"), "skills", body, script);
 }
-function renderLoginHtml() {
-    const lang = config.language;
+function renderLoginHtml(lang: Lang) {
     const shortLabels = { zh: "中", en: "EN", ja: "日" };
     const langMenu = LANGS.map((code) => `<button type="button" class="login-lang-item${code === lang ? " active" : ""}" data-lang="${code}">${LANG_LABELS[code]}</button>`).join("");
     const body = `
@@ -2391,11 +2412,11 @@ function renderLoginHtml() {
         <div class="login-lang-menu" id="login-lang-menu" hidden>${langMenu}</div>
       </div>
     </div>
-    <div class="sub">${tr(config.language, "login_sub")}</div>
+    <div class="sub">${tr(lang, "login_sub")}</div>
     <form id="login-form">
-      <input id="login-user" placeholder="${tr(config.language, "login_user")}" autocomplete="username" required>
-      <input id="login-pass" type="password" placeholder="${tr(config.language, "login_pass")}" autocomplete="current-password" required>
-      <button type="submit">${tr(config.language, "login_submit")}</button>
+      <input id="login-user" placeholder="${tr(lang, "login_user")}" autocomplete="username" required>
+      <input id="login-pass" type="password" placeholder="${tr(lang, "login_pass")}" autocomplete="current-password" required>
+      <button type="submit">${tr(lang, "login_submit")}</button>
       <p id="login-msg" class="msg" style="margin:12px 0 0"></p>
     </form>
   </div>
@@ -2405,7 +2426,7 @@ function renderLoginHtml() {
   ${HELPERS}
   (function () {
     function switchLang(code) {
-      fetch("/settings/language", {
+      fetch("/login/language", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lang: code })
@@ -2441,7 +2462,7 @@ function renderLoginHtml() {
     }).catch(function () { $("login-msg").textContent = "登入失敗"; });
   });
 `;
-    return page(tr(config.language, "title_login"), "", body, script, { showNav: false, showTitle: false });
+    return page(tr(lang, "title_login"), "", body, script, { showNav: false, showTitle: false, lang });
 }
 let readmeCache: string | null = null;
 function readmeHtml() {
@@ -2574,7 +2595,20 @@ export function createServer(line: LineService): express.Express {
         }
         res.type("html");
         res.set("Cache-Control", "no-store");
-        res.send(renderLoginHtml());
+        res.send(renderLoginHtml(readLangCookie(req) ?? config.language));
+    });
+    // 登入頁的語言偏好只存瀏覽器 cookie，不寫入設定檔（未登入不可寫設定）。
+    app.post("/login/language", statusAccess, (req, res) => {
+        const body = asRecord(req.body) ?? {};
+        if (!isLang(body.lang)) {
+            res.status(400).json({ ok: false, error: "unsupported language" });
+            return;
+        }
+        res.setHeader(
+            "Set-Cookie",
+            `${LANG_COOKIE}=${body.lang}; Path=/; Max-Age=${LANG_COOKIE_MAX_AGE}; SameSite=Lax`,
+        );
+        res.json({ ok: true, language: body.lang });
     });
     app.post("/login", statusAccess, loginRateLimit, (req, res) => {
         const body = req.body;
