@@ -1,7 +1,7 @@
 import { logger } from "../../logger.js";
 import type { SkillContext, SkillDefinition } from "../types.js";
 
-interface Unit {
+export interface Unit {
   name: string;
   cat: string;
   base: number;
@@ -122,6 +122,23 @@ function fmt(n: number): string {
   return Number(n.toFixed(digits)).toLocaleString("en-US", { maximumFractionDigits: digits });
 }
 
+/** 純換算核心：回傳換算結果與正規化後的單位（溫度走攝氏中轉）。 */
+export function convertUnits(
+  value: number,
+  fromAlias: string,
+  toAlias: string,
+): { value: number; from: Unit; to: Unit } {
+  const from = UNITS[fromAlias.toLowerCase()];
+  const to = UNITS[toAlias.toLowerCase()];
+  if (!from || !to) throw new Error(`未知單位：${!from ? fromAlias : toAlias}`);
+  if (from.cat !== to.cat) throw new Error(`「${from.name}」與「${to.name}」屬於不同類別，無法換算。`);
+  const valueOut =
+    from.cat === "temp"
+      ? fromCelsius(toCelsius(value, fromAlias), toAlias)
+      : (value * from.base) / to.base;
+  return { value: valueOut, from, to };
+}
+
 const unitSkill: SkillDefinition = {
   id: "unit",
   name: "單位換算",
@@ -188,10 +205,12 @@ const unitSkill: SkillDefinition = {
     }
 
     let out: number;
-    if (from.unit.cat === "temp") {
-      out = fromCelsius(toCelsius(value, from.alias), to.alias);
-    } else {
-      out = (value * from.unit.base) / to.unit.base;
+    try {
+      const converted = convertUnits(value, from.alias, to.alias);
+      out = converted.value;
+    } catch (error) {
+      await ctx.reply(error instanceof Error ? error.message : String(error));
+      return;
     }
     logger.info("單位換算", { from: from.unit.name, to: to.unit.name, value });
     await ctx.reply(`${fmt(value)} ${from.unit.name} = ${fmt(out)} ${to.unit.name}`);

@@ -34,7 +34,7 @@ function skillsRoot(): string {
   return resolve(config.skillsPath);
 }
 
-function safeName(name: string): string {
+export function safeName(name: string): string {
   return name.replace(/[^\w.-]+/g, "_").replace(/^\.+/, "");
 }
 

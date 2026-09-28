@@ -32,7 +32,7 @@ const ZHI = "子丑寅卯辰巳午未申酉戌亥";
 const ZODIAC = "鼠牛虎兔龍蛇馬羊猴雞狗豬";
 const MONTH_DAY_BASE = Date.UTC(1900, 0, 31); // 1900-01-31 = 農曆 1900 正月初一
 
-function leapMonth(y: number): number {
+export function leapMonth(y: number): number {
   return LUNAR_INFO[y - 1900] & 0xf;
 }
 
@@ -41,7 +41,7 @@ function leapDays(y: number): number {
   return LUNAR_INFO[y - 1900] & 0x10000 ? 30 : 29;
 }
 
-function monthDays(y: number, m: number): number {
+export function monthDays(y: number, m: number): number {
   return LUNAR_INFO[y - 1900] & (0x10000 >> m) ? 30 : 29;
 }
 
@@ -51,14 +51,14 @@ function yearDays(y: number): number {
   return sum + leapDays(y);
 }
 
-interface LunarDate {
+export interface LunarDate {
   year: number;
   month: number;
   day: number;
   isLeap: boolean;
 }
 
-function solarToLunar(y: number, m: number, d: number): LunarDate {
+export function solarToLunar(y: number, m: number, d: number): LunarDate {
   let offset = (Date.UTC(y, m - 1, d) - MONTH_DAY_BASE) / 86400000;
   let i: number;
   let temp = 0;
@@ -98,7 +98,7 @@ function solarToLunar(y: number, m: number, d: number): LunarDate {
   return { year, month: i, day: offset + 1, isLeap };
 }
 
-function lunarToSolar(input: LunarDate): Date {
+export function lunarToSolar(input: LunarDate): Date {
   const { year, month, isLeap } = input;
   const leap = leapMonth(year);
   let offset = 0;
@@ -115,12 +115,12 @@ function lunarToSolar(input: LunarDate): Date {
   return new Date(MONTH_DAY_BASE + offset * 86400000);
 }
 
-function monthName(m: number, isLeap: boolean): string {
+export function monthName(m: number, isLeap: boolean): string {
   const names = ["正", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二"];
   return `${isLeap ? "閏" : ""}${names[m - 1]}月`;
 }
 
-function dayName(d: number): string {
+export function dayName(d: number): string {
   const cn = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
   if (d === 10) return "初十";
   if (d === 20) return "二十";
@@ -130,11 +130,11 @@ function dayName(d: number): string {
   return `廿${cn[d - 20]}`;
 }
 
-function ganzhi(year: number): string {
+export function ganzhi(year: number): string {
   return GAN[(year - 4) % 10] + ZHI[(year - 4) % 12];
 }
 
-function zodiac(year: number): string {
+export function zodiac(year: number): string {
   return ZODIAC[(year - 4) % 12];
 }
 
