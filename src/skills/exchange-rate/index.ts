@@ -39,13 +39,13 @@ const CURRENCIES: Record<string, string> = {
   CAD: "加幣",
 };
 
-function toCode(token: string): string | undefined {
+export function toCode(token: string): string | undefined {
   const key = token.trim().toUpperCase();
   if (/^[A-Z]{3}$/.test(key)) return key;
   return CURRENCIES[token.trim()];
 }
 
-async function getRates(base: string, ttlMs: number): Promise<RatesResponse> {
+export async function getRates(base: string, ttlMs: number): Promise<RatesResponse> {
   const cacheKey = `${CACHE_NAME}-${base}`;
   const cached = readCache<RatesResponse>(cacheKey, ttlMs);
   if (cached && cached.rates) return cached;

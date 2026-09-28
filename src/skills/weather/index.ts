@@ -6,7 +6,7 @@ import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 const CACHE_NAME = "weather";
 const UA = "Mozilla/5.0 (compatible; LineHook/1.0)";
 
-interface Reading {
+export interface Reading {
   city: string;
   tempC: number;
   feelsC?: number;
@@ -103,6 +103,29 @@ function weatherCodeText(code: number): string {
   return "";
 }
 
+/** 抓取天氣（含 CWA→wttr.in→open-meteo 備援鏈與快取），供 run 與晨報共用。 */
+export async function fetchWeather(city: string, cwaKey: string, ttlMs: number): Promise<Reading> {
+  const cacheKey = `weather-${city}`;
+  const cached = readCache<Reading>(cacheKey, ttlMs);
+  if (cached) return cached;
+
+  const sources: Array<() => Promise<Reading>> = [];
+  const key = cwaKey.trim();
+  if (key) sources.push(() => fromCwa(city, key));
+  sources.push(() => fromWttr(city), () => fromOpenMeteo(city));
+  let err = "";
+  for (const fn of sources) {
+    try {
+      const reading = await fn();
+      writeCache(cacheKey, reading);
+      return reading;
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    }
+  }
+  throw new Error(err || "天氣資料來源皆失敗");
+}
+
 const weatherSkill: SkillDefinition = {
   id: "weather",
   name: "天氣",
@@ -141,28 +164,13 @@ const weatherSkill: SkillDefinition = {
     const ttlMs = parseTtl(ctx.config.cacheTtl, 60);
     const city = ctx.args.replace(/請幫忙|請幫|幫忙|查|查詢|天氣|氣象|的/g, " ").trim() || "臺北";
     const key = (ctx.config.cwaKey || "").trim();
-    const cacheKey = `weather-${city}`;
-
-    let reading = readCache<Reading>(cacheKey, ttlMs);
-    if (!reading) {
-      const sources: Array<() => Promise<Reading>> = [];
-      if (key) sources.push(() => fromCwa(city, key));
-      sources.push(() => fromWttr(city), () => fromOpenMeteo(city));
-      let err = "";
-      for (const fn of sources) {
-        try {
-          reading = await fn();
-          break;
-        } catch (e) {
-          err = e instanceof Error ? e.message : String(e);
-        }
-      }
-      if (!reading) {
-        logger.error("天氣查詢失敗", { city, err });
-        await ctx.reply("天氣資料來源目前無法使用，請稍後再試。");
-        return;
-      }
-      writeCache(cacheKey, reading);
+    let reading: Reading;
+    try {
+      reading = await fetchWeather(city, key, ttlMs);
+    } catch (error) {
+      logger.error("天氣查詢失敗", { city, err: error instanceof Error ? error.message : String(error) });
+      await ctx.reply("天氣資料來源目前無法使用，請稍後再試。");
+      return;
     }
 
     const feels = reading.feelsC !== undefined && Number.isFinite(reading.feelsC) ? `（體感 ${reading.feelsC}°C）` : "";

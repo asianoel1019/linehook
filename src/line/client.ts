@@ -10,9 +10,12 @@ import { recordMessage } from "../messages.js";
 import { recordSend } from "../stats.js";
 import { getState, setState } from "../state.js";
 import { SendQueue } from "./queue.js";
-import { SendScheduler, type ScheduledJobView } from "./scheduler.js";
+import { SendScheduler, type Job as ScheduledJob, type ScheduledJobView } from "./scheduler.js";
+import { parseCron, nextRun } from "./cron.js";
 import { getSkill } from "../skills/index.js";
 import { effectiveMode, skillListText, skillUsageText } from "../skills/help.js";
+import { watchOptionsToCron } from "../skills/watch.js";
+import type { SkillTaskContext, SkillWatchView, WatchOptions } from "../skills/types.js";
 import { fetchBuffer } from "../net.js";
 
 const AUTH_KEY = ".auth";
@@ -219,7 +222,108 @@ export class LineService {
         return /40[0-4]|422|驗證失敗|參數錯誤|不支援|格式錯誤|找不到/i.test(message);
       },
     }));
-    this.scheduler = new SendScheduler((inputs) => this.sendAdvanced(inputs));
+    this.scheduler = new SendScheduler(
+      (inputs) => this.sendAdvanced(inputs),
+      (job) => this.runSkillTask(job),
+    );
+  }
+
+  /**
+   * 技能週期任務觸發分派：找出技能定義並呼叫 onTask。
+   * 技能被停用/移除時略過執行（保留排程，重啟技能後恢復）。
+   */
+  private async runSkillTask(job: ScheduledJob): Promise<void> {
+    const ref = job.skillTask;
+    if (!ref) return;
+    const skillEntry = config.skills.find((s) => s.id === ref.skillId);
+    const def = getSkill(ref.skillId);
+    if (!skillEntry?.enabled || !def?.onTask) {
+      logger.info("略過技能任務（技能停用或無 onTask）", { skill: ref.skillId, task: ref.task, chat: ref.chat });
+      return;
+    }
+    const chat = ref.chat;
+    const taskCtx: SkillTaskContext = {
+      taskId: job.id,
+      task: ref.task,
+      chat,
+      fromName: "",
+      config: skillEntry.config,
+      args: { ...ref.args },
+      state: { ...(ref.state ?? {}) },
+      saveState: async (patch) => {
+        this.scheduler.saveSkillState(job.id, { ...(ref.state ?? {}), ...patch });
+      },
+      reply: (t) => this.replyTo(chat, t),
+      sendImage: async (source, filename) => {
+        try {
+          await this.sendMedia(chat, source, "image", filename);
+          recordSend({ time: new Date().toISOString(), to: chat, type: "image", ok: true });
+        } catch (error) {
+          recordSend({ time: new Date().toISOString(), to: chat, type: "image", ok: false });
+          throw error;
+        }
+      },
+      sendFile: async (source, filename) => {
+        try {
+          await this.sendMedia(chat, source, "file", filename);
+          recordSend({ time: new Date().toISOString(), to: chat, type: "file", ok: true });
+        } catch (error) {
+          recordSend({ time: new Date().toISOString(), to: chat, type: "file", ok: false });
+          throw error;
+        }
+      },
+    };
+    logger.info("觸發技能任務", { skill: ref.skillId, task: ref.task, chat });
+    try {
+      await def.onTask(taskCtx);
+    } catch (error) {
+      logger.error("技能任務執行失敗", {
+        skill: ref.skillId,
+        task: ref.task,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * 註冊（或取代）技能週期任務。同 skillId+task+chat 再次註冊會取代舊任務。
+   * 回傳排程檢視（含 id）。
+   */
+  scheduleSkillTask(skillId: string, chat: string, opts: WatchOptions): ScheduledJobView {
+    const cron = watchOptionsToCron(opts);
+    const runAt = nextRun(parseCron(cron), Date.now(), config.timezone);
+    if (runAt === null) throw new Error("無效的排程：一年內無符合時間");
+    for (const existing of this.scheduler.list()) {
+      const st = existing.skillTask;
+      if (st && st.skillId === skillId && st.task === opts.task && st.chat === chat) {
+        this.scheduler.cancel(existing.id);
+      }
+    }
+    return this.scheduler.add([], runAt, cron, {
+      skillId,
+      task: opts.task,
+      chat,
+      args: { ...(opts.args ?? {}) },
+      state: { ...((opts.state ?? {}) as Record<string, unknown>) },
+    });
+  }
+
+  /** 讀取技能任務 state 副本；找不到回 undefined。 */
+  readTaskState(id: string): Record<string, unknown> | undefined {
+    const ref = this.scheduler.getSkillTask(id);
+    const state = ref?.state;
+    return state ? { ...state } : undefined;
+  }
+
+  /** 列出技能任務（可選填 skillId / chat 過濾）。 */
+  listSkillTasks(filter?: { skillId?: string; chat?: string }): ScheduledJobView[] {
+    return this.scheduler.list().filter((job) => {
+      const st = job.skillTask;
+      if (!st) return false;
+      if (filter?.skillId && st.skillId !== filter.skillId) return false;
+      if (filter?.chat && st.chat !== filter.chat) return false;
+      return true;
+    });
   }
 
   async init(): Promise<void> {
@@ -716,6 +820,14 @@ export class LineService {
 
       logger.info("觸發技能", { skill: skill.id, mode, chat });
       try {
+        const skillId = skill.id;
+        const toWatchView = (job: ScheduledJobView): SkillWatchView => ({
+          id: job.id,
+          task: job.skillTask?.task ?? "",
+          cron: job.repeat ?? "",
+          runAt: job.runAt,
+          args: { ...(job.skillTask?.args ?? {}) },
+        });
         await def.run({
           text,
           args,
@@ -743,6 +855,23 @@ export class LineService {
             }
           },
           schedule: (text, runAt) => this.schedule([{ to: chat, text }], runAt).id,
+          watch: (opts) => this.scheduleSkillTask(skillId, chat, opts).id,
+          unwatch: (taskOrId) => {
+            const jobs = this.listSkillTasks({ skillId, chat });
+            const byId = jobs.find((j) => j.id === taskOrId);
+            if (byId) return this.scheduler.cancel(byId.id);
+            const byTask = jobs.find((j) => j.skillTask?.task === taskOrId);
+            if (byTask) return this.scheduler.cancel(byTask.id);
+            return false;
+          },
+          watches: () => this.listSkillTasks({ skillId, chat }).map(toWatchView),
+          taskState: (taskOrId) => {
+            const jobs = this.listSkillTasks({ skillId, chat });
+            const job =
+              jobs.find((j) => j.id === taskOrId) ??
+              jobs.find((j) => j.skillTask?.task === taskOrId);
+            return job ? this.readTaskState(job.id) : undefined;
+          },
         });
       } catch (error) {
         logger.error("技能執行失敗", { skill: skill.id, error: String(error) });

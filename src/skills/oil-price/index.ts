@@ -16,7 +16,7 @@ interface RawPrice {
   營業稅_稅率?: string;
 }
 
-interface OilPrice {
+export interface OilPrice {
   name: string;
   price: number;
   unit: string;
@@ -30,7 +30,7 @@ function formatRocDate(value: string): string {
   return `${Number(m[1]) + 1911}/${m[2]}/${m[3]}`;
 }
 
-async function getPrices(ttlMs: number): Promise<OilPrice[]> {
+export async function getPrices(ttlMs: number): Promise<OilPrice[]> {
   const cached = readCache<OilPrice[]>(CACHE_NAME, ttlMs);
   if (cached && cached.length > 0) return cached;
 

@@ -4,7 +4,7 @@ import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
 const UA = "Mozilla/5.0 (compatible; LineHook/1.0)";
 
-interface YahooMeta {
+export interface YahooMeta {
   currency?: string;
   symbol?: string;
   shortName?: string;
@@ -29,7 +29,7 @@ interface YahooChart {
   };
 }
 
-function resolveSymbol(text: string): string {
+export function resolveSymbol(text: string): string {
   const cleaned = text.replace(/請幫忙|請幫|幫忙|查詢|查一下|股價|股票|行情|現在|報價|價格|的/g, " ");
   for (const raw of cleaned.split(/\s+/)) {
     const t = raw.trim().toUpperCase();
@@ -40,7 +40,7 @@ function resolveSymbol(text: string): string {
   return "";
 }
 
-async function fetchChart(symbol: string, range: string): Promise<{ meta: YahooMeta; closes: number[] }> {
+export async function fetchChart(symbol: string, range: string): Promise<{ meta: YahooMeta; closes: number[] }> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
   const res = await fetch(url, {
     headers: { "User-Agent": UA },

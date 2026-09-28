@@ -28,6 +28,60 @@ export interface SkillContext {
   sendFile: (source: string, filename?: string) => Promise<void>;
   /** 排程一則文字訊息給目前對話；runAt 為 epoch 毫秒，回傳排程 id。 */
   schedule: (text: string, runAt: number) => string;
+  /**
+   * 註冊週期性技能任務（例如到價檢查、RSS 輪詢、晨報）。
+   * 同一對話中同 skillId+task 再次註冊會取代舊任務。回傳任務 id。
+   */
+  watch: (opts: WatchOptions) => string;
+  /** 取消任務：可傳任務 id 或任務名稱（同 skillId+對話範圍內）；回傳是否成功取消。 */
+  unwatch: (taskOrId: string) => boolean;
+  /** 列出目前對話中此技能的任務。 */
+  watches: () => SkillWatchView[];
+  /** 讀取目前對話中某任務的 state 副本（找不到回 undefined）。 */
+  taskState: (taskOrId: string) => Record<string, unknown> | undefined;
+}
+
+/** 註冊 watch 任務的選項；cron / everyMinutes / at 三選一（都沒給預設每 30 分鐘）。 */
+export interface WatchOptions {
+  /** 技能自訂的任務名稱（例如 "check"、"poll"、"daily"），同一對話同名會取代。 */
+  task: string;
+  /** 標準 5 欄 cron（例如 "0 8 * * *"）。 */
+  cron?: string;
+  /** 每 N 分鐘執行一次（1–1440；超過 60 需為 60 的倍數）。 */
+  everyMinutes?: number;
+  /** 每日固定時間 "HH:mm"（例如 "08:00"）。 */
+  at?: string;
+  /** 傳給 onTask 的參數（僅允許 string/number/boolean，會持久化）。 */
+  args?: Record<string, string | number | boolean>;
+  /** 任務初始狀態（會持久化，onTask 可用 saveState 更新）。 */
+  state?: Record<string, unknown>;
+}
+
+export interface SkillWatchView {
+  id: string;
+  task: string;
+  cron: string;
+  runAt: string;
+  args: Record<string, string | number | boolean>;
+}
+
+/** 週期任務觸發時傳給技能 onTask 的上下文。 */
+export interface SkillTaskContext {
+  /** 任務 id（scheduler job id）。 */
+  taskId: string;
+  /** 註冊時的任務名稱。 */
+  task: string;
+  chat: string;
+  fromName: string;
+  config: Record<string, string>;
+  args: Record<string, string | number | boolean>;
+  /** 上次 saveState 存下的狀態。 */
+  state: Record<string, unknown>;
+  /** 合併更新狀態並持久化。 */
+  saveState: (patch: Record<string, unknown>) => Promise<void>;
+  reply: (text: string) => Promise<void>;
+  sendImage: (source: string, filename?: string) => Promise<void>;
+  sendFile: (source: string, filename?: string) => Promise<void>;
 }
 
 export interface SkillFieldOption {
@@ -84,6 +138,11 @@ export interface SkillDefinition {
   health?: () => Promise<SkillHealth[]>;
   /** 執行技能；args 為觸發詞之後的原始文字（"any" 模式為整則訊息）。 */
   run: (ctx: SkillContext) => Promise<void>;
+  /**
+   * 週期任務回呼（選填）。技能用 ctx.watch() 註冊任務後，
+   * 每次到時框架會呼叫此函式；回傳內容由技能自行決定是否 reply。
+   */
+  onTask?: (ctx: SkillTaskContext) => Promise<void>;
 }
 
 export function isSkillEnabled(skills: SkillConfig[], id: string): SkillConfig | undefined {

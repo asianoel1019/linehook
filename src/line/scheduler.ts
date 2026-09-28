@@ -13,9 +13,25 @@ export interface ScheduledJobView {
   summary: string;
   repeat?: string;
   recurring: boolean;
+  /** 技能任務才有（沿用同一排程器持久化與列表）。 */
+  skillTask?: {
+    skillId: string;
+    task: string;
+    chat: string;
+    args: Record<string, string | number | boolean>;
+  };
 }
 
-interface Job {
+/** 技能週期任務（由 ctx.watch 註冊；onTask 由技能實作）。 */
+export interface SkillTaskRef {
+  skillId: string;
+  task: string;
+  chat: string;
+  args: Record<string, string | number | boolean>;
+  state: Record<string, unknown>;
+}
+
+export interface Job {
   id: string;
   runAt: number;
   inputs: SendInput[];
@@ -23,6 +39,7 @@ interface Job {
   summary: string;
   repeat?: string;
   createdAt: number;
+  skillTask?: SkillTaskRef;
 }
 
 // setTimeout 上限約 24.8 天；超過就先分段喚醒，時間到再處理。
@@ -52,7 +69,29 @@ function toView(job: Job): ScheduledJobView {
     summary: job.summary,
     repeat: job.repeat,
     recurring: Boolean(job.repeat),
+    ...(job.skillTask
+      ? {
+          skillTask: {
+            skillId: job.skillTask.skillId,
+            task: job.skillTask.task,
+            chat: job.skillTask.chat,
+            args: { ...job.skillTask.args },
+          },
+        }
+      : {}),
   };
+}
+
+function isValidSkillTask(value: unknown): value is SkillTaskRef {
+  const t = value as Partial<SkillTaskRef> | undefined;
+  return (
+    !!t &&
+    typeof t.skillId === "string" &&
+    typeof t.task === "string" &&
+    typeof t.chat === "string" &&
+    (!("args" in (t as object)) || (typeof t.args === "object" && t.args !== null)) &&
+    (!("state" in (t as object)) || (typeof t.state === "object" && t.state !== null))
+  );
 }
 
 export class SendScheduler {
@@ -61,25 +100,42 @@ export class SendScheduler {
   private stopped = false;
   private readonly path = config.schedulesPath;
 
-  constructor(private readonly execute: (inputs: SendInput[]) => Promise<void>) {
+  constructor(
+    private readonly execute: (inputs: SendInput[]) => Promise<void>,
+    private readonly onSkillTask?: (job: Job) => Promise<void>,
+  ) {
     this.load();
   }
 
-  add(inputs: SendInput[], runAt: number, repeat?: string): ScheduledJobView {
+  add(inputs: SendInput[], runAt: number, repeat?: string, skillTask?: SkillTaskRef): ScheduledJobView {
     if (repeat) {
       const cron = parseCron(repeat);
       if (nextRun(cron, Date.now(), config.timezone) === null) {
         throw new Error("無效的排程：一年內無符合時間");
       }
     }
+    if (skillTask && !repeat) {
+      throw new Error("技能任務需指定 repeat（cron）");
+    }
     const job: Job = {
       id: randomUUID(),
       runAt,
       inputs,
-      to: inputs.map((input) => input.to),
-      summary: summarize(inputs),
+      to: skillTask ? [skillTask.chat] : inputs.map((input) => input.to),
+      summary: skillTask ? `技能任務：${skillTask.skillId}/${skillTask.task}` : summarize(inputs),
       repeat: repeat || undefined,
       createdAt: Date.now(),
+      ...(skillTask
+        ? {
+            skillTask: {
+              skillId: skillTask.skillId,
+              task: skillTask.task,
+              chat: skillTask.chat,
+              args: { ...skillTask.args },
+              state: { ...(skillTask.state ?? {}) },
+            },
+          }
+        : {}),
     };
     this.jobs.push(job);
     this.save();
@@ -114,6 +170,14 @@ export class SendScheduler {
     return [...this.jobs].sort((a, b) => a.runAt - b.runAt).map(toView);
   }
 
+  /** 依 id 取內部任務（含 skillTask state；回傳副本）。 */
+  getSkillTask(id: string): SkillTaskRef | undefined {
+    const job = this.jobs.find((item) => item.id === id);
+    const ref = job?.skillTask;
+    if (!ref) return undefined;
+    return { ...ref, args: { ...ref.args }, state: { ...(ref.state ?? {}) } };
+  }
+
   cancel(id: string): boolean {
     const index = this.jobs.findIndex((job) => job.id === id);
     if (index < 0) return false;
@@ -125,13 +189,30 @@ export class SendScheduler {
   }
 
   stop(): void {
+    // 只解除計時器並停止觸發；不清空 jobs，避免重啟/關閉時丟失持久化排程。
     this.stopped = true;
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    this.jobs = [];
+  }
+
+  /** 更新技能任務的 state 並持久化；找不到回 false。 */
+  saveSkillState(id: string, state: Record<string, unknown>): boolean {
+    const job = this.jobs.find((item) => item.id === id);
+    if (!job || !job.skillTask) return false;
+    job.skillTask.state = { ...state };
     this.save();
+    return true;
+  }
+
+  /** 更新技能任務的 args 並持久化；找不到回 false。 */
+  saveSkillArgs(id: string, args: Record<string, string | number | boolean>): boolean {
+    const job = this.jobs.find((item) => item.id === id);
+    if (!job || !job.skillTask) return false;
+    job.skillTask.args = { ...args };
+    this.save();
+    return true;
   }
 
   private loadFile(path: string): Job[] | null {
@@ -159,7 +240,20 @@ export class SendScheduler {
       const now = Date.now();
       const before = raw.length;
       this.jobs = raw.filter((job) => {
-        if (!job || typeof job.id !== "string" || !Array.isArray(job.inputs)) return false;
+        if (!job || typeof job.id !== "string") return false;
+        if (job.skillTask) {
+          if (!isValidSkillTask(job.skillTask)) return false;
+          if (job.repeat) {
+            try {
+              parseCron(job.repeat);
+              return true;
+            } catch {
+              return false;
+            }
+          }
+          return typeof job.runAt === "number" && job.runAt > now - 60_000;
+        }
+        if (!Array.isArray(job.inputs)) return false;
         if (job.repeat) {
           try {
             parseCron(job.repeat);
@@ -219,10 +313,18 @@ export class SendScheduler {
 
     for (const job of due) {
       try {
-        await this.execute(job.inputs);
-        logger.info("排程訊息已送出", { id: job.id, to: job.to });
+        if (job.skillTask) {
+          if (this.onSkillTask) {
+            await this.onSkillTask(job);
+          } else {
+            logger.warn("技能任務無處理器，略過執行", { id: job.id });
+          }
+        } else {
+          await this.execute(job.inputs);
+          logger.info("排程訊息已送出", { id: job.id, to: job.to });
+        }
       } catch (error) {
-        logger.error("排程訊息發送失敗", {
+        logger.error("排程執行失敗", {
           id: job.id,
           to: job.to,
           error: error instanceof Error ? error.message : String(error),

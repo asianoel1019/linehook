@@ -6,7 +6,7 @@ import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 const CACHE_NAME = "air-quality";
 const USER_AGENT = "Mozilla/5.0 (compatible; LineHook/1.0)";
 
-interface AqiReading {
+export interface AqiReading {
   station: string;
   aqi: number;
   pollutant: string;
@@ -70,7 +70,7 @@ function parseWaqi(data: unknown): AqiReading | null {
   };
 }
 
-function aqiLevel(aqi: number): string {
+export function aqiLevel(aqi: number): string {
   if (!Number.isFinite(aqi)) return "未知";
   if (aqi <= 50) return "良好";
   if (aqi <= 100) return "普通";
@@ -80,7 +80,7 @@ function aqiLevel(aqi: number): string {
   return "危害";
 }
 
-async function getReading(city: string, token: string): Promise<{ reading: AqiReading; source: string }> {
+export async function getReading(city: string, token: string): Promise<{ reading: AqiReading; source: string }> {
   let lastError = "";
   for (const source of SOURCES) {
     try {
