@@ -6,6 +6,15 @@ import { logger } from "../logger.js";
 export type RawBodyRequest = Request & { rawBody?: Buffer };
 
 const seenNonces = new Map<string, number>();
+const MAX_NONCES = 5000;
+
+function rememberNonce(nonce: string): void {
+  seenNonces.set(nonce, Date.now());
+  if (seenNonces.size > MAX_NONCES) {
+    const oldest = seenNonces.keys().next();
+    if (!oldest.done) seenNonces.delete(oldest.value);
+  }
+}
 
 setInterval(() => {
   const cutoff = Date.now() - config.hmacMaxSkewSec * 1000;
@@ -33,10 +42,7 @@ function verifySignature(req: Request): { ok: boolean; reason?: string } {
     return { ok: false, reason: "時間戳記無效或已過期" };
   }
 
-  if (nonce) {
-    if (seenNonces.has(nonce)) return { ok: false, reason: "重複的 nonce" };
-    seenNonces.set(nonce, Date.now());
-  }
+  if (nonce && seenNonces.has(nonce)) return { ok: false, reason: "重複的 nonce" };
 
   const raw = (req as RawBodyRequest).rawBody ?? Buffer.from("");
   const expected = crypto
@@ -46,6 +52,8 @@ function verifySignature(req: Request): { ok: boolean; reason?: string } {
     .digest("hex");
 
   if (!safeEqual(signature, expected)) return { ok: false, reason: "簽章驗證失敗" };
+  // 簽章通過後才記錄 nonce，避免攻擊者用無效簽章燒掉合法 nonce。
+  if (nonce) rememberNonce(nonce);
   return { ok: true };
 }
 
@@ -112,6 +120,7 @@ export function verifyWebhookAuth(req: Request, res: Response, next: NextFunctio
 }
 
 const seenIdempotency = new Map<string, number>();
+const MAX_IDEMPOTENCY_KEYS = 5000;
 
 setInterval(() => {
   const cutoff = Date.now() - 10 * 60 * 1000;
@@ -125,5 +134,10 @@ export function isDuplicateIdempotency(key: string): boolean {
 }
 
 export function markIdempotency(key: string): void {
+  if (key.length > 256) return;
   seenIdempotency.set(key, Date.now());
+  if (seenIdempotency.size > MAX_IDEMPOTENCY_KEYS) {
+    const oldest = seenIdempotency.keys().next();
+    if (!oldest.done) seenIdempotency.delete(oldest.value);
+  }
 }

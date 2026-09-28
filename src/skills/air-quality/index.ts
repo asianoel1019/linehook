@@ -1,5 +1,6 @@
 import { logger } from "../../logger.js";
 import { parseTtl, readCache, writeCache } from "../cache.js";
+import { fetchJson as netFetchJson } from "../../net.js";
 import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
 const CACHE_NAME = "air-quality";
@@ -35,9 +36,11 @@ const SOURCES: Source[] = [
 const health: Record<string, { ok: boolean; detail: string }> = {};
 
 async function fetchJson(url: string): Promise<unknown> {
-  const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.json();
+  return netFetchJson<unknown>(
+    url,
+    { headers: { "User-Agent": USER_AGENT } },
+    { timeoutMs: 15_000, maxBytes: 2 * 1024 * 1024 },
+  );
 }
 
 function parseWaqi(data: unknown): AqiReading | null {

@@ -22,8 +22,10 @@ import { NotLoggedInError, TargetNotFoundError, type FlexInput, type LineService
 import { isDuplicateIdempotency, markIdempotency, verifyWebhookAuth, type RawBodyRequest } from "../middleware/hmac.js";
 import { getMessages, reloadMessages } from "../messages.js";
 import { clientIp, ipGuard, isPrivateRequest } from "../middleware/ip.js";
-import { rateLimit } from "../middleware/rateLimit.js";
-import { changePassword, createSession, currentUser, destroySession, hasSession, requireSession, sessionRemainingMs, verifyCredentials, } from "../middleware/session.js";
+import { loginRateLimit, rateLimit } from "../middleware/rateLimit.js";
+import { changePassword, createSession, currentUser, destroySession, hasSession, requireSameOrigin, requireSession, sessionRemainingMs, verifyCredentials, } from "../middleware/session.js";
+import { parseCron } from "../line/cron.js";
+import { parseDateTimeInTz } from "../time.js";
 
 function statusAccess(req: Request, res: Response, next: NextFunction): void {
     if (config.adminPrivateOnly) {
@@ -155,10 +157,19 @@ function resolveRunAt(body: Record<string, unknown>): { runAt?: number; error?: 
             runAt = numeric < 1e12 ? numeric * 1000 : numeric;
         }
         else {
-            const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(trimmed)
-                ? trimmed.replace(" ", "T")
-                : trimmed;
-            runAt = Date.parse(normalized);
+            // 「YYYY-MM-DD HH:mm」以設定時區解讀，避免伺服器時區不同造成漂移。
+            const tzParsed = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(trimmed)
+                ? parseDateTimeInTz(trimmed, config.timezone)
+                : null;
+            if (tzParsed !== null) {
+                runAt = tzParsed;
+            }
+            else {
+                const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(trimmed)
+                    ? trimmed.replace(" ", "T")
+                    : trimmed;
+                runAt = Date.parse(normalized);
+            }
         }
     }
     else {
@@ -172,6 +183,18 @@ function resolveRunAt(body: Record<string, unknown>): { runAt?: number; error?: 
         return { error: "sendAt 最遠僅支援 30 天內" };
     }
     return { runAt };
+}
+/** 驗證 repeat cron；無效回錯誤訊息（呼叫端回 400），避免排程器丟出後變成 500。 */
+function validateRepeat(value: unknown): { repeat: string } | { error: string } {
+    const repeat = typeof value === "string" ? value.trim() : "";
+    if (!repeat) return { repeat: "" };
+    try {
+        parseCron(repeat);
+    }
+    catch (error) {
+        return { error: error instanceof Error ? error.message : "repeat 格式錯誤" };
+    }
+    return { repeat };
 }
 function findFlexTemplate(name: string): FlexInput | undefined {
     const tpl = config.flexTemplates.find((item) => item.name === name);
@@ -2426,7 +2449,9 @@ function readmeHtml() {
         return readmeCache;
     try {
         const markdown = readFileSync("./README.md", "utf8");
-        readmeCache = marked.parse(markdown, { async: false });
+        // README 雖為本機檔案，仍移除 script 區塊避免意外執行。
+        const html = marked.parse(markdown, { async: false });
+        readmeCache = String(html).replace(/<script[\s\S]*?<\/script\s*>/gi, "");
     }
     catch (error) {
         readmeCache = `<p>無法讀取 README.md：${String(error)}</p>`;
@@ -2479,7 +2504,18 @@ function renderMessagesHtml() {
 export function createServer(line: LineService): express.Express {
     const app = express();
     app.disable("x-powered-by");
-    app.set("trust proxy", true);
+    // 只信任本機迴路 proxy，避免直接對外暴露時被偽造 X-Forwarded-For 繞過 IP 限制。
+    app.set("trust proxy", "loopback");
+    app.use((_req, res, next) => {
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("Referrer-Policy", "no-referrer");
+        res.setHeader("X-Frame-Options", "DENY");
+        res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+        next();
+    });
+    if (!config.hmacSecret && !config.webhookToken && !config.apiToken && !config.apiTokens.some((item) => item.token)) {
+        logger.warn("webhook 未設定任何驗證（HMAC/Token/API Token），將接受所有來源呼叫");
+    }
     app.use(express.json({
         limit: `${config.maxBodyMb}mb`,
         verify: (req, _res, buf) => {
@@ -2495,6 +2531,7 @@ export function createServer(line: LineService): express.Express {
         res.type("html").send(renderDashboardHtml());
     });
     app.get("/dashboard.json", statusAccess, requireSession, (_req, res) => {
+        res.set("Cache-Control", "no-store");
         res.json({
             state: getState(),
             logs: logger.getRecent(),
@@ -2506,6 +2543,7 @@ export function createServer(line: LineService): express.Express {
         });
     });
     app.get("/status.json", statusAccess, requireSession, (_req, res) => {
+        res.set("Cache-Control", "no-store");
         res.json({
             state: getState(),
             logs: logger.getRecent(),
@@ -2534,9 +2572,11 @@ export function createServer(line: LineService): express.Express {
             res.redirect("/dashboard");
             return;
         }
-        res.type("html").send(renderLoginHtml());
+        res.type("html");
+        res.set("Cache-Control", "no-store");
+        res.send(renderLoginHtml());
     });
-    app.post("/login", statusAccess, (req, res) => {
+    app.post("/login", statusAccess, loginRateLimit, (req, res) => {
         const body = req.body;
         const user = typeof body?.user === "string" ? body.user : "";
         const pass = typeof body?.pass === "string" ? body.pass : "";
@@ -2550,7 +2590,7 @@ export function createServer(line: LineService): express.Express {
         res.json({ ok: true });
     });
     // 舊路徑已移除：/settings/login、/settings/logout
-    app.post("/logout", (req, res) => {
+    app.post("/logout", requireSameOrigin, (req, res) => {
         destroySession(req, res);
         res.json({ ok: true });
     });
@@ -2564,7 +2604,7 @@ export function createServer(line: LineService): express.Express {
         res.status(401).json({ ok: false, error: "需要登入" });
     });
     // 使用者有操作時續期
-    app.post("/settings/touch", statusAccess, (req, res) => {
+    app.post("/settings/touch", statusAccess, requireSameOrigin, (req, res) => {
         const remainingMs = sessionRemainingMs(req, true);
         if (remainingMs !== null) {
             res.json({ ok: true, remainingMs });
@@ -2592,7 +2632,7 @@ export function createServer(line: LineService): express.Express {
         }));
         res.json({ health: result });
     });
-    app.post("/skills/llm/models", statusAccess, requireSession, async (req, res) => {
+    app.post("/skills/llm/models", statusAccess, requireSession, requireSameOrigin, async (req, res) => {
         const body = asRecord(req.body) ?? {};
         const raw: Record<string, string> = {};
         for (const [k, v] of Object.entries(body))
@@ -2618,7 +2658,7 @@ export function createServer(line: LineService): express.Express {
                 .map((s) => ({ id: s.id, name: s.name })),
         });
     });
-    app.post("/skills/install", statusAccess, requireSession, express.raw({ type: "*/*", limit: `${config.maxBodyMb}mb` }), async (req, res) => {
+    app.post("/skills/install", statusAccess, requireSession, requireSameOrigin, express.raw({ type: "*/*", limit: `${config.maxBodyMb}mb` }), async (req, res) => {
         const data = Buffer.isBuffer(req.body) ? req.body : (req as RawBodyRequest).rawBody;
         if (!data || data.length === 0) {
             res.status(400).json({ ok: false, error: "沒有收到檔案內容" });
@@ -2635,7 +2675,7 @@ export function createServer(line: LineService): express.Express {
             });
         }
     });
-    app.post("/skills/uninstall", statusAccess, requireSession, async (req, res) => {
+    app.post("/skills/uninstall", statusAccess, requireSession, requireSameOrigin, async (req, res) => {
         const body = asRecord(req.body) ?? {};
         const id = typeof body.id === "string" ? body.id : "";
         if (!id) {
@@ -2649,7 +2689,7 @@ export function createServer(line: LineService): express.Express {
         }
         res.json({ ok: true });
     });
-    app.post("/skills", statusAccess, requireSession, (req, res) => {
+    app.post("/skills", statusAccess, requireSession, requireSameOrigin, (req, res) => {
         try {
             const body = asRecord(req.body) ?? {};
             const assistant = asRecord(body.assistant);
@@ -2696,17 +2736,20 @@ export function createServer(line: LineService): express.Express {
         res.type("html").send(renderMessagesHtml());
     });
     app.get("/messages.json", statusAccess, requireSession, (_req, res) => {
+        res.set("Cache-Control", "no-store");
         res.json({ messages: getMessages() });
     });
     app.get("/settings.json", statusAccess, requireSession, (_req, res) => {
+        res.set("Cache-Control", "no-store");
         res.json(currentSettings());
     });
     app.get("/settings/export", statusAccess, requireSession, (_req, res) => {
         const data = currentSettings();
+        res.set("Cache-Control", "no-store");
         res.setHeader("Content-Disposition", `attachment; filename="linehook-settings-${Date.now()}.json"`);
         res.type("application/json").send(JSON.stringify(data, null, 2));
     });
-    app.post("/settings/import", statusAccess, requireSession, (req, res) => {
+    app.post("/settings/import", statusAccess, requireSession, requireSameOrigin, (req, res) => {
         try {
             const body = asRecord(req.body) ?? {};
             const incoming = body.settings ?? req.body;
@@ -2722,7 +2765,7 @@ export function createServer(line: LineService): express.Express {
             });
         }
     });
-    app.post("/settings", statusAccess, requireSession, (req, res) => {
+    app.post("/settings", statusAccess, requireSession, requireSameOrigin, (req, res) => {
         try {
             const saved = saveSettings(req.body);
             reloadMessages();
@@ -2735,7 +2778,7 @@ export function createServer(line: LineService): express.Express {
             });
         }
     });
-    app.post("/settings/language", statusAccess, (req, res) => {
+    app.post("/settings/language", statusAccess, requireSession, requireSameOrigin, (req, res) => {
         const body = asRecord(req.body) ?? {};
         if (!isLang(body.lang)) {
             res.status(400).json({ ok: false, error: "unsupported language" });
@@ -2749,7 +2792,7 @@ export function createServer(line: LineService): express.Express {
             res.status(500).json({ ok: false, error: String(error) });
         }
     });
-    app.post("/settings/password", statusAccess, requireSession, (req, res) => {
+    app.post("/settings/password", statusAccess, requireSession, requireSameOrigin, (req, res) => {
         const body = asRecord(req.body) ?? {};
         const current = typeof body.current === "string" ? body.current : "";
         const next = typeof body.next === "string" ? body.next : "";
@@ -2760,8 +2803,15 @@ export function createServer(line: LineService): express.Express {
         }
         res.json({ ok: true });
     });
-    app.post("/settings/upload", statusAccess, requireSession, express.raw({ type: "*/*", limit: `${config.maxBodyMb}mb` }), (req, res) => {
-        const name = decodeURIComponent(String(req.header("x-filename") ?? "upload")).trim() || "upload";
+    app.post("/settings/upload", statusAccess, requireSession, requireSameOrigin, express.raw({ type: "*/*", limit: `${config.maxBodyMb}mb` }), (req, res) => {
+        let name: string;
+        try {
+            name = decodeURIComponent(String(req.header("x-filename") ?? "upload")).trim() || "upload";
+        }
+        catch {
+            res.status(400).json({ ok: false, error: "檔名編碼錯誤" });
+            return;
+        }
         const data = Buffer.isBuffer(req.body) ? req.body : (req as RawBodyRequest).rawBody;
         if (!data || data.length === 0) {
             res.status(400).json({ ok: false, error: "沒有收到檔案內容" });
@@ -2774,18 +2824,19 @@ export function createServer(line: LineService): express.Express {
             const fullPath = resolve(config.uploadsPath, stored);
             writeFileSync(fullPath, data);
             logger.info("已上傳檔案", { file: stored, bytes: data.length });
-            res.json({ ok: true, path: fullPath, filename: safe, bytes: data.length });
+            // 只回傳上傳目錄內的相對檔名，不暴露伺服器絕對路徑。
+            res.json({ ok: true, path: stored, filename: safe, bytes: data.length });
         }
         catch (error) {
             res.status(500).json({ ok: false, error: `儲存失敗：${String(error)}` });
         }
     });
-    app.post("/settings/relogin", statusAccess, requireSession, (_req, res) => {
+    app.post("/settings/relogin", statusAccess, requireSession, requireSameOrigin, (_req, res) => {
         logger.info("手動觸發重新登入");
         void line.recover();
         res.json({ ok: true });
     });
-    app.post("/settings/refresh", statusAccess, requireSession, async (_req, res) => {
+    app.post("/settings/refresh", statusAccess, requireSession, requireSameOrigin, async (_req, res) => {
         try {
             await line.refreshContacts();
             res.json({ ok: true });
@@ -2794,7 +2845,7 @@ export function createServer(line: LineService): express.Express {
             sendError(res, error);
         }
     });
-    app.post("/settings/test", statusAccess, requireSession, async (req, res) => {
+    app.post("/settings/test", statusAccess, requireSession, requireSameOrigin, async (req, res) => {
         const body = asRecord(req.body) ?? {};
         const to = typeof body.to === "string" ? body.to.trim() : "";
         if (!to) {
@@ -2811,7 +2862,12 @@ export function createServer(line: LineService): express.Express {
             res.status(400).json({ ok: false, error: runAtError });
             return;
         }
-        const repeat = typeof body.repeat === "string" ? body.repeat.trim() : "";
+        const repeatChecked = validateRepeat(body.repeat);
+        if ("error" in repeatChecked) {
+            res.status(400).json({ ok: false, error: repeatChecked.error });
+            return;
+        }
+        const repeat = repeatChecked.repeat;
         try {
             if (runAt !== undefined) {
                 const job = line.schedule(parsed, runAt, repeat || undefined);
@@ -2825,7 +2881,7 @@ export function createServer(line: LineService): express.Express {
             sendError(res, error);
         }
     });
-    app.post("/settings/scheduled/cancel", statusAccess, requireSession, (req, res) => {
+    app.post("/settings/scheduled/cancel", statusAccess, requireSession, requireSameOrigin, (req, res) => {
         const body = asRecord(req.body) ?? {};
         const id = typeof body.id === "string" ? body.id : "";
         if (!id || !line.cancelScheduled(id)) {
@@ -2834,7 +2890,7 @@ export function createServer(line: LineService): express.Express {
         }
         res.json({ ok: true });
     });
-    app.post("/settings/scheduled/update", statusAccess, requireSession, (req, res) => {
+    app.post("/settings/scheduled/update", statusAccess, requireSession, requireSameOrigin, (req, res) => {
         const body = asRecord(req.body) ?? {};
         const id = typeof body.id === "string" ? body.id : "";
         if (!id) {
@@ -2859,8 +2915,12 @@ export function createServer(line: LineService): express.Express {
             patch.runAt = resolved.runAt;
         }
         if (body.repeat !== undefined) {
-            const repeat = typeof body.repeat === "string" ? body.repeat.trim() : "";
-            patch.repeat = repeat || null;
+            const repeatChecked = validateRepeat(body.repeat);
+            if ("error" in repeatChecked) {
+                res.status(400).json({ ok: false, error: repeatChecked.error });
+                return;
+            }
+            patch.repeat = repeatChecked.repeat || null;
         }
         try {
             const job = line.updateScheduled(id, patch);
@@ -2900,7 +2960,12 @@ export function createServer(line: LineService): express.Express {
             res.status(400).json({ ok: false, error: runAtError });
             return;
         }
-        const repeat = typeof body.repeat === "string" ? body.repeat.trim() : "";
+        const repeatChecked = validateRepeat(body.repeat);
+        if ("error" in repeatChecked) {
+            res.status(400).json({ ok: false, error: repeatChecked.error });
+            return;
+        }
+        const repeat = repeatChecked.repeat;
         const dedupKey = typeof req.header("x-idempotency-key") === "string"
             ? (req.header("x-idempotency-key") as string).trim()
             : "";

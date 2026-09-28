@@ -38,6 +38,7 @@ async function getToken(clientId: string, clientSecret: string): Promise<string>
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`TDX 認證失敗（HTTP ${res.status}）`);
   const data = (await res.json()) as { access_token: string; expires_in: number };
@@ -54,6 +55,7 @@ async function getStations(token: string, ttlMs: number): Promise<Station[]> {
   }
   const res = await fetch(`${TDX_BASE}/Station?$format=JSON`, {
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`取得高鐵車站失敗（HTTP ${res.status}）`);
   const stations = (await res.json()) as Station[];
@@ -103,7 +105,10 @@ function extractTime(text: string): string {
 async function queryTimetable(token: string, fromId: string, toId: string, date: Date): Promise<ODEntry[]> {
   const dateStr = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   const url = `${TDX_BASE}/DailyTimetable/OD/${fromId}/to/${toId}/${dateStr}?$format=JSON`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`查詢高鐵時刻表失敗（HTTP ${res.status}）${body ? `：${body.slice(0, 120)}` : ""}`);

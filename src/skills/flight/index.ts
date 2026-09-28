@@ -60,7 +60,10 @@ async function viaTravelpayouts(origin: string, dest: string, year: number, mont
   const url =
     `https://api.travelpayouts.com/aviasales/v3/prices_for_dates?origin=${origin}&destination=${dest}` +
     `&currency=TWD&departure_at=${ym}&one_way=true&sorting=price&direct=false&limit=30&token=${encodeURIComponent(token)}`;
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const res = await fetch(url, {
+    headers: { "User-Agent": UA },
+    signal: AbortSignal.timeout(20_000),
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as { success?: boolean; data?: Array<{ price?: number; departure_at?: string; airline?: string; transfers?: number }> };
   const rows = data.data ?? [];
@@ -82,7 +85,10 @@ async function viaKiwi(origin: string, dest: string, year: number, month: number
   const url =
     `https://api.tequila.kiwi.com/v2/search?fly_from=${origin}&fly_to=${dest}` +
     `&date_from=${fmt(from)}&date_to=${fmt(to)}&curr=TWD&limit=20&sort=price&one_for_city=0`;
-  const res = await fetch(url, { headers: { apikey: token, "User-Agent": UA } });
+  const res = await fetch(url, {
+    headers: { apikey: token, "User-Agent": UA },
+    signal: AbortSignal.timeout(20_000),
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as { data?: Array<{ price?: number; dTime?: number; airlines?: string[]; route?: Array<unknown> }> };
   return (data.data ?? [])
@@ -131,7 +137,10 @@ const flightSkill: SkillDefinition = {
   ],
   async health(): Promise<SkillHealth[]> {
     try {
-      const res = await fetch("https://api.travelpayouts.com/aviasales/v3/prices_for_dates?origin=TPE&destination=NRT&currency=TWD&limit=1", { headers: { "User-Agent": UA } });
+      const res = await fetch("https://api.travelpayouts.com/aviasales/v3/prices_for_dates?origin=TPE&destination=NRT&currency=TWD&limit=1", {
+        headers: { "User-Agent": UA },
+        signal: AbortSignal.timeout(15_000),
+      });
       return [{ name: "Travelpayouts", ok: res.status < 500, detail: `HTTP ${res.status}（401=需 token）` }];
     } catch {
       return [{ name: "Travelpayouts", ok: false, detail: "連線失敗" }];

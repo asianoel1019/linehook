@@ -63,7 +63,14 @@ function parseCookies(req: Request): Record<string, string> {
   for (const part of header.split(";")) {
     const index = part.indexOf("=");
     if (index < 0) continue;
-    out[part.slice(0, index).trim()] = decodeURIComponent(part.slice(index + 1).trim());
+    const key = part.slice(0, index).trim();
+    const rawValue = part.slice(index + 1).trim();
+    try {
+      out[key] = decodeURIComponent(rawValue);
+    } catch {
+      // 惡意或損毀的 Cookie 不該讓整個請求 500；保留原始值（不會命中 session）。
+      out[key] = rawValue;
+    }
   }
   return out;
 }
@@ -101,6 +108,7 @@ export function changePassword(
     return { ok: false, error: `寫入失敗：${String(error)}` };
   }
   override = next;
+  clearSessions();
   logger.info("管理員密碼已更新", { path: config.authPath });
   return { ok: true };
 }
@@ -161,6 +169,55 @@ export function sessionRemainingMs(req: Request, extend = false): number | null 
 
 export function hasSession(req: Request): boolean {
   return sessionValid(req, true);
+}
+
+/** 清除所有登入 session（改密碼後呼叫，避免舊 session 續命）。 */
+export function clearSessions(): void {
+  sessions.clear();
+}
+
+function originMatchesHost(req: Request): boolean {
+  const host = String(req.header("host") ?? "").trim().toLowerCase();
+  if (!host) return false;
+  const check = (value: string): boolean => {
+    try {
+      return new URL(value, `http://${host}`).host.toLowerCase() === host;
+    } catch {
+      return false;
+    }
+  };
+  const origin = req.header("origin");
+  if (origin) return check(origin);
+  const referer = req.header("referer");
+  if (referer) return check(referer);
+  return false;
+}
+
+/**
+ * 簡易 CSRF 防護：帶有 session cookie 的非安全方法（POST/PUT/PATCH/DELETE）
+ * 必須附上與 Host 一致的 Origin/Referer，否則拒絕。
+ */
+export function requireSameOrigin(req: Request, res: Response, next: NextFunction): void {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+    next();
+    return;
+  }
+  let hasCookie = false;
+  try {
+    hasCookie = Boolean(parseCookies(req)[COOKIE_NAME]);
+  } catch {
+    hasCookie = false;
+  }
+  if (!hasCookie) {
+    next();
+    return;
+  }
+  if (originMatchesHost(req)) {
+    next();
+    return;
+  }
+  logger.warn("疑似 CSRF 請求被拒", { ip: req.ip, path: req.path });
+  res.status(403).json({ ok: false, error: "來源驗證失敗" });
 }
 
 export function requireSession(req: Request, res: Response, next: NextFunction): void {

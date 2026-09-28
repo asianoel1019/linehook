@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { basename, extname, resolve } from "node:path";
+import { basename, extname, isAbsolute, resolve, sep } from "node:path";
 import { Client, type TalkMessage } from "@evex/linejs";
 import { BaseClient } from "@evex/linejs/base";
 import { FileStorage } from "@evex/linejs/storage";
@@ -13,6 +13,7 @@ import { SendQueue } from "./queue.js";
 import { SendScheduler, type ScheduledJobView } from "./scheduler.js";
 import { getSkill } from "../skills/index.js";
 import { effectiveMode, skillListText, skillUsageText } from "../skills/help.js";
+import { fetchBuffer } from "../net.js";
 
 const AUTH_KEY = ".auth";
 const MID_PATTERN = /^[ucr][0-9a-f]{32}$/i;
@@ -80,6 +81,14 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
 /** 將長文字切成多段，優先切在換行，其次空白，最後硬切。limit <= 0 表示不切。 */
 export function splitText(text: string, limit: number): string[] {
   if (limit <= 0 || text.length <= limit) return [text];
@@ -89,6 +98,11 @@ export function splitText(text: string, limit: number): string[] {
     let cut = rest.lastIndexOf("\n", limit);
     if (cut <= 0) cut = rest.lastIndexOf(" ", limit);
     if (cut <= 0) cut = limit;
+    // 避免從 surrogate pair 中間切開（emoji 等）。
+    while (cut > 0 && cut < rest.length && isLowSurrogate(rest.charCodeAt(cut)) && isHighSurrogate(rest.charCodeAt(cut - 1))) {
+      cut -= 1;
+    }
+    if (cut <= 0) cut = Math.min(limit, rest.length);
     parts.push(rest.slice(0, cut));
     rest = rest.slice(cut).replace(/^\s+/, "");
   }
@@ -194,8 +208,16 @@ export class LineService {
       maxRetries: config.send.maxRetries,
       retryBaseMs: config.send.retryBaseMs,
       minIntervalMs: config.send.minIntervalMs,
-      isPermanent: (error) =>
-        error instanceof TargetNotFoundError || error instanceof NotLoggedInError,
+      isPermanent: (error) => {
+        if (error instanceof TargetNotFoundError || error instanceof NotLoggedInError) return true;
+        const message = error instanceof Error ? error.message : String(error);
+        // 明顯的暫時性錯誤（限流/逾時/連線）一定要重試。
+        if (/429|rate|頻繁|timeout|逾時|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|socket hang up/i.test(message)) {
+          return false;
+        }
+        // 參數/驗證類錯誤重試也不會成功，直接失敗避免卡住佇列。
+        return /40[0-4]|422|驗證失敗|參數錯誤|不支援|格式錯誤|找不到/i.test(message);
+      },
     }));
     this.scheduler = new SendScheduler((inputs) => this.sendAdvanced(inputs));
   }
@@ -253,6 +275,8 @@ export class LineService {
     base.on("update:authtoken", (token) => {
       void this.storage.set(AUTH_KEY, token).then(() => {
         logger.info("authToken 已更新並儲存");
+      }).catch((error) => {
+        logger.error("authToken 儲存失敗", { error: String(error) });
       });
     });
 
@@ -457,6 +481,17 @@ export class LineService {
     logger.info("已傳送 Flex", { to, altText: flex.altText });
   }
 
+  /** 本機檔案只允許上傳/快取目錄，避免 webhook 參數讀到任意系統檔案。 */
+  private resolveLocalMediaPath(source: string): string {
+    const roots = [resolve(config.uploadsPath), resolve(config.cachePath)];
+    const candidate = isAbsolute(source) ? resolve(source) : resolve(roots[0], source);
+    for (const root of roots) {
+      const rootWithSep = root.endsWith(sep) ? root : root + sep;
+      if (candidate === root || candidate.startsWith(rootWithSep)) return candidate;
+    }
+    throw new Error("僅允許讀取上傳目錄內的檔案（請先經 /settings/upload 上傳）");
+  }
+
   private async sendMedia(
     to: string,
     source: string,
@@ -466,33 +501,40 @@ export class LineService {
     const client = this.client;
     if (!client) throw new NotLoggedInError();
 
+    const maxBytes = Math.max(1, config.maxBodyMb) * 1024 * 1024;
     let data: Buffer;
     let name: string;
 
     const dataUrl = /^data:([^;,]*);base64,(.*)$/is.exec(source);
     if (dataUrl) {
       data = Buffer.from(dataUrl[2], "base64");
+      if (data.length > maxBytes) throw new Error(`媒體過大（上限 ${config.maxBodyMb}MB）`);
       name = filename?.trim() || `upload.${extFor(kind, dataUrl[1])}`;
     } else if (/^https?:\/\//i.test(source)) {
-      let resp: Response;
       try {
-        resp = await fetch(source);
+        data = await fetchBuffer(source, undefined, { timeoutMs: 20_000, maxBytes });
       } catch {
         throw new Error(`下載失敗：${source}`);
       }
-      if (!resp.ok) throw new Error(`下載失敗：${source}（HTTP ${resp.status}）`);
-      data = Buffer.from(await resp.arrayBuffer());
-      name = filename?.trim() || basename(new URL(source).pathname) || "media.bin";
-    } else {
+      let pathname = "media.bin";
       try {
-        data = readFileSync(source);
+        pathname = basename(new URL(source).pathname) || pathname;
+      } catch {
+        // URL 解析失敗時沿用預設檔名
+      }
+      name = filename?.trim() || pathname;
+    } else {
+      const safePath = this.resolveLocalMediaPath(source);
+      try {
+        data = readFileSync(safePath);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          throw new Error(`檔案不存在：${resolve(source)}（請確認執行本程式的機器上的路徑）`);
+          throw new Error(`檔案不存在：${safePath}（請先經 /settings/upload 上傳）`);
         }
         throw error;
       }
-      name = filename?.trim() || basename(source);
+      if (data.length > maxBytes) throw new Error(`媒體過大（上限 ${config.maxBodyMb}MB）`);
+      name = filename?.trim() || basename(safePath);
     }
 
     const ext = extname(name).toLowerCase();
@@ -813,7 +855,14 @@ export class LineService {
   private async replyTo(chat: string, text: string): Promise<void> {
     const client = this.client;
     if (!client) return;
-    const parts = splitText(text, config.replyMaxChars);
+    // 前綴「(n/N) 」會佔用長度，先預留再切段；段數設上限避免洗版。
+    const maxLen = Math.max(200, config.replyMaxChars - 10);
+    let parts = splitText(text, maxLen);
+    const MAX_PARTS = 10;
+    if (parts.length > MAX_PARTS) {
+      parts = parts.slice(0, MAX_PARTS);
+      parts[MAX_PARTS - 1] = `${parts[MAX_PARTS - 1]}…（內容過長已截斷）`;
+    }
     for (let i = 0; i < parts.length; i++) {
       const isLast = i === parts.length - 1;
       const body = parts.length > 1 ? `(${i + 1}/${parts.length}) ${parts[i]}` : parts[i];

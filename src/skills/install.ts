@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
@@ -99,6 +99,13 @@ export async function installZip(buffer: Buffer): Promise<{ id: string; files: n
 
   const names = Object.keys(files).filter((n) => !n.endsWith("/"));
   if (names.length === 0) throw new Error("zip 內沒有檔案");
+  if (names.length > 200) throw new Error("zip 內檔案過多（上限 200）");
+  let totalBytes = 0;
+  for (const n of names) {
+    totalBytes += files[n].length;
+    if (files[n].length > 5 * 1024 * 1024) throw new Error("zip 內有單檔過大（上限 5MB）");
+  }
+  if (totalBytes > 50 * 1024 * 1024) throw new Error("zip 解壓後過大（上限 50MB）");
 
   // 判斷最上層共同資料夾
   const roots = new Set(names.map((n) => n.split("/")[0]));
@@ -162,7 +169,12 @@ export async function installZip(buffer: Buffer): Promise<{ id: string; files: n
 /** 移除外部技能。 */
 export async function uninstallSkill(id: string): Promise<boolean> {
   const safe = safeName(id);
-  const dir = join(skillsRoot(), safe);
+  if (!safe) return false;
+  const root = skillsRoot();
+  const dir = resolve(root, safe);
+  const rootWithSep = root.endsWith(sep) ? root : root + sep;
+  if (dir !== root && !dir.startsWith(rootWithSep)) return false;
+  if (dir === root) return false;
   if (!existsSync(dir)) return false;
   rmSync(dir, { recursive: true, force: true });
   await reloadSkills();

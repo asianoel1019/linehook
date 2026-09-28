@@ -8,6 +8,7 @@ async function shorten(url: string): Promise<string> {
   try {
     const res = await fetch(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`, {
       headers: { "User-Agent": "LineHook/1.0" },
+      signal: AbortSignal.timeout(15_000),
     });
     if (res.ok) {
       const text = (await res.text()).trim();
@@ -18,6 +19,7 @@ async function shorten(url: string): Promise<string> {
   }
   const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`, {
     headers: { "User-Agent": "LineHook/1.0" },
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const text = (await res.text()).trim();

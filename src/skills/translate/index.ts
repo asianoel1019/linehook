@@ -32,7 +32,10 @@ interface GoogleSeg {
 
 async function viaGoogle(text: string, to: string): Promise<{ text: string; from: string }> {
   const url = `${GOOGLE}?client=gtx&sl=auto&tl=${encodeURIComponent(to)}&dt=t&q=${encodeURIComponent(text)}`;
-  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+  const res = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0" },
+    signal: AbortSignal.timeout(15_000),
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as [GoogleSeg[], unknown, string];
   const translated = (data[0] ?? []).map((seg) => seg?.[0] ?? "").join("");
@@ -43,7 +46,10 @@ async function viaGoogle(text: string, to: string): Promise<{ text: string; from
 async function viaMyMemory(text: string, to: string, from: string): Promise<{ text: string; from: string }> {
   const src = from && from !== "auto" ? from : "zh-TW";
   const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(src)}|${encodeURIComponent(to)}`;
-  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+  const res = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0" },
+    signal: AbortSignal.timeout(15_000),
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as { responseData?: { translatedText?: string } };
   const translated = data.responseData?.translatedText ?? "";

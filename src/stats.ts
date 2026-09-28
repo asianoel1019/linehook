@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { rotateIfNeeded } from "./rotate.js";
+import { formatInTz } from "./time.js";
 
 export interface SendEvent {
   time: string;
@@ -65,7 +66,11 @@ export function recordSend(event: SendEvent): void {
 }
 
 function dayKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  try {
+    return formatInTz(date, config.timezone).slice(0, 10);
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
 }
 
 export function getStats(days = config.statsDays): StatsSummary {
@@ -80,7 +85,8 @@ export function getStats(days = config.statsDays): StatsSummary {
     if (event.ok) ok += 1;
     else fail += 1;
 
-    const key = event.time.slice(0, 10);
+    const parsed = new Date(event.time);
+    const key = Number.isNaN(parsed.getTime()) ? event.time.slice(0, 10) : dayKey(parsed);
     const day = byDay.get(key) ?? { ok: 0, fail: 0 };
     if (event.ok) day.ok += 1;
     else day.fail += 1;

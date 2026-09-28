@@ -18,6 +18,7 @@ async function getToken(clientId: string, clientSecret: string): Promise<string>
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`TDX 認證失敗（HTTP ${res.status}）`);
   const data = (await res.json()) as { access_token: string; expires_in: number };
@@ -99,6 +100,7 @@ async function fetchRoutes(city: string, token: string, ttlMs: number): Promise<
   if (cached && Array.isArray(cached) && cached.length > 0) return cached;
   const res = await fetch(`${TDX_BASE}/Route/City/${city}?$format=JSON`, {
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`取得路線失敗（HTTP ${res.status}）`);
   const routes = (await res.json()) as Route[];
@@ -130,7 +132,10 @@ async function findRoute(routeName: string, token: string, ttlMs: number, prefer
 }
 
 async function fetchJson<T>(url: string, token: string): Promise<T> {
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as T;
 }
@@ -169,7 +174,7 @@ const busSkill: SkillDefinition = {
   ],
   async health(): Promise<SkillHealth[]> {
     try {
-      const res = await fetch(TDX_AUTH, { method: "GET" });
+      const res = await fetch(TDX_AUTH, { method: "GET", signal: AbortSignal.timeout(15_000) });
       return [{ name: "TDX", ok: res.status < 500, detail: `HTTP ${res.status}` }];
     } catch {
       return [{ name: "TDX", ok: false, detail: "連線失敗" }];

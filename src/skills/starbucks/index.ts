@@ -1,6 +1,7 @@
 import { logger } from "../../logger.js";
 import { nowInTz } from "../../time.js";
 import { parseTtl, readCache, writeCache } from "../cache.js";
+import { fetchText as netFetchText } from "../../net.js";
 import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) (compatible; LineHook/1.0)";
@@ -15,9 +16,11 @@ interface Promo {
 }
 
 async function fetchText(url: string): Promise<string> {
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.text();
+  return netFetchText(
+    url,
+    { headers: { "User-Agent": UA } },
+    { timeoutMs: 15_000, maxBytes: 2 * 1024 * 1024 },
+  );
 }
 
 function parsePromos(html: string): Promo[] {
@@ -83,7 +86,10 @@ const starbucksSkill: SkillDefinition = {
   ],
   async health(): Promise<SkillHealth[]> {
     try {
-      const res = await fetch(SOURCE, { headers: { "User-Agent": UA } });
+      const res = await fetch(SOURCE, {
+        headers: { "User-Agent": UA },
+        signal: AbortSignal.timeout(15_000),
+      });
       return [{ name: "星巴克優惠行事曆", ok: res.ok, detail: `HTTP ${res.status}` }];
     } catch {
       return [{ name: "星巴克優惠行事曆", ok: false, detail: "連線失敗" }];

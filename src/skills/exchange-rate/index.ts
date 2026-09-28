@@ -49,7 +49,7 @@ async function getRates(base: string, ttlMs: number): Promise<RatesResponse> {
   const cacheKey = `${CACHE_NAME}-${base}`;
   const cached = readCache<RatesResponse>(cacheKey, ttlMs);
   if (cached && cached.rates) return cached;
-  const res = await fetch(`${API}/${base}`);
+  const res = await fetch(`${API}/${base}`, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`匯率來源失敗（HTTP ${res.status}）`);
   const data = (await res.json()) as RatesResponse;
   if (data.result !== "success" || !data.rates) throw new Error("匯率資料格式錯誤");

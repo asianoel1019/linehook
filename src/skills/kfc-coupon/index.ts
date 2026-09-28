@@ -1,5 +1,6 @@
 import { logger } from "../../logger.js";
 import { parseTtl, readCache, writeCache } from "../cache.js";
+import { fetchText as netFetchText } from "../../net.js";
 import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
 interface CouponItem {
@@ -45,11 +46,13 @@ function setHealth(name: string, ok: boolean, detail: string, count = 0): void {
 }
 
 async function fetchText(url: string): Promise<string> {
-  const res = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; LineHook/1.0)" },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.text();
+  return netFetchText(
+    url,
+    {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; LineHook/1.0)" },
+    },
+    { timeoutMs: 15_000, maxBytes: 2 * 1024 * 1024 },
+  );
 }
 
 /** 來源一：KCouper 的 coupon.js（結構化 JSON）。 */
@@ -196,6 +199,7 @@ const kfcSkill: SkillDefinition = {
           const res = await fetch(s.url, {
             method: "GET",
             headers: { "User-Agent": "Mozilla/5.0 (compatible; LineHook/1.0)" },
+            signal: AbortSignal.timeout(15_000),
           });
           const ok = res.ok;
           setHealth(s.name, ok, ok ? `可用（HTTP ${res.status}）` : `失效（HTTP ${res.status}）`);

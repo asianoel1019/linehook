@@ -1,5 +1,5 @@
 import { logger } from "../../logger.js";
-import { nowInTz } from "../../time.js";
+import { nowInTz, zonedTimeToMs } from "../../time.js";
 import type { SkillContext, SkillDefinition } from "../types.js";
 
 function pad(n: number): string {
@@ -18,6 +18,7 @@ function formatTime(date: Date): string {
  */
 function parseWhen(args: string): { runAt: number; when: Date } | { error: string } {
   const now = nowInTz();
+  const nowMs = Date.now();
 
   // 相對時間：N 秒/分鐘/小時後
   const rel = args.match(/(\d+(?:\.\d+)?)\s*(秒|分鐘|分|小時|時|天)\s*(?:後|之後)?/);
@@ -26,27 +27,36 @@ function parseWhen(args: string): { runAt: number; when: Date } | { error: strin
     const unit = rel[2];
     const ms = unit === "秒" ? n * 1000 : unit.includes("分") ? n * 60_000 : unit.includes("小時") || unit === "時" ? n * 3600_000 : n * 86400_000;
     if (ms > 0) {
-      const when = new Date(now.getTime() + ms);
-      return { runAt: when.getTime(), when };
+      const runAt = nowMs + ms;
+      return { runAt, when: new Date(runAt) };
     }
   }
 
-  // 絕對時間：今天/明天/後天 + HH:mm，或 MM-DD / YYYY-MM-DD + HH:mm
+  // 絕對時間：今天/明天/後天 + HH:mm，或 MM-DD / YYYY-MM-DD + HH:mm（以設定時區解讀）
   const timeMatch = args.match(/(\d{1,2})[:：](\d{2})/);
   if (timeMatch) {
     const hh = Number(timeMatch[1]);
     const mm = Number(timeMatch[2]);
-    const when = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
-    if (/明天|明日/.test(args)) when.setDate(when.getDate() + 1);
-    else if (/後天/.test(args)) when.setDate(when.getDate() + 2);
+    let y = now.getFullYear();
+    let mo = now.getMonth() + 1;
+    let d = now.getDate();
+    if (/明天|明日/.test(args)) d += 1;
+    else if (/後天/.test(args)) d += 2;
 
     const ymd = args.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
     const md = args.match(/(\d{1,2})[\/\-](\d{1,2})/);
-    if (ymd) when.setFullYear(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
-    else if (md) when.setMonth(Number(md[1]) - 1, Number(md[2]));
+    if (ymd) {
+      y = Number(ymd[1]);
+      mo = Number(ymd[2]);
+      d = Number(ymd[3]);
+    } else if (md) {
+      mo = Number(md[1]);
+      d = Number(md[2]);
+    }
 
-    if (when.getTime() <= now.getTime()) when.setDate(when.getDate() + 1); // 已過則順延一天
-    return { runAt: when.getTime(), when };
+    let runAt = zonedTimeToMs({ year: y, month: mo, day: d, hour: hh, minute: mm });
+    if (runAt <= nowMs) runAt = zonedTimeToMs({ year: y, month: mo, day: d + 1, hour: hh, minute: mm }); // 已過則順延一天
+    return { runAt, when: new Date(runAt) };
   }
 
   return { error: "無法解析時間" };

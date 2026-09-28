@@ -34,7 +34,10 @@ async function getPrices(ttlMs: number): Promise<OilPrice[]> {
   const cached = readCache<OilPrice[]>(CACHE_NAME, ttlMs);
   if (cached && cached.length > 0) return cached;
 
-  const res = await fetch(SOURCE, { headers: { "User-Agent": "Mozilla/5.0 (compatible; LineHook/1.0)" } });
+  const res = await fetch(SOURCE, {
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; LineHook/1.0)" },
+    signal: AbortSignal.timeout(15_000),
+  });
   if (!res.ok) throw new Error(`油價來源失敗（HTTP ${res.status}）`);
   const raw = (await res.json()) as Array<Record<string, unknown>>;
 
@@ -92,7 +95,10 @@ const oilSkill: SkillDefinition = {
   ],
   async health() {
     try {
-      const res = await fetch(SOURCE, { headers: { "User-Agent": "Mozilla/5.0 (compatible; LineHook/1.0)" } });
+      const res = await fetch(SOURCE, {
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; LineHook/1.0)" },
+    signal: AbortSignal.timeout(15_000),
+  });
       return [{ name: "中油開放資料", ok: res.ok, detail: `HTTP ${res.status}` }];
     } catch {
       return [{ name: "中油開放資料", ok: false, detail: "連線失敗" }];

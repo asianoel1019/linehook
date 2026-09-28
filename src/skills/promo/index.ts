@@ -1,5 +1,6 @@
 import { logger } from "../../logger.js";
 import { parseTtl, readCache, writeCache } from "../cache.js";
+import { fetchText as netFetchText } from "../../net.js";
 import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) (compatible; LineHook/1.0)";
@@ -27,9 +28,11 @@ function decode(s: string): string {
 }
 
 async function fetchText(url: string): Promise<string> {
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.text();
+  return netFetchText(
+    url,
+    { headers: { "User-Agent": UA } },
+    { timeoutMs: 15_000, maxBytes: 2 * 1024 * 1024 },
+  );
 }
 
 /** 將各種日期字串（RFC / ISO）正規化為 YYYY/MM/DD。 */
@@ -141,7 +144,10 @@ const promoSkill: SkillDefinition = {
       ["家樂福官網", "https://www.uni-prosperity.com.tw/wp-json/wp/v2/posts?per_page=1&_fields=title"],
     ] as Array<[string, string]>) {
       try {
-        const res = await fetch(url, { headers: { "User-Agent": UA } });
+        const res = await fetch(url, {
+          headers: { "User-Agent": UA },
+          signal: AbortSignal.timeout(15_000),
+        });
         results.push({ name, ok: res.ok, detail: `HTTP ${res.status}` });
       } catch {
         results.push({ name, ok: false, detail: "連線失敗" });

@@ -27,6 +27,10 @@ function getTransporter(): Transporter | null {
   return transporter;
 }
 
+function assertSafeHeader(value: string, label: string): void {
+  if (/[\r\n]/.test(value)) throw new Error(`${label} 含非法換行字元`);
+}
+
 export async function sendMail(subject: string, text: string): Promise<void> {
   const mailer = getTransporter();
   if (!mailer) {
@@ -35,6 +39,9 @@ export async function sendMail(subject: string, text: string): Promise<void> {
   }
 
   try {
+    assertSafeHeader(config.smtp.from, "寄件者");
+    assertSafeHeader(config.smtp.to, "收件者");
+    assertSafeHeader(subject, "主旨");
     await mailer.sendMail({
       from: config.smtp.from,
       to: config.smtp.to,

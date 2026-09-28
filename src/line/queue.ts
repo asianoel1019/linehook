@@ -20,11 +20,15 @@ export class SendQueue {
   private running = false;
   private stopped = false;
   private lastSendAt = 0;
+  private readonly maxDepth = 1000;
 
   constructor(private readonly getOptions: () => SendQueueOptions) {}
 
   enqueue(run: () => Promise<void>): Promise<void> {
     if (this.stopped) return Promise.reject(new Error("發送佇列已停止"));
+    if (this.queue.length >= this.maxDepth) {
+      return Promise.reject(new Error("發送佇列已滿，請稍後再試"));
+    }
     return new Promise<void>((resolve, reject) => {
       this.queue.push({ run, resolve, reject });
       void this.drain();
@@ -81,8 +85,10 @@ export class SendQueue {
         if (options.isPermanent(error) || attempt >= options.maxRetries) {
           throw error;
         }
-        const backoff = options.retryBaseMs * 2 ** attempt;
+        const capped = Math.min(30_000, options.retryBaseMs * 2 ** attempt);
+        const backoff = Math.round(capped * (0.8 + Math.random() * 0.4));
         attempt += 1;
+        await this.waitForSlot();
         await delay(backoff);
       }
     }

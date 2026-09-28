@@ -1,5 +1,6 @@
 import { logger } from "../../logger.js";
 import { parseTtl, readCache, writeCache } from "../cache.js";
+import { fetchText as netFetchText } from "../../net.js";
 import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
 const USER_AGENT = "Mozilla/5.0 (compatible; LineHook/1.0)";
@@ -37,9 +38,11 @@ interface Deal {
 }
 
 async function fetchText(url: string): Promise<string> {
-  const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.text();
+  return netFetchText(
+    url,
+    { headers: { "User-Agent": USER_AGENT } },
+    { timeoutMs: 15_000, maxBytes: 2 * 1024 * 1024 },
+  );
 }
 
 function toText(html: string): string {
@@ -148,7 +151,10 @@ const burgerSkill: SkillDefinition = {
     return Promise.all(
       BRANDS.map(async (b): Promise<SkillHealth> => {
         try {
-          const res = await fetch(b.urls[0], { headers: { "User-Agent": USER_AGENT } });
+          const res = await fetch(b.urls[0], {
+            headers: { "User-Agent": USER_AGENT },
+            signal: AbortSignal.timeout(15_000),
+          });
           health[b.name] = { ok: res.ok, detail: `HTTP ${res.status}` };
           return { name: b.name, ok: res.ok, detail: `HTTP ${res.status}` };
         } catch {

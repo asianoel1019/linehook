@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
@@ -66,7 +66,12 @@ export class SendScheduler {
   }
 
   add(inputs: SendInput[], runAt: number, repeat?: string): ScheduledJobView {
-    if (repeat) parseCron(repeat);
+    if (repeat) {
+      const cron = parseCron(repeat);
+      if (nextRun(cron, Date.now(), config.timezone) === null) {
+        throw new Error("無效的排程：一年內無符合時間");
+      }
+    }
     const job: Job = {
       id: randomUUID(),
       runAt,
@@ -90,7 +95,12 @@ export class SendScheduler {
     const job = this.jobs.find((item) => item.id === id);
     if (!job) return null;
     if (patch.repeat !== undefined) {
-      if (patch.repeat) parseCron(patch.repeat);
+      if (patch.repeat) {
+        const cron = parseCron(patch.repeat);
+        if (nextRun(cron, Date.now(), config.timezone) === null) {
+          throw new Error("無效的排程：一年內無符合時間");
+        }
+      }
       job.repeat = patch.repeat || undefined;
     }
     if (patch.runAt !== undefined) job.runAt = patch.runAt;
@@ -121,14 +131,33 @@ export class SendScheduler {
       this.timer = null;
     }
     this.jobs = [];
+    this.save();
+  }
+
+  private loadFile(path: string): Job[] | null {
+    try {
+      const raw = JSON.parse(readFileSync(path, "utf8")) as Job[];
+      if (!Array.isArray(raw)) return null;
+      return raw;
+    } catch {
+      return null;
+    }
   }
 
   private load(): void {
     if (!existsSync(this.path)) return;
+    let raw = this.loadFile(this.path);
+    if (!raw) {
+      logger.warn("排程檔損毀，嘗試讀取備份", { path: this.path });
+      raw = this.loadFile(`${this.path}.bak`);
+    }
+    if (!raw) {
+      logger.warn("載入排程失敗（主檔與備份皆無法解析），保留空排程避免誤刪", { path: this.path });
+      return;
+    }
     try {
-      const raw = JSON.parse(readFileSync(this.path, "utf8")) as Job[];
-      if (!Array.isArray(raw)) return;
       const now = Date.now();
+      const before = raw.length;
       this.jobs = raw.filter((job) => {
         if (!job || typeof job.id !== "string" || !Array.isArray(job.inputs)) return false;
         if (job.repeat) {
@@ -141,6 +170,8 @@ export class SendScheduler {
         }
         return typeof job.runAt === "number" && job.runAt > now - 60_000;
       });
+      const dropped = before - this.jobs.length;
+      if (dropped > 0) logger.warn("啟動時丟棄過期/無效排程", { path: this.path, dropped });
       logger.info("已載入排程", { path: this.path, count: this.jobs.length });
       this.arm();
     } catch (error) {
@@ -151,7 +182,14 @@ export class SendScheduler {
   private save(): void {
     try {
       mkdirSync(dirname(this.path), { recursive: true });
-      writeFileSync(this.path, JSON.stringify(this.jobs, null, 2), "utf8");
+      const tmp = `${this.path}.tmp`;
+      writeFileSync(tmp, JSON.stringify(this.jobs, null, 2), "utf8");
+      renameSync(tmp, this.path);
+      try {
+        copyFileSync(this.path, `${this.path}.bak`);
+      } catch {
+        // 備份失敗不影響主檔
+      }
     } catch (error) {
       logger.warn("儲存排程失敗", { error: String(error) });
     }
@@ -191,11 +229,14 @@ export class SendScheduler {
         });
       }
 
-      if (job.repeat) {
+      // 執行期間可能被更新/取消，重新找一次才變更，避免覆蓋別人的修改。
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (!current) continue;
+      if (current.repeat) {
         try {
-          const cron = parseCron(job.repeat);
-          const next = nextRun(cron, Date.now());
-          if (next) job.runAt = next;
+          const cron = parseCron(current.repeat);
+          const next = nextRun(cron, Date.now(), config.timezone);
+          if (next) current.runAt = next;
           else this.jobs = this.jobs.filter((item) => item.id !== job.id);
         } catch {
           this.jobs = this.jobs.filter((item) => item.id !== job.id);

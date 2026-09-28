@@ -1,5 +1,6 @@
 import { logger } from "../../logger.js";
 import { parseTtl, readCache, writeCache } from "../cache.js";
+import { fetchText as netFetchText } from "../../net.js";
 import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) (compatible; LineHook/1.0)";
@@ -113,9 +114,11 @@ const rssSkill: SkillDefinition = {
     let feed = readCache<Feed>(cacheKey, ttlMs);
     if (!feed || !Array.isArray(feed.items) || feed.items.length === 0) {
       try {
-        const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" } });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const xml = await res.text();
+        const xml = await netFetchText(
+          url,
+          { headers: { "User-Agent": UA, Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" } },
+          { timeoutMs: 15_000, maxBytes: 2 * 1024 * 1024 },
+        );
         feed = parseFeed(xml);
       } catch (error) {
         logger.warn("RSS 讀取失敗", { url, error: error instanceof Error ? error.message : String(error) });

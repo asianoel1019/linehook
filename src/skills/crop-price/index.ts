@@ -71,7 +71,10 @@ const cropSkill: SkillDefinition = {
   ],
   async health(): Promise<SkillHealth[]> {
     try {
-      const res = await fetch(`${MOA_URL}?page=1`, { headers: { "User-Agent": "LineHook/1.0" } });
+      const res = await fetch(`${MOA_URL}?page=1`, {
+        headers: { "User-Agent": "LineHook/1.0" },
+        signal: AbortSignal.timeout(15_000),
+      });
       return [{ name: "農業部資料", ok: res.status < 500, detail: `HTTP ${res.status}` }];
     } catch {
       return [{ name: "農業部資料", ok: false, detail: "連線失敗" }];
@@ -105,7 +108,10 @@ const cropSkill: SkillDefinition = {
         page: "1",
       });
       try {
-        const res = await fetch(`${MOA_URL}?${params.toString()}`, { headers: { "User-Agent": "LineHook/1.0" } });
+        const res = await fetch(`${MOA_URL}?${params.toString()}`, {
+          headers: { "User-Agent": "LineHook/1.0" },
+          signal: AbortSignal.timeout(15_000),
+        });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as MoaResponse;
         rows = Array.isArray(data.Data) ? data.Data : [];

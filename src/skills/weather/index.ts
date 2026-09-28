@@ -1,5 +1,6 @@
 import { logger } from "../../logger.js";
 import { parseTtl, readCache, writeCache } from "../cache.js";
+import { fetchJson as netFetchJson } from "../../net.js";
 import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
 const CACHE_NAME = "weather";
@@ -15,9 +16,11 @@ interface Reading {
 }
 
 async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
-  const res = await fetch(url, { headers: { "User-Agent": UA, ...headers } });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.json();
+  return netFetchJson<unknown>(
+    url,
+    { headers: { "User-Agent": UA, ...headers } },
+    { timeoutMs: 15_000, maxBytes: 2 * 1024 * 1024 },
+  );
 }
 
 /** 主來源：CWA F-C0032-001（需 key）。 */

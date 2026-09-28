@@ -42,7 +42,10 @@ function resolveSymbol(text: string): string {
 
 async function fetchChart(symbol: string, range: string): Promise<{ meta: YahooMeta; closes: number[] }> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const res = await fetch(url, {
+    headers: { "User-Agent": UA },
+    signal: AbortSignal.timeout(15_000),
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as YahooChart;
   const result = data.chart?.result?.[0];

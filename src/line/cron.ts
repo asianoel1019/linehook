@@ -37,6 +37,10 @@ function parseField(
       if (!Number.isInteger(start) || !Number.isInteger(end)) {
         throw new Error(`無效的 cron 欄位：${part}`);
       }
+      // 明確寫出的單一數值若超出範圍，直接報錯而不是靜默變成 *。
+      if (b === undefined && !stepPart && (start < min || start > max)) {
+        throw new Error(`無效的 cron 欄位：${part}（範圍 ${min}-${max}）`);
+      }
     }
     for (let value = start; value <= end; value += step) {
       if (value >= min && value <= max) values.add(value);
@@ -44,6 +48,7 @@ function parseField(
   }
 
   if (values.size === 0) {
+    if (restricted) throw new Error(`無效的 cron 欄位（範圍內無有效值）`);
     for (let value = min; value <= max; value++) values.add(value);
     restricted = false;
   }
@@ -75,13 +80,35 @@ export function parseCron(expr: string): CronFields {
 }
 
 /** 由 from（毫秒）之後找出下一個符合 cron 的時間（毫秒）；一年內找不到回 null。 */
-export function nextRun(cron: CronFields, from: number): number | null {
-  const date = new Date(from);
+export function nextRun(cron: CronFields, from: number, timeZone?: string): number | null {
+  // 以目標時區的牆鐘時間比對：把 from 平移到「伺服器本地牆鐘＝目標時區牆鐘」的代理時間，
+  // 用原本的高效逐分鐘演算法，最後再平移回真實 epoch。日光節約邊界以結果點重算一次。
+  let shift = 0;
+  let useTz = false;
+  if (timeZone) {
+    try {
+      shift = tzOffsetMs(timeZone, from) - serverOffsetMs(from);
+      useTz = true;
+    } catch {
+      shift = 0;
+      useTz = false;
+    }
+  }
+  const date = new Date(from + shift);
   date.setSeconds(0, 0);
   date.setMinutes(date.getMinutes() + 1);
 
-  const limit = new Date(from);
+  const limit = new Date(from + shift);
   limit.setFullYear(limit.getFullYear() + 1);
+
+  const toEpoch = (proxyMs: number): number => {
+    if (!useTz || !timeZone) return proxyMs;
+    try {
+      return proxyMs - (tzOffsetMs(timeZone, proxyMs) - serverOffsetMs(proxyMs));
+    } catch {
+      return proxyMs - shift;
+    }
+  };
 
   while (date.getTime() <= limit.getTime()) {
     const month = date.getMonth() + 1;
@@ -102,9 +129,31 @@ export function nextRun(cron: CronFields, from: number): number | null {
       cron.hours.has(date.getHours()) &&
       cron.minutes.has(date.getMinutes())
     ) {
-      return date.getTime();
+      return toEpoch(date.getTime());
     }
     date.setMinutes(date.getMinutes() + 1);
   }
   return null;
+}
+
+function serverOffsetMs(ms: number): number {
+  return -new Date(ms).getTimezoneOffset() * 60_000;
+}
+
+function tzOffsetMs(timeZone: string, ms: number): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(ms));
+  const get = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? "0");
+  let hour = get("hour");
+  if (hour === 24) hour = 0;
+  const asUTC = Date.UTC(get("year"), get("month") - 1, get("day"), hour, get("minute"), get("second"));
+  return asUTC - ms;
 }

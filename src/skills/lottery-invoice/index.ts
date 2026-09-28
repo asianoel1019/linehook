@@ -1,6 +1,7 @@
 import { logger } from "../../logger.js";
 import { nowInTz } from "../../time.js";
 import { parseTtl, readCache, writeCache } from "../cache.js";
+import { fetchText as netFetchText } from "../../net.js";
 import type { SkillContext, SkillDefinition } from "../types.js";
 
 const CACHE_NAME = "lottery-invoice";
@@ -23,9 +24,11 @@ interface LottoResult {
 }
 
 async function fetchText(url: string): Promise<string> {
-  const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.text();
+  return netFetchText(
+    url,
+    { headers: { "User-Agent": USER_AGENT } },
+    { timeoutMs: 15_000, maxBytes: 2 * 1024 * 1024 },
+  );
 }
 
 // ===== 統一發票 =====
@@ -126,7 +129,7 @@ async function fetchLotto(kind: "lotto649" | "super638", monthsBack: number): Pr
     try {
       const res = await fetch(
         `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/${endpoint}?period=&month=${month}`,
-        { headers: { "User-Agent": USER_AGENT } },
+        { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(15_000) },
       );
       if (!res.ok) continue;
       const data = (await res.json()) as { content?: Record<string, unknown> };

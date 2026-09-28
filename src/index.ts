@@ -13,16 +13,18 @@ import { startHealthMonitor } from "./monitor/token.js";
 
 function installProcessGuards(): void {
   process.on("unhandledRejection", (reason) => {
-    logger.error("未處理的 Promise rejection（已記錄，服務繼續）", {
+    logger.error("未處理的 Promise rejection（即將結束，由 supervisor 重啟）", {
       error: reason instanceof Error ? reason.message : String(reason),
     });
+    process.exit(1);
   });
 
   process.on("uncaughtException", (error) => {
-    logger.error("未捕捉的例外（已記錄，服務繼續）", {
+    logger.error("未捕捉的例外（即將結束，由 supervisor 重啟）", {
       error: error.message,
       at: error.stack?.split("\n")[1]?.trim(),
     });
+    process.exit(1);
   });
 }
 

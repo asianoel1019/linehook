@@ -43,10 +43,16 @@ export function llmConfigFrom(raw: Record<string, string>): LlmConfig {
     apiKey: (raw.apiKey || "").trim(),
     model: (raw.model || defaults.model).trim(),
     systemPrompt: (raw.systemPrompt || "").trim(),
-    temperature: Number(raw.temperature ?? "0.7") || 0,
-    maxTokens: Number(raw.maxTokens ?? "2048") || 2048,
-    timeoutMs: Number(raw.timeoutMs ?? "30000") || 30_000,
+    temperature: numOr(raw.temperature, 0.7),
+    maxTokens: Math.max(1, Math.floor(numOr(raw.maxTokens, 2048))),
+    timeoutMs: Math.max(1000, Math.floor(numOr(raw.timeoutMs, 30_000))),
   };
+}
+
+function numOr(value: string | undefined, fallback: number): number {
+  if (value === undefined || value === "") return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 /** 呼叫 LLM，回傳純文字；失敗丟錯。 */
