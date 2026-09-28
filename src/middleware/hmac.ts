@@ -1,7 +1,9 @@
 import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
-import { config } from "../config.js";
+import { config, type ApiScope } from "../config.js";
 import { logger } from "../logger.js";
+import { recordTokenUsage } from "../token-stats.js";
+import { sessionValid } from "./session.js";
 
 export type RawBodyRequest = Request & { rawBody?: Buffer };
 
@@ -69,13 +71,65 @@ function bearerToken(req: Request): string {
   return match ? match[1].trim() : "";
 }
 
-function validApiToken(req: Request): boolean {
+export interface ApiAuth {
+  name: string;
+  scopes: ApiScope[];
+}
+
+/** 正規化 scope：缺失/格式錯誤沿用舊行為（僅發送）；明確空陣列 = 無任何權限。 */
+export function normalizeScopes(scopes: unknown): ApiScope[] {
+  if (!Array.isArray(scopes)) return ["send"];
+  return scopes.filter((s): s is ApiScope => s === "read" || s === "send" || s === "admin");
+}
+
+/** admin 隱含所有權限。 */
+export function tokenHasScope(auth: ApiAuth, ...required: ApiScope[]): boolean {
+  if (auth.scopes.includes("admin")) return true;
+  return required.some((s) => auth.scopes.includes(s));
+}
+
+export function findApiToken(req: Request): ApiAuth | null {
   const provided = bearerToken(req);
-  if (!provided) return false;
-  const candidates = [config.apiToken, ...config.apiTokens.map((item) => item.token)].filter(
-    Boolean,
-  );
-  return candidates.some((token) => safeEqual(provided, token));
+  if (!provided) return null;
+  if (config.apiToken && safeEqual(provided, config.apiToken)) {
+    return { name: "", scopes: ["send"] };
+  }
+  for (const item of config.apiTokens) {
+    if (item.token && safeEqual(provided, item.token)) {
+      return { name: item.name || "", scopes: normalizeScopes(item.scopes) };
+    }
+  }
+  return null;
+}
+
+/**
+ * session 登入視為完整權限；否則檢查 Bearer token 是否具備任一所需 scope。
+ * 無 Authorization 標頭時沿用原本 requireSession 的行為（GET 導向登入頁，其餘 401），
+ * 避免破壞瀏覽器流程。
+ */
+export function requireSessionOrApi(...scopes: ApiScope[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (sessionValid(req, false)) {
+      next();
+      return;
+    }
+    const auth = findApiToken(req);
+    if (auth && tokenHasScope(auth, ...scopes)) {
+      recordTokenUsage(auth.name || "(主 Token)", req.ip ?? "");
+      (req as RawBodyRequest & { apiAuth?: ApiAuth }).apiAuth = auth;
+      next();
+      return;
+    }
+    if (req.header("authorization")) {
+      res.status(401).json({ ok: false, error: "需要登入" });
+      return;
+    }
+    if (req.method !== "GET" || req.path.endsWith(".json")) {
+      res.status(401).json({ ok: false, error: "需要登入" });
+      return;
+    }
+    res.redirect("/login");
+  };
 }
 
 /**
@@ -110,9 +164,18 @@ export function verifyWebhookAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
 
-  if (hasApi && validApiToken(req)) {
-    next();
-    return;
+  if (hasApi) {
+    const auth = findApiToken(req);
+    if (auth) {
+      if (!tokenHasScope(auth, "send")) {
+        logger.warn("API Token 權限不足（需 send）", { ip: req.ip, name: auth.name });
+        res.status(403).json({ ok: false, error: "權限不足（需要 send）" });
+        return;
+      }
+      recordTokenUsage(auth.name || "(主 Token)", req.ip ?? "");
+      next();
+      return;
+    }
   }
 
   logger.warn("webhook 驗證失敗", { ip: req.ip });

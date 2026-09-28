@@ -224,6 +224,8 @@ node -e "const c=require('crypto');const ts=Date.now().toString();const b=proces
 - **URL Token**：網址帶 `?token=<WEBHOOK_TOKEN>`，或標頭 `X-Webhook-Token: <WEBHOOK_TOKEN>`。
   適合無法自訂簽章標頭的來源（例如只提供靜態 headers 的 webhook 平台）。
 - **API Token（Bearer）**：標頭 `Authorization: Bearer <API_TOKEN>`。適合可設定標準 Authorization 標頭的來源。
+  - 主 Token 僅有 `send` 權限；「多組 API Token」可各自勾選 `read`（唯讀：狀態/儀表板/訊息/技能狀態查詢）、`send`（呼叫 webhook）、`admin`（全部，含設定修改），留空 = 無權限。
+  - Token 用量（次數、上次使用）可在設定頁查看，或呼叫 `GET /tokens/usage.json`（需登入或 admin token）。
 
 ```sh
 curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
@@ -242,10 +244,10 @@ curl -sS -X POST "http://localhost:8090/webhook" \
 | --- | --- |
 | `GET /` | 導向 `/dashboard` |
 | `GET /dashboard` | 儀表板（需登入）：發送統計、狀態摘要、最近紀錄 |
-| `GET /dashboard.json` | 儀表板 JSON（需登入） |
-| `GET /status.json` | 狀態 / log / 目標 / 佇列 / 排程 JSON（需登入） |
+| `GET /dashboard.json` | 儀表板 JSON（需登入或 read token） |
+| `GET /status.json` | 狀態 / log / 目標 / 佇列 / 排程 JSON（需登入或 read token） |
 | `GET /status/qr` | 目前登入 QR 的 PNG 圖（需登入） |
-| `GET /console` | 功能頁（需登入）：測試發送、目標清單、最近紀錄、排程中的訊息 |
+| `GET /console` | 功能頁（需登入）：測試發送、Flex 可視化編輯、目標清單、最近紀錄、排程中的訊息 |
 | `GET /skills` | 技能頁（需登入）：啟用助理、各技能設定 |
 | `POST /skills` | 儲存助理與技能設定（需登入），body `{ assistant, skills }` |
 | `GET /settings` | 設定頁（需登入）：左側設定卡片 + 設定表單 |
@@ -266,8 +268,9 @@ curl -sS -X POST "http://localhost:8090/webhook" \
 | `POST /settings/upload` | 上傳媒體（需登入），raw body + `X-Filename`，回 `{ path, filename, bytes }` |
 | `POST /settings/scheduled/cancel` | 取消排程（需登入），body `{ id }` |
 | `POST /settings/scheduled/update` | 編輯排程（需登入），body `{ id, delaySec? \| sendAt?, repeat? }` |
-| `GET /messages` | 收到的訊息頁（需登入） |
-| `GET /messages.json` | 收到的訊息 JSON（需登入） |
+| `GET /messages` | 收到的訊息頁（需登入）：關鍵字搜尋、JSON / CSV 匯出 |
+| `GET /messages.json` | 收到的訊息 JSON（需登入或 read token），支援 `?q=` 關鍵字、`?chat=` 對話過濾、`?limit=`（最多 1000） |
+| `GET /tokens/usage.json` | API Token 用量統計（需登入或 admin token） |
 | `GET /readme` | README 頁（需登入） |
 | `GET /health` | `{ "status": "ok" \| "bad" }`（依 LINE 登入狀態） |
 

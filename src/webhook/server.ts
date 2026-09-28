@@ -13,14 +13,15 @@ import { logger } from "../logger.js";
 import { getState } from "../state.js";
 import { currentSettings, saveSettings } from "../settings.js";
 import { getStats } from "../stats.js";
+import { getTokenUsage } from "../token-stats.js";
 import { listSkills, isBuiltinSkill } from "../skills/index.js";
 import { resolveText } from "../skills/types.js";
 import { installZip, listInstalled, uninstallSkill } from "../skills/install.js";
 import { llmConfigFrom, listModels } from "../skills/llm.js";
 import { LANGS, LANG_LABELS, isLang, langMap, tr, type Lang } from "../i18n.js";
 import { NotLoggedInError, TargetNotFoundError, type FlexInput, type LineService, type LocationInput, type SendInput, type StickerInput } from "../line/client.js";
-import { isDuplicateIdempotency, markIdempotency, verifyWebhookAuth, type RawBodyRequest } from "../middleware/hmac.js";
-import { getMessages, reloadMessages } from "../messages.js";
+import { isDuplicateIdempotency, markIdempotency, requireSessionOrApi, verifyWebhookAuth, type RawBodyRequest } from "../middleware/hmac.js";
+import { getMessages, reloadMessages, searchMessages } from "../messages.js";
 import { clientIp, ipGuard, isPrivateRequest } from "../middleware/ip.js";
 import { loginRateLimit, rateLimit } from "../middleware/rateLimit.js";
 import { changePassword, createSession, currentUser, destroySession, hasSession, refreshSession, requireSameOrigin, requireSession, sessionRemainingMs, verifyCredentials, } from "../middleware/session.js";
@@ -1067,8 +1068,8 @@ function renderSettingsHtml() {
     <div class="field"><label data-i18n="lbl_hmac">HMAC 簽章密鑰</label><span style="display:flex;gap:8px"><input id="hmacSecret" type="text" style="flex:1"><button type="button" id="hmac-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint" data-i18n="hint_hmac">留空 = 不驗證簽章</div></div>
     <div class="field"><label data-i18n="lbl_skew">時間戳記容許誤差（秒）</label><input id="hmacMaxSkewSec" type="number" min="0"></div>
     <div class="field"><label data-i18n="lbl_webhook_token">Webhook URL Token</label><span style="display:flex;gap:8px"><input id="webhookToken" type="text" style="flex:1"><button type="button" id="token-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint">供無法簽章的來源：網址帶 <code>?token=...</code> 或標頭 <code>X-Webhook-Token</code>；與 HMAC 並存時任一通過即可</div></div>
-    <div class="field"><label data-i18n="lbl_api_token">API Token（Bearer）</label><span style="display:flex;gap:8px"><input id="apiToken" type="text" style="flex:1"><button type="button" id="api-token-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint">呼叫 webhook 時帶 <code>Authorization: Bearer &lt;token&gt;</code>；與 HMAC / URL Token 並存時任一通過即可</div></div>
-    <div class="field"><label data-i18n="lbl_api_tokens">多組 API Token</label><div id="apiTokens"></div><div class="hint" style="grid-column:1">具名 token，可各自撤銷；與上方 API Token、HMAC、URL Token 任一通過即可</div></div>
+    <div class="field"><label data-i18n="lbl_api_token">API Token（Bearer）</label><span style="display:flex;gap:8px"><input id="apiToken" type="text" style="flex:1"><button type="button" id="api-token-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint">主 Token（僅發送權限）。呼叫 webhook 時帶 <code>Authorization: Bearer &lt;token&gt;</code>；與 HMAC / URL Token 並存時任一通過即可</div></div>
+    <div class="field"><label data-i18n="lbl_api_tokens">多組 API Token</label><div id="apiTokens"></div><div class="hint" style="grid-column:1" data-i18n="token_hint_scopes">具名 token，可各自撤銷；與上方 API Token、HMAC、URL Token 任一通過即可</div></div>
     <div class="actions" style="margin:0 0 10px"><button type="button" id="api-token-add" data-i18n="btn_add_api_token">新增 API Token</button></div>
     <div class="field"><label data-i18n="lbl_admin_private">僅限私人 IP 存取管理頁面</label><input id="adminPrivateOnly" type="checkbox"><div class="hint">狀態頁 / 儀表板 / 功能頁 / 設定頁 / 訊息 / ReadMe / 登入頁僅允許內網（10.x / 172.16–31.x / 192.168.x / 127.x）存取；webhook 不受影響</div></div>
     <div class="field"><label data-i18n="lbl_rate_window">速率限制視窗（ms）</label><input id="rateLimit-windowMs" type="number" min="1"></div>
@@ -1246,9 +1247,10 @@ function renderSettingsHtml() {
 
   function addApiTokenRow(item) {
     item = item || {};
+    var scopes = Array.isArray(item.scopes) ? item.scopes : ["send"];
     var row = document.createElement("div");
     row.className = "api-token-row";
-    row.style.cssText = "display:flex;gap:8px;margin-bottom:8px;grid-column:2";
+    row.style.cssText = "display:flex;gap:8px;margin-bottom:8px;grid-column:2;flex-wrap:wrap;align-items:center";
     var name = document.createElement("input");
     name.type = "text";
     name.className = "at-name";
@@ -1263,13 +1265,34 @@ function renderSettingsHtml() {
     token.style.flex = "1";
     var gen = document.createElement("button");
     gen.type = "button";
-    gen.textContent = "產生";
+    gen.textContent = T("btn_generate");
     gen.addEventListener("click", function () { token.value = randomHex(32); });
     var remove = document.createElement("button");
     remove.type = "button";
-    remove.textContent = "刪除";
+    remove.textContent = T("btn_delete");
     remove.addEventListener("click", function () { row.remove(); });
     row.append(name, token, gen, remove);
+    var scopeWrap = document.createElement("span");
+    scopeWrap.style.cssText = "display:flex;gap:10px;align-items:center;flex:1 1 100%;font-size:13px;color:#94a3b8";
+    var scopeLabel = document.createElement("span");
+    scopeLabel.textContent = T("lbl_scope") + "：";
+    scopeWrap.appendChild(scopeLabel);
+    ["read", "send", "admin"].forEach(function (s) {
+      var label = document.createElement("label");
+      label.style.cssText = "display:flex;gap:4px;align-items:center;cursor:pointer";
+      var box = document.createElement("input");
+      box.type = "checkbox";
+      box.className = "at-scope";
+      box.value = s;
+      box.checked = scopes.indexOf(s) !== -1;
+      label.append(box, document.createTextNode(T("scope_" + s)));
+      scopeWrap.appendChild(label);
+    });
+    var usage = document.createElement("span");
+    usage.className = "at-usage msg";
+    usage.style.marginLeft = "auto";
+    scopeWrap.appendChild(usage);
+    row.appendChild(scopeWrap);
     $("apiTokens").appendChild(row);
   }
 
@@ -1277,12 +1300,35 @@ function renderSettingsHtml() {
     var out = [];
     var rows = $("apiTokens").querySelectorAll(".api-token-row");
     Array.prototype.forEach.call(rows, function (row) {
+      var scopes = [];
+      Array.prototype.forEach.call(row.querySelectorAll(".at-scope:checked"), function (box) {
+        scopes.push(box.value);
+      });
       out.push({
         name: row.querySelector(".at-name").value.trim(),
-        token: row.querySelector(".at-token").value.trim()
+        token: row.querySelector(".at-token").value.trim(),
+        scopes: scopes
       });
     });
     return out.filter(function (item) { return item.token; });
+  }
+
+  function refreshTokenUsage() {
+    fetch("/tokens/usage.json", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        var byName = {};
+        ((data && data.usage) || []).forEach(function (u) { byName[u.name] = u; });
+        Array.prototype.forEach.call($("apiTokens").querySelectorAll(".api-token-row"), function (row) {
+          var el = row.querySelector(".at-usage");
+          if (!el) return;
+          var u = byName[row.querySelector(".at-name").value.trim()];
+          if (!u || !u.count) { el.textContent = T("token_never_used"); return; }
+          var last = u.lastUsedAt ? u.lastUsedAt.slice(0, 16).replace("T", " ") : "";
+          el.textContent = T("token_used") + " " + u.count + T("token_times") + (last ? " · " + T("token_last") + " " + last : "");
+        });
+      })
+      .catch(function () {});
   }
 
   function addTemplateRow(tpl) {
@@ -1435,6 +1481,7 @@ function renderSettingsHtml() {
     (s.flexTemplates || []).forEach(addFlexTemplateRow);
     $("apiTokens").replaceChildren();
     (s.apiTokens || []).forEach(addApiTokenRow);
+    refreshTokenUsage();
     $("forwardRules").replaceChildren();
     (s.forward || []).forEach(addForwardRow);
     $("commands-enabled").checked = !!(s.commands && s.commands.enabled);
@@ -1624,8 +1671,32 @@ function renderConsoleHtml() {
     <div class="field"><label data-i18n="lbl_delay">延遲發送</label><span style="display:flex;gap:8px;align-items:center"><input id="test-delay" type="text" placeholder="秒數（例如 60）或 2026-01-01 09:00:00" style="flex:1;min-width:200px"><input id="test-datetime" type="datetime-local" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0"><button type="button" id="test-datetime-btn" class="icon-btn" title="選擇日期時間">&#128197;</button></span><div class="hint">可填「秒數」或「年月日 時:分:秒」；點日曆圖示選時間會帶入欄位。留空 = 立即發送</div></div>
   </details>
   <div class="field"><label>插入媒體</label><span style="display:flex;gap:8px;flex-wrap:wrap"><input id="test-upload" type="file" style="flex:1"><button type="button" id="test-upload-btn">上傳並填入</button><span id="test-upload-msg" class="msg"></span></span></div>
-  <div class="actions"><button type="submit" data-i18n="btn_send">發送</button><span id="test-msg" class="msg"></span></div>
+   <div class="actions"><button type="submit" data-i18n="btn_send">發送</button><span id="test-msg" class="msg"></span></div>
 </form>
+</div>
+</div>
+
+<div class="fn-panel" data-fn="flex-editor">
+<h2 style="margin-top:0" data-i18n="panel_flex_editor">Flex 可視化編輯</h2>
+<div class="glass">
+<div style="display:flex;gap:16px;flex-wrap:wrap">
+<div style="flex:1;min-width:260px">
+<form id="flex-editor-form">
+  <div class="field"><label data-i18n="lbl_flex_alt">Flex altText</label><input id="fx-alt" placeholder="Flex 訊息"></div>
+  <div class="field"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input id="fx-hero-on" type="checkbox" checked style="width:auto"><span data-i18n="fx_show_hero">顯示主圖</span></label></div>
+  <div class="field"><label data-i18n="fx_hero_url">主圖 URL</label><input id="fx-hero-url" placeholder="https://..."></div>
+  <div class="field"><label data-i18n="fx_hero_ratio">主圖比例</label><select id="fx-hero-ratio"><option value="20:13">20:13</option><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="16:9">16:9</option></select></div>
+  <div class="field"><label data-i18n="fx_title">標題</label><input id="fx-title" placeholder="標題文字"></div>
+  <div class="field"><label data-i18n="fx_body">內文</label><textarea id="fx-body" placeholder="內文（換行會保留）"></textarea></div>
+  <div class="field"><label data-i18n="fx_buttons">按鈕（最多 3 個）</label><div id="fx-buttons"></div><div class="actions"><button type="button" id="fx-btn-add" data-i18n="fx_btn_add">新增按鈕</button></div></div>
+  <div class="actions"><button type="button" id="fx-fill-test" data-i18n="fx_fill_test">填入測試表單</button><button type="button" id="fx-copy" data-i18n="fx_copy">複製 JSON</button><span id="fx-msg" class="msg"></span></div>
+</form>
+</div>
+<div style="flex:1;min-width:260px">
+  <div class="field"><label data-i18n="fx_preview">預覽（示意）</label><div id="fx-preview" style="max-width:320px;margin:0 auto"></div></div>
+  <div class="field"><label data-i18n="fx_json_out">產生的 Flex JSON</label><textarea id="fx-json" readonly style="min-height:140px"></textarea></div>
+</div>
+</div>
 </div>
 </div>
 
@@ -1892,6 +1963,205 @@ function renderConsoleHtml() {
     });
   });
 
+  /* ---- Flex 可視化編輯器 ---- */
+  var FX_DRAFT_KEY = "linehook-flex-draft";
+
+  function escHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function addFxButtonRow(btn) {
+    btn = btn || {};
+    var rows = $("fx-buttons").querySelectorAll(".fx-btn-row");
+    if (rows.length >= 3) return;
+    var row = document.createElement("div");
+    row.className = "fx-btn-row";
+    row.style.cssText = "display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap";
+    var label = document.createElement("input");
+    label.className = "fxb-label";
+    label.placeholder = T("fx_btn_label");
+    label.value = btn.label || "";
+    label.style.flex = "1";
+    var action = document.createElement("select");
+    action.className = "fxb-action";
+    action.style.flex = "0 0 110px";
+    [["message", T("fx_action_message")], ["uri", T("fx_action_uri")]].forEach(function (pair) {
+      var opt = document.createElement("option");
+      opt.value = pair[0];
+      opt.textContent = pair[1];
+      if ((btn.action || "message") === pair[0]) opt.selected = true;
+      action.appendChild(opt);
+    });
+    var value = document.createElement("input");
+    value.className = "fxb-value";
+    value.placeholder = T("fx_btn_value");
+    value.value = btn.value || "";
+    value.style.flex = "2";
+    var remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "×";
+    remove.title = T("btn_delete");
+    remove.addEventListener("click", function () { row.remove(); syncFlexEditor(); });
+    row.append(label, action, value, remove);
+    $("fx-buttons").appendChild(row);
+  }
+
+  function collectFxButtons() {
+    var out = [];
+    Array.prototype.forEach.call($("fx-buttons").querySelectorAll(".fx-btn-row"), function (row) {
+      var label = row.querySelector(".fxb-label").value.trim();
+      if (!label) return;
+      out.push({
+        label: label,
+        action: row.querySelector(".fxb-action").value,
+        value: row.querySelector(".fxb-value").value.trim()
+      });
+    });
+    return out;
+  }
+
+  function buildFlex() {
+    var bubble = { type: "bubble" };
+    var heroUrl = $("fx-hero-url").value.trim();
+    if ($("fx-hero-on").checked && heroUrl) {
+      bubble.hero = {
+        type: "image", url: heroUrl, size: "full",
+        aspectRatio: $("fx-hero-ratio").value || "20:13", aspectMode: "cover"
+      };
+    }
+    var bodyContents = [];
+    if ($("fx-title").value) {
+      bodyContents.push({ type: "text", text: $("fx-title").value, weight: "bold", size: "xl", wrap: true });
+    }
+    if ($("fx-body").value) {
+      bodyContents.push({ type: "text", text: $("fx-body").value, size: "sm", color: "#666666", wrap: true });
+    }
+    if (bodyContents.length > 0) {
+      bubble.body = { type: "box", layout: "vertical", contents: bodyContents };
+    }
+    var btns = collectFxButtons();
+    if (btns.length > 0) {
+      bubble.footer = {
+        type: "box", layout: "vertical", spacing: "sm", contents: btns.map(function (b, i) {
+          var act = b.action === "uri"
+            ? { type: "uri", label: b.label, uri: b.value }
+            : { type: "message", label: b.label, text: b.value || b.label };
+          return { type: "button", style: i === 0 ? "primary" : "link", height: "sm", action: act };
+        })
+      };
+    }
+    return bubble;
+  }
+
+  function renderFlexPreview(bubble) {
+    var host = $("fx-preview");
+    host.replaceChildren();
+    var hasContent = bubble.hero || bubble.body || bubble.footer;
+    if (!hasContent) {
+      var empty = document.createElement("div");
+      empty.className = "msg";
+      empty.textContent = T("fx_preview_empty");
+      host.appendChild(empty);
+      return false;
+    }
+    var card = document.createElement("div");
+    card.style.cssText = "background:#fff;color:#111;border-radius:16px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.35);font-family:-apple-system,'Noto Sans TC',sans-serif";
+    if (bubble.hero) {
+      var img = document.createElement("img");
+      img.src = bubble.hero.url;
+      img.alt = "";
+      img.style.cssText = "display:block;width:100%;aspect-ratio:" + String(bubble.hero.aspectRatio || "20:13").replace(":", "/") + ";object-fit:cover;background:#eee";
+      card.appendChild(img);
+    }
+    if (bubble.body) {
+      var bodyBox = document.createElement("div");
+      bodyBox.style.padding = "14px 16px";
+      bubble.body.contents.forEach(function (c, i) {
+        var p = document.createElement("div");
+        p.textContent = c.text;
+        p.style.cssText = i === 0 && c.weight === "bold"
+          ? "font-size:17px;font-weight:700;margin-bottom:6px;white-space:pre-wrap;word-break:break-word"
+          : "font-size:13px;color:#666;margin-top:4px;white-space:pre-wrap;word-break:break-word";
+        bodyBox.appendChild(p);
+      });
+      card.appendChild(bodyBox);
+    }
+    if (bubble.footer) {
+      var foot = document.createElement("div");
+      foot.style.padding = "0 10px 12px";
+      bubble.footer.contents.forEach(function (b) {
+        var a = document.createElement("div");
+        a.textContent = (b.action && b.action.label) || "";
+        var primary = b.style === "primary";
+        a.style.cssText = "text-align:center;font-size:14px;border-radius:8px;padding:9px;margin-top:8px;" +
+          (primary ? "background:#242424;color:#fff;" : "border:1px solid #d0d0d0;color:#42659a;");
+        foot.appendChild(a);
+      });
+      card.appendChild(foot);
+    }
+    host.appendChild(card);
+    return true;
+  }
+
+  function syncFlexEditor(save) {
+    var bubble = buildFlex();
+    var ok = renderFlexPreview(bubble);
+    $("fx-json").value = ok ? JSON.stringify(bubble, null, 2) : "";
+    if (save !== false) {
+      try {
+        localStorage.setItem(FX_DRAFT_KEY, JSON.stringify({
+          alt: $("fx-alt").value,
+          heroOn: $("fx-hero-on").checked,
+          heroUrl: $("fx-hero-url").value,
+          ratio: $("fx-hero-ratio").value,
+          title: $("fx-title").value,
+          body: $("fx-body").value,
+          buttons: collectFxButtons()
+        }));
+      } catch (e) {}
+    }
+    return ok;
+  }
+
+  function restoreFlexDraft() {
+    var draft = null;
+    try { draft = JSON.parse(localStorage.getItem(FX_DRAFT_KEY) || "null"); } catch (e) {}
+    if (!draft) return;
+    if (typeof draft.alt === "string") $("fx-alt").value = draft.alt;
+    $("fx-hero-on").checked = draft.heroOn !== false;
+    if (typeof draft.heroUrl === "string") $("fx-hero-url").value = draft.heroUrl;
+    if (typeof draft.ratio === "string") $("fx-hero-ratio").value = draft.ratio;
+    if (typeof draft.title === "string") $("fx-title").value = draft.title;
+    if (typeof draft.body === "string") $("fx-body").value = draft.body;
+    $("fx-buttons").replaceChildren();
+    (Array.isArray(draft.buttons) ? draft.buttons : []).slice(0, 3).forEach(addFxButtonRow);
+  }
+
+  $("flex-editor-form").addEventListener("input", function () { syncFlexEditor(); });
+  $("flex-editor-form").addEventListener("change", function () { syncFlexEditor(); });
+  $("fx-btn-add").addEventListener("click", function () {
+    addFxButtonRow();
+    var rows = $("fx-buttons").querySelectorAll(".fx-btn-row");
+    var last = rows[rows.length - 1];
+    if (last) last.querySelector(".fxb-label").focus();
+  });
+  $("fx-fill-test").addEventListener("click", function () {
+    if (!syncFlexEditor()) { $("fx-msg").textContent = T("fx_empty"); return; }
+    $("test-flex-alt").value = $("fx-alt").value.trim() || "Flex 訊息";
+    $("test-flex-json").value = $("fx-json").value;
+    $("fx-msg").textContent = T("fx_filled");
+  });
+  $("fx-copy").addEventListener("click", function () {
+    if (!syncFlexEditor()) { $("fx-msg").textContent = T("fx_empty"); return; }
+    copyText($("fx-json").value).then(function (ok) {
+      $("fx-msg").textContent = ok ? T("fx_copied") : $("fx-json").value;
+    });
+  });
+  restoreFlexDraft();
+  syncFlexEditor(false);
+
   setupCards([], "test");
   refreshData();
   setInterval(refreshData, 10000);
@@ -1900,6 +2170,7 @@ function renderConsoleHtml() {
 <div class="side-section">${tr(config.language, "section_functions")}</div>
 <div class="fn-list">
   <button type="button" class="fn-card active" data-fn="test">${tr(config.language, "card_test")}</button>
+  <button type="button" class="fn-card" data-fn="flex-editor">${tr(config.language, "panel_flex_editor")}</button>
   <button type="button" class="fn-card" data-fn="targets-list">${tr(config.language, "card_targets")}</button>
   <button type="button" class="fn-card" data-fn="logs">${tr(config.language, "card_logs")}</button>
   <button type="button" class="fn-card" data-fn="scheduled">${tr(config.language, "card_scheduled")}</button>
@@ -2489,18 +2760,29 @@ function renderMessagesHtml() {
     const body = `
 <div class="glass glass-hover">
 <h2 style="margin-top:0" data-i18n="title_messages">收到的訊息</h2>
+<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+  <input id="message-search" data-i18n-ph="ph_search" placeholder="搜尋關鍵字" style="width:220px">
+  <input id="message-chat" placeholder="MID" style="width:200px">
+  <button type="button" id="message-export-json">JSON</button>
+  <button type="button" id="message-export-csv">CSV</button>
+  <span id="message-count" class="msg"></span>
+</div>
 <table><thead><tr><th data-i18n="th_time">時間</th><th data-i18n="th_source">來源</th><th data-i18n="th_chat">對話</th><th data-i18n="th_content">內容</th></tr></thead><tbody id="messages"></tbody></table>
 </div>
 `;
     const script = `
   ${HELPERS}
+  var lastMessages = [];
   function render(data) {
     var bodyEl = $("messages");
-    var list = (data.messages || []).slice().reverse();
+    var list = data.messages || [];
+    lastMessages = list;
     if (list.length === 0) {
       bodyEl.replaceChildren(emptyRow(4));
+      $("message-count").textContent = "";
       return;
     }
+    $("message-count").textContent = list.length;
     bodyEl.replaceChildren.apply(bodyEl, list.map(function (m) {
       var src = m.fromName ? m.fromName + " (" + m.fromMid + ")" : m.fromMid;
       var chat = m.chatMid;
@@ -2509,8 +2791,17 @@ function renderMessagesHtml() {
     }));
   }
 
+  function queryString() {
+    var parts = [];
+    var q = $("message-search").value.trim();
+    var chat = $("message-chat").value.trim();
+    if (q) parts.push("q=" + encodeURIComponent(q));
+    if (chat) parts.push("chat=" + encodeURIComponent(chat));
+    return parts.length > 0 ? "?" + parts.join("&") : "";
+  }
+
   function refresh() {
-    fetch("/messages.json", { cache: "no-store" })
+    fetch("/messages.json" + queryString(), { cache: "no-store" })
       .then(function (res) {
         if (res.status === 401) { window.location.href = "/login"; return null; }
         return res.ok ? res.json() : null;
@@ -2518,6 +2809,40 @@ function renderMessagesHtml() {
       .then(function (data) { if (data) render(data); })
       .catch(function () {});
   }
+
+  function download(filename, text, mime) {
+    var blob = new Blob(["\uFEFF" + text], { type: mime + ";charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+
+  function csvCell(v) {
+    var s = String(v == null ? "" : v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  $("message-export-json").addEventListener("click", function () {
+    download("messages.json", JSON.stringify(lastMessages, null, 2), "application/json");
+  });
+  $("message-export-csv").addEventListener("click", function () {
+    var rows = [["time", "fromName", "fromMid", "chatMid", "chatType", "text"]];
+    lastMessages.forEach(function (m) {
+      rows.push([m.time, m.fromName, m.fromMid, m.chatMid, m.chatType, m.text].map(csvCell));
+    });
+    download("messages.csv", rows.map(function (r) { return r.join(","); }).join("\n"), "text/csv");
+  });
+
+  var searchTimer = null;
+  [$("message-search"), $("message-chat")].forEach(function (el) {
+    el.addEventListener("input", function () {
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(refresh, 300);
+    });
+  });
 
   refresh();
   setInterval(refresh, 5000);
@@ -2550,10 +2875,10 @@ export function createServer(line: LineService): express.Express {
         const ok = getState().status === "已登入";
         res.json({ status: ok ? "ok" : "bad" });
     });
-    app.get("/dashboard", statusAccess, requireSession, (_req, res) => {
+    app.get("/dashboard", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
         res.type("html").send(renderDashboardHtml());
     });
-    app.get("/dashboard.json", statusAccess, requireSession, (_req, res) => {
+    app.get("/dashboard.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
         res.set("Cache-Control", "no-store");
         res.json({
             state: getState(),
@@ -2565,7 +2890,7 @@ export function createServer(line: LineService): express.Express {
             messages: getMessages().slice(-50),
         });
     });
-    app.get("/status.json", statusAccess, requireSession, (_req, res) => {
+    app.get("/status.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
         res.set("Cache-Control", "no-store");
         res.json({
             state: getState(),
@@ -2574,6 +2899,10 @@ export function createServer(line: LineService): express.Express {
             queue: line.getQueueStats(),
             scheduled: line.listScheduled(),
         });
+    });
+    app.get("/tokens/usage.json", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
+        res.set("Cache-Control", "no-store");
+        res.json({ usage: getTokenUsage() });
     });
     app.get("/status/qr", statusAccess, requireSession, async (_req, res) => {
         const { qrUrl } = getState();
@@ -2648,13 +2977,13 @@ export function createServer(line: LineService): express.Express {
         }
         res.status(401).json({ ok: false, error: "需要登入" });
     });
-    app.get("/console", statusAccess, requireSession, (_req, res) => {
+    app.get("/console", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
         res.type("html").send(renderConsoleHtml());
     });
-    app.get("/skills", statusAccess, requireSession, (_req, res) => {
+    app.get("/skills", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
         res.type("html").send(renderSkillsHtml());
     });
-    app.get("/skills/health", statusAccess, requireSession, async (_req, res) => {
+    app.get("/skills/health", statusAccess, requireSessionOrApi("read"), async (_req, res) => {
         const result: Record<string, Array<{ name: string; ok: boolean; detail?: string }>> = {};
         await Promise.all(listSkills().map(async (skill) => {
             if (!skill.health)
@@ -2668,7 +2997,7 @@ export function createServer(line: LineService): express.Express {
         }));
         res.json({ health: result });
     });
-    app.post("/skills/llm/models", statusAccess, requireSession, requireSameOrigin, async (req, res) => {
+    app.post("/skills/llm/models", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, async (req, res) => {
         const body = asRecord(req.body) ?? {};
         const raw: Record<string, string> = {};
         for (const [k, v] of Object.entries(body))
@@ -2686,7 +3015,7 @@ export function createServer(line: LineService): express.Express {
             });
         }
     });
-    app.get("/skills/installed.json", statusAccess, requireSession, (_req, res) => {
+    app.get("/skills/installed.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
         res.json({
             installed: listInstalled(),
             builtin: listSkills()
@@ -2694,7 +3023,7 @@ export function createServer(line: LineService): express.Express {
                 .map((s) => ({ id: s.id, name: s.name })),
         });
     });
-    app.post("/skills/install", statusAccess, requireSession, requireSameOrigin, express.raw({ type: "*/*", limit: `${config.maxBodyMb}mb` }), async (req, res) => {
+    app.post("/skills/install", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, express.raw({ type: "*/*", limit: `${config.maxBodyMb}mb` }), async (req, res) => {
         const data = Buffer.isBuffer(req.body) ? req.body : (req as RawBodyRequest).rawBody;
         if (!data || data.length === 0) {
             res.status(400).json({ ok: false, error: "沒有收到檔案內容" });
@@ -2711,7 +3040,7 @@ export function createServer(line: LineService): express.Express {
             });
         }
     });
-    app.post("/skills/uninstall", statusAccess, requireSession, requireSameOrigin, async (req, res) => {
+    app.post("/skills/uninstall", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, async (req, res) => {
         const body = asRecord(req.body) ?? {};
         const id = typeof body.id === "string" ? body.id : "";
         if (!id) {
@@ -2725,7 +3054,7 @@ export function createServer(line: LineService): express.Express {
         }
         res.json({ ok: true });
     });
-    app.post("/skills", statusAccess, requireSession, requireSameOrigin, (req, res) => {
+    app.post("/skills", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
         try {
             const body = asRecord(req.body) ?? {};
             const assistant = asRecord(body.assistant);
@@ -2762,30 +3091,39 @@ export function createServer(line: LineService): express.Express {
             });
         }
     });
-    app.get("/settings", statusAccess, requireSession, (_req, res) => {
+    app.get("/settings", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
         res.type("html").send(renderSettingsHtml());
     });
-    app.get("/readme", statusAccess, requireSession, (_req, res) => {
+    app.get("/readme", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
         res.type("html").send(renderReadmeHtml());
     });
-    app.get("/messages", statusAccess, requireSession, (_req, res) => {
+    app.get("/messages", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
         res.type("html").send(renderMessagesHtml());
     });
-    app.get("/messages.json", statusAccess, requireSession, (_req, res) => {
+    app.get("/messages.json", statusAccess, requireSessionOrApi("read"), (req, res) => {
         res.set("Cache-Control", "no-store");
-        res.json({ messages: getMessages() });
+        const q = req.query;
+        const str = (v: unknown): string => (typeof v === "string" ? v : "");
+        const num = Number(str(q.limit));
+        res.json({
+            messages: searchMessages({
+                q: str(q.q),
+                chat: str(q.chat),
+                limit: Number.isFinite(num) ? num : undefined,
+            }),
+        });
     });
-    app.get("/settings.json", statusAccess, requireSession, (_req, res) => {
+    app.get("/settings.json", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
         res.set("Cache-Control", "no-store");
         res.json(currentSettings());
     });
-    app.get("/settings/export", statusAccess, requireSession, (_req, res) => {
+    app.get("/settings/export", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
         const data = currentSettings();
         res.set("Cache-Control", "no-store");
         res.setHeader("Content-Disposition", `attachment; filename="linehook-settings-${Date.now()}.json"`);
         res.type("application/json").send(JSON.stringify(data, null, 2));
     });
-    app.post("/settings/import", statusAccess, requireSession, requireSameOrigin, (req, res) => {
+    app.post("/settings/import", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
         try {
             const body = asRecord(req.body) ?? {};
             const incoming = body.settings ?? req.body;
@@ -2801,7 +3139,7 @@ export function createServer(line: LineService): express.Express {
             });
         }
     });
-    app.post("/settings", statusAccess, requireSession, requireSameOrigin, (req, res) => {
+    app.post("/settings", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
         try {
             const saved = saveSettings(req.body);
             reloadMessages();
@@ -2814,7 +3152,7 @@ export function createServer(line: LineService): express.Express {
             });
         }
     });
-    app.post("/settings/language", statusAccess, requireSession, requireSameOrigin, (req, res) => {
+    app.post("/settings/language", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
         const body = asRecord(req.body) ?? {};
         if (!isLang(body.lang)) {
             res.status(400).json({ ok: false, error: "unsupported language" });
@@ -2828,7 +3166,7 @@ export function createServer(line: LineService): express.Express {
             res.status(500).json({ ok: false, error: String(error) });
         }
     });
-    app.post("/settings/password", statusAccess, requireSession, requireSameOrigin, (req, res) => {
+    app.post("/settings/password", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
         const body = asRecord(req.body) ?? {};
         const current = typeof body.current === "string" ? body.current : "";
         const next = typeof body.next === "string" ? body.next : "";
@@ -2839,7 +3177,7 @@ export function createServer(line: LineService): express.Express {
         }
         res.json({ ok: true });
     });
-    app.post("/settings/upload", statusAccess, requireSession, requireSameOrigin, express.raw({ type: "*/*", limit: `${config.maxBodyMb}mb` }), (req, res) => {
+    app.post("/settings/upload", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, express.raw({ type: "*/*", limit: `${config.maxBodyMb}mb` }), (req, res) => {
         let name: string;
         try {
             name = decodeURIComponent(String(req.header("x-filename") ?? "upload")).trim() || "upload";
@@ -2867,12 +3205,12 @@ export function createServer(line: LineService): express.Express {
             res.status(500).json({ ok: false, error: `儲存失敗：${String(error)}` });
         }
     });
-    app.post("/settings/relogin", statusAccess, requireSession, requireSameOrigin, (_req, res) => {
+    app.post("/settings/relogin", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (_req, res) => {
         logger.info("手動觸發重新登入");
         void line.recover();
         res.json({ ok: true });
     });
-    app.post("/settings/refresh", statusAccess, requireSession, requireSameOrigin, async (_req, res) => {
+    app.post("/settings/refresh", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, async (_req, res) => {
         try {
             await line.refreshContacts();
             res.json({ ok: true });
@@ -2881,7 +3219,7 @@ export function createServer(line: LineService): express.Express {
             sendError(res, error);
         }
     });
-    app.post("/settings/test", statusAccess, requireSession, requireSameOrigin, async (req, res) => {
+    app.post("/settings/test", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, async (req, res) => {
         const body = asRecord(req.body) ?? {};
         const to = typeof body.to === "string" ? body.to.trim() : "";
         if (!to) {
@@ -2917,7 +3255,7 @@ export function createServer(line: LineService): express.Express {
             sendError(res, error);
         }
     });
-    app.post("/settings/scheduled/cancel", statusAccess, requireSession, requireSameOrigin, (req, res) => {
+    app.post("/settings/scheduled/cancel", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
         const body = asRecord(req.body) ?? {};
         const id = typeof body.id === "string" ? body.id : "";
         if (!id || !line.cancelScheduled(id)) {
@@ -2926,7 +3264,7 @@ export function createServer(line: LineService): express.Express {
         }
         res.json({ ok: true });
     });
-    app.post("/settings/scheduled/update", statusAccess, requireSession, requireSameOrigin, (req, res) => {
+    app.post("/settings/scheduled/update", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
         const body = asRecord(req.body) ?? {};
         const id = typeof body.id === "string" ? body.id : "";
         if (!id) {

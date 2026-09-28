@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Security audit (high and above)
+        run: >-
+          node -e "
+          const { execFileSync } = require('node:child_process');
+          // thrift 經 @evex/linejs 間接引入，上游無非 breaking 修復，先列為已知例外
+          const allowlist = ['ghsa-r67j-r569-jrwp', 'ghsa-526f-jxpj-jmg2'];
+          let out = '';
+          try {
+            out = execFileSync('npm', ['audit', '--json'], { encoding: 'utf8' });
+          } catch (e) {
+            // 有漏洞時 npm audit 回傳非零結束碼，報告仍在 stdout
+            out = e.stdout || '';
+          }
+          const report = JSON.parse(out || '{}');
+          const bad = [];
+          for (const [name, v] of Object.entries(report.vulnerabilities || {})) {
+            if (v.severity !== 'high' && v.severity !== 'critical') continue;
+            const ids = (v.via || [])
+              .filter((x) => typeof x === 'object' && x.url)
+              .map((x) => (x.url.match(/GHSA-[a-z0-9-]+/i) || [])[0])
+              .filter(Boolean);
+            // via 全是字串表示只是傳遞指向，真正的 advisory 另有條目
+            if (ids.length === 0) continue;
+            const fresh = ids.filter((id) => !allowlist.includes(id.toLowerCase()));
+            if (fresh.length > 0) bad.push(`${name}@${v.range} [${fresh.join(',')}]`);
+          }
+          if (bad.length > 0) {
+            console.error('Blocked vulnerabilities:\n' + bad.join('\n'));
+            process.exit(1);
+          }
+          console.log('audit ok');
+          "

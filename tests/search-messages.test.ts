@@ -1,0 +1,44 @@
+import { describe, it, before } from "node:test";
+import assert from "node:assert/strict";
+import { recordMessage, searchMessages } from "../src/messages.js";
+
+before(() => {
+  const base = [
+    { fromName: "Alice", fromMid: "u1", chatMid: "c1", chatType: "user", text: "Hello world" },
+    { fromName: "Bob", fromMid: "u2", chatMid: "c2", chatType: "group", text: "早安大家" },
+    { fromName: "Alice", fromMid: "u1", chatMid: "c1", chatType: "user", text: "晚安" },
+  ];
+  base.forEach((m, i) => recordMessage({ ...m, time: `2026-01-0${i + 1}T00:00:00` }));
+});
+
+describe("searchMessages", () => {
+  it("無條件回傳新到舊、上限 1000", () => {
+    const list = searchMessages();
+    assert.ok(list.length >= 3);
+    assert.ok(list[0].time >= list[1].time);
+  });
+
+  it("關鍵字不分大小寫", () => {
+    assert.equal(searchMessages({ q: "hello" }).length, 1);
+    assert.equal(searchMessages({ q: "HELLO" }).length, 1);
+    assert.equal(searchMessages({ q: "早安" }).length, 1);
+    assert.equal(searchMessages({ q: "不存在的xyz" }).length, 0);
+  });
+
+  it("比對來源與對話欄位", () => {
+    assert.equal(searchMessages({ q: "alice" }).length, 2);
+    assert.equal(searchMessages({ q: "u2" }).length, 1);
+  });
+
+  it("chat 過濾", () => {
+    const list = searchMessages({ chat: "c1" });
+    assert.ok(list.length >= 2);
+    assert.ok(list.every((m) => m.chatMid === "c1"));
+  });
+
+  it("limit 上下限", () => {
+    assert.equal(searchMessages({ limit: 1 }).length, 1);
+    assert.ok(searchMessages({ limit: 99999 }).length <= 1000);
+    assert.ok(searchMessages({ limit: -5 }).length >= 1);
+  });
+});

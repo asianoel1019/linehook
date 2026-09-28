@@ -66,3 +66,28 @@ export function recordMessage(message: ReceivedMessage): void {
 export function getMessages(): ReceivedMessage[] {
   return [...buffer];
 }
+
+export interface MessageQuery {
+  q?: string;
+  chat?: string;
+  limit?: number;
+}
+
+/** 關鍵字搜尋（比對時間/來源/對話/內容，不分大小寫）＋對話過濾＋筆數上限。 */
+export function searchMessages(query: MessageQuery = {}): ReceivedMessage[] {
+  const q = (query.q || "").trim().toLowerCase();
+  const chat = (query.chat || "").trim().toLowerCase();
+  const limit = Math.min(Math.max(query.limit ?? 300, 1), 1000);
+  const out: ReceivedMessage[] = [];
+  for (let i = buffer.length - 1; i >= 0; i--) {
+    const m = buffer[i];
+    if (chat && m.chatMid.toLowerCase().indexOf(chat) === -1) continue;
+    if (q) {
+      const hay = `${m.time} ${m.fromName} ${m.fromMid} ${m.chatMid} ${m.chatType} ${m.text}`.toLowerCase();
+      if (hay.indexOf(q) === -1) continue;
+    }
+    out.push(m);
+    if (out.length >= limit) break;
+  }
+  return out;
+}

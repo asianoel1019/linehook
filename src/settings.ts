@@ -17,6 +17,7 @@ const settingsSchema = z.object({
       z.object({
         name: z.string().default(""),
         token: z.string().trim().default(""),
+        scopes: z.array(z.enum(["read", "send", "admin"])).default(["send"]),
       }),
     )
     .default([]),
@@ -119,7 +120,7 @@ export function currentSettings(): EditableSettings {
     apiToken: config.apiToken,
     language: config.language,
     timezone: config.timezone,
-    apiTokens: config.apiTokens.map((item) => ({ ...item })),
+    apiTokens: config.apiTokens.map((item) => ({ name: item.name, token: item.token, scopes: [...item.scopes] })),
     statusPublic: config.statusPublic,
     adminPrivateOnly: config.adminPrivateOnly,
     targets: { ...config.targets },
@@ -166,7 +167,11 @@ function apply(settings: EditableSettings): void {
   config.apiToken = settings.apiToken;
   config.language = settings.language;
   config.timezone = settings.timezone;
-  config.apiTokens = settings.apiTokens.map((item) => ({ ...item }));
+  config.apiTokens = settings.apiTokens.map((item) => ({
+    name: item.name,
+    token: item.token,
+    scopes: [...item.scopes],
+  }));
   config.statusPublic = settings.statusPublic;
   config.adminPrivateOnly = settings.adminPrivateOnly;
   config.targets = settings.targets;

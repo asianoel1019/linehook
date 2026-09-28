@@ -112,9 +112,14 @@ export interface ForwardRule {
   prefix: string;
 }
 
+export type ApiScope = "read" | "send" | "admin";
+
+export const API_SCOPES: ApiScope[] = ["read", "send", "admin"];
+
 export interface ApiTokenEntry {
   name: string;
   token: string;
+  scopes: ApiScope[];
 }
 
 export interface CommandConfig {

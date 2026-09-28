@@ -5,6 +5,7 @@ import { loadSettings } from "./settings.js";
 import { initAuth } from "./middleware/session.js";
 import { initMessages } from "./messages.js";
 import { initStats } from "./stats.js";
+import { initTokenStats } from "./token-stats.js";
 import { loadSkills } from "./skills/index.js";
 import { setState } from "./state.js";
 import { LineService } from "./line/client.js";
@@ -35,6 +36,7 @@ async function main(): Promise<void> {
   initAuth();
   initMessages();
   initStats();
+  initTokenStats();
   await loadSkills();
   logger.info("服務啟動中", { port: config.port });
 
