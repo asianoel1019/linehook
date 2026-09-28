@@ -23,7 +23,7 @@ import { isDuplicateIdempotency, markIdempotency, verifyWebhookAuth, type RawBod
 import { getMessages, reloadMessages } from "../messages.js";
 import { clientIp, ipGuard, isPrivateRequest } from "../middleware/ip.js";
 import { loginRateLimit, rateLimit } from "../middleware/rateLimit.js";
-import { changePassword, createSession, currentUser, destroySession, hasSession, requireSameOrigin, requireSession, sessionRemainingMs, verifyCredentials, } from "../middleware/session.js";
+import { changePassword, createSession, currentUser, destroySession, hasSession, refreshSession, requireSameOrigin, requireSession, sessionRemainingMs, verifyCredentials, } from "../middleware/session.js";
 import { parseCron } from "../line/cron.js";
 import { parseDateTimeInTz } from "../time.js";
 
@@ -815,12 +815,14 @@ const USER_SCRIPT = `
       fetch("/settings/touch", { method: "POST" })
         .then(function (res) {
           if (res.status === 401) { window.location.href = "/login"; return null; }
-          return res.ok ? res.json() : null;
+          if (!res.ok) { lastTouch = 0; return null; }
+          return res.json();
         })
         .then(function (data) {
           if (data && typeof data.remainingMs === "number") setRemaining(data.remainingMs);
+          else if (data === null) lastTouch = 0;
         })
-        .catch(function () {});
+        .catch(function () { lastTouch = 0; });
     }
 
     ["click", "keydown", "input"].forEach(function (ev) {
@@ -2637,9 +2639,9 @@ export function createServer(line: LineService): express.Express {
         }
         res.status(401).json({ ok: false, error: "需要登入" });
     });
-    // 使用者有操作時續期
+    // 使用者有操作時續期（含重發 cookie，否則瀏覽器會在登入滿 5 分鐘後丟掉 cookie）
     app.post("/settings/touch", statusAccess, requireSameOrigin, (req, res) => {
-        const remainingMs = sessionRemainingMs(req, true);
+        const remainingMs = refreshSession(req, res);
         if (remainingMs !== null) {
             res.json({ ok: true, remainingMs });
             return;

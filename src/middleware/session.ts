@@ -119,24 +119,42 @@ function isSecureRequest(req: Request): boolean {
   return proto.split(",")[0]?.trim() === "https";
 }
 
+function setSessionCookie(res: Response, token: string, secure: boolean, maxAgeSec: number): void {
+  res.setHeader(
+    "Set-Cookie",
+    `${COOKIE_NAME}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAgeSec}${secure ? "; Secure" : ""}`,
+  );
+}
+
 export function createSession(req: Request, res: Response): void {
   const token = crypto.randomBytes(32).toString("hex");
   sessions.set(token, Date.now() + SESSION_TTL_MS);
-  const secure = isSecureRequest(req) ? "; Secure" : "";
-  res.setHeader(
-    "Set-Cookie",
-    `${COOKIE_NAME}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_TTL_MS / 1000}${secure}`,
-  );
+  setSessionCookie(res, token, isSecureRequest(req), SESSION_TTL_MS / 1000);
 }
 
 export function destroySession(req: Request, res: Response): void {
   const token = parseCookies(req)[COOKIE_NAME];
   if (token) sessions.delete(token);
-  const secure = isSecureRequest(req) ? "; Secure" : "";
-  res.setHeader(
-    "Set-Cookie",
-    `${COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secure}`,
-  );
+  setSessionCookie(res, "", isSecureRequest(req), 0);
+}
+
+/**
+ * 續期並重發 cookie（滑動式過期）。
+ * 只延長 server 端 Map 而不重發 cookie，會導致瀏覽器在登入滿 5 分鐘後
+ * 丟掉 cookie，而倒數顯示卻還有時間——這就是「還在點就被登出」的原因。
+ * 無效回 null。
+ */
+export function refreshSession(req: Request, res: Response): number | null {
+  const token = parseCookies(req)[COOKIE_NAME];
+  if (!token) return null;
+  const expiresAt = sessions.get(token);
+  if (!expiresAt || expiresAt < Date.now()) {
+    sessions.delete(token);
+    return null;
+  }
+  sessions.set(token, Date.now() + SESSION_TTL_MS);
+  setSessionCookie(res, token, isSecureRequest(req), SESSION_TTL_MS / 1000);
+  return SESSION_TTL_MS;
 }
 
 export function sessionValid(req: Request, extend = false): boolean {
