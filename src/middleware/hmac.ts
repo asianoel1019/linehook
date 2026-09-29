@@ -134,12 +134,12 @@ export function requireSessionOrApi(...scopes: ApiScope[]) {
 
 /**
  * Webhook 驗證：HMAC 簽章、URL token、API Token（Bearer）可並存（任一通過即可）。
- * 三者皆未設定時不驗證。
+ * 每種方式各有獨立開關；開關全關或三者皆未設定時不驗證。
  */
 export function verifyWebhookAuth(req: Request, res: Response, next: NextFunction): void {
-  const hasHmac = Boolean(config.hmacSecret);
-  const hasToken = Boolean(config.webhookToken);
-  const hasApi = Boolean(config.apiToken) || config.apiTokens.some((item) => item.token);
+  const hasHmac = config.hmacEnabled && Boolean(config.hmacSecret);
+  const hasToken = config.webhookTokenEnabled && Boolean(config.webhookToken);
+  const hasApi = config.apiTokenEnabled && (Boolean(config.apiToken) || config.apiTokens.some((item) => item.token));
 
   if (!hasHmac && !hasToken && !hasApi) {
     next();

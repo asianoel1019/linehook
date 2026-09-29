@@ -219,6 +219,8 @@ node -e "const c=require('crypto');const ts=Date.now().toString();const b=proces
 ### 驗證方式（HMAC / URL Token / API Token 可並存）
 
 設定 `HMAC_SECRET`、`WEBHOOK_TOKEN` 或 `API_TOKEN` 任一後即啟用驗證；**任一通過即可**，三者皆空則不驗證。
+每種方式各有獨立開關（`HMAC_ENABLED`／`WEBHOOK_TOKEN_ENABLED`／`API_TOKEN_ENABLED`，預設全開，可在設定頁安全區切換）；
+關閉的方式視同未設定——三種全關或都沒設值時不驗證。
 
 - **HMAC 簽章**：見上方範例。
 - **URL Token**：網址帶 `?token=<WEBHOOK_TOKEN>`，或標頭 `X-Webhook-Token: <WEBHOOK_TOKEN>`。

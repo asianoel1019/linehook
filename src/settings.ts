@@ -7,9 +7,12 @@ import { resetMailer } from "./notify/mailer.js";
 const settingsSchema = z.object({
   allowedIps: z.array(z.string()).default([]),
   hmacSecret: z.string().trim().default(""),
+  hmacEnabled: z.boolean().default(true),
   hmacMaxSkewSec: z.coerce.number().int().nonnegative().default(300),
   webhookToken: z.string().trim().default(""),
+  webhookTokenEnabled: z.boolean().default(true),
   apiToken: z.string().trim().default(""),
+  apiTokenEnabled: z.boolean().default(true),
   language: z.enum(["zh", "en", "ja"]).default("zh"),
   timezone: z.string().default("Asia/Taipei"),
   apiTokens: z
@@ -115,9 +118,12 @@ export function currentSettings(): EditableSettings {
   return {
     allowedIps: [...config.allowedIps],
     hmacSecret: config.hmacSecret,
+    hmacEnabled: config.hmacEnabled,
     hmacMaxSkewSec: config.hmacMaxSkewSec,
     webhookToken: config.webhookToken,
+    webhookTokenEnabled: config.webhookTokenEnabled,
     apiToken: config.apiToken,
+    apiTokenEnabled: config.apiTokenEnabled,
     language: config.language,
     timezone: config.timezone,
     apiTokens: config.apiTokens.map((item) => ({ name: item.name, token: item.token, scopes: [...item.scopes] })),
@@ -162,9 +168,12 @@ export function currentSettings(): EditableSettings {
 function apply(settings: EditableSettings): void {
   config.allowedIps = settings.allowedIps;
   config.hmacSecret = settings.hmacSecret;
+  config.hmacEnabled = settings.hmacEnabled;
   config.hmacMaxSkewSec = settings.hmacMaxSkewSec;
   config.webhookToken = settings.webhookToken;
+  config.webhookTokenEnabled = settings.webhookTokenEnabled;
   config.apiToken = settings.apiToken;
+  config.apiTokenEnabled = settings.apiTokenEnabled;
   config.language = settings.language;
   config.timezone = settings.timezone;
   config.apiTokens = settings.apiTokens.map((item) => ({

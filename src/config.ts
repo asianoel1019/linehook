@@ -28,9 +28,12 @@ const schema = z.object({
   SETTINGS_PATH: z.string().default("./settings.json"),
   ALLOWED_IPS: z.string().default(""),
   HMAC_SECRET: z.string().trim().default(""),
+  HMAC_ENABLED: boolDefault(true),
   HMAC_MAX_SKEW_SEC: z.coerce.number().int().nonnegative().default(300),
   WEBHOOK_TOKEN: z.string().trim().default(""),
+  WEBHOOK_TOKEN_ENABLED: boolDefault(true),
   API_TOKEN: z.string().trim().default(""),
+  API_TOKEN_ENABLED: boolDefault(true),
   STATUS_PUBLIC: boolDefault(true),
   ADMIN_PRIVATE_ONLY: boolDefault(false),
   STATUS_USER: z.string().default(""),
@@ -156,9 +159,12 @@ export interface Config {
   settingsPath: string;
   allowedIps: string[];
   hmacSecret: string;
+  hmacEnabled: boolean;
   hmacMaxSkewSec: number;
   webhookToken: string;
+  webhookTokenEnabled: boolean;
   apiToken: string;
+  apiTokenEnabled: boolean;
   apiTokens: ApiTokenEntry[];
   statusPublic: boolean;
   adminPrivateOnly: boolean;
@@ -235,9 +241,12 @@ export const config: Config = {
   settingsPath: env.SETTINGS_PATH,
   allowedIps: parseList(env.ALLOWED_IPS),
   hmacSecret: env.HMAC_SECRET,
+  hmacEnabled: env.HMAC_ENABLED,
   hmacMaxSkewSec: env.HMAC_MAX_SKEW_SEC,
   webhookToken: env.WEBHOOK_TOKEN,
+  webhookTokenEnabled: env.WEBHOOK_TOKEN_ENABLED,
   apiToken: env.API_TOKEN,
+  apiTokenEnabled: env.API_TOKEN_ENABLED,
   apiTokens: [],
   statusPublic: env.STATUS_PUBLIC,
   adminPrivateOnly: env.ADMIN_PRIVATE_ONLY,

@@ -87,6 +87,8 @@ export const DICT: Record<string, Entry> = {
   ph_allowed_ips: { zh: "逗號或換行分隔，留空 = 不限制", en: "Comma or newline separated; empty = no limit", ja: "カンマまたは改行区切り。空欄=制限なし" },
   lbl_hmac: { zh: "HMAC 簽章密鑰", en: "HMAC secret", ja: "HMAC シークレット" },
   btn_generate: { zh: "隨機產生", en: "Generate", ja: "生成" },
+  auth_enabled: { zh: "啟用此驗證方式", en: "Enable this method", ja: "この認証方式を有効化" },
+  hint_auth_enabled: { zh: "關閉後此驗證方式不再被接受（建議只留一種驗證方式）", en: "When off, this method is no longer accepted (keeping one method is recommended)", ja: "オフにするとこの認証方式は受け付けなくなります（1方式のみ推奨）" },
   btn_delete: { zh: "刪除", en: "Delete", ja: "削除" },
   hint_hmac: { zh: "留空 = 不驗證簽章", en: "Empty = no signature verification", ja: "空欄=署名検証なし" },
   lbl_skew: { zh: "時間戳記容許誤差（秒）", en: "Timestamp tolerance (sec)", ja: "タイムスタンプ許容誤差（秒）" },

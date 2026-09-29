@@ -1066,9 +1066,12 @@ function renderSettingsHtml() {
     <legend data-i18n="legend_security">安全 / 來源</legend>
     <div class="field"><label data-i18n="lbl_allowed_ips">允許的來源 IP</label><textarea id="allowedIps" data-i18n-ph="ph_allowed_ips" placeholder="逗號或換行分隔，留空 = 不限制"></textarea></div>
     <div class="field"><label data-i18n="lbl_hmac">HMAC 簽章密鑰</label><span style="display:flex;gap:8px"><input id="hmacSecret" type="text" style="flex:1"><button type="button" id="hmac-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint" data-i18n="hint_hmac">留空 = 不驗證簽章</div></div>
+    <div class="field"><label data-i18n="auth_enabled">啟用此驗證方式</label><input id="hmacEnabled" type="checkbox"><div class="hint" data-i18n="hint_auth_enabled">關閉後 HMAC 簽章不再被接受（建議只留一種驗證方式）</div></div>
     <div class="field"><label data-i18n="lbl_skew">時間戳記容許誤差（秒）</label><input id="hmacMaxSkewSec" type="number" min="0"></div>
     <div class="field"><label data-i18n="lbl_webhook_token">Webhook URL Token</label><span style="display:flex;gap:8px"><input id="webhookToken" type="text" style="flex:1"><button type="button" id="token-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint">供無法簽章的來源：網址帶 <code>?token=...</code> 或標頭 <code>X-Webhook-Token</code>；與 HMAC 並存時任一通過即可</div></div>
+    <div class="field"><label data-i18n="auth_enabled">啟用此驗證方式</label><input id="webhookTokenEnabled" type="checkbox"><div class="hint" data-i18n="hint_auth_enabled">關閉後 URL Token 不再被接受（建議只留一種驗證方式）</div></div>
     <div class="field"><label data-i18n="lbl_api_token">API Token（Bearer）</label><span style="display:flex;gap:8px"><input id="apiToken" type="text" style="flex:1"><button type="button" id="api-token-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint">主 Token（僅發送權限）。呼叫 webhook 時帶 <code>Authorization: Bearer &lt;token&gt;</code>；與 HMAC / URL Token 並存時任一通過即可</div></div>
+    <div class="field"><label data-i18n="auth_enabled">啟用此驗證方式</label><input id="apiTokenEnabled" type="checkbox"><div class="hint" data-i18n="hint_auth_enabled">關閉後所有 Bearer Token（含多組）不再被接受（建議只留一種驗證方式）</div></div>
     <div class="field"><label data-i18n="lbl_api_tokens">多組 API Token</label><div id="apiTokens"></div><div class="hint" style="grid-column:1" data-i18n="token_hint_scopes">具名 token，可各自撤銷；與上方 API Token、HMAC、URL Token 任一通過即可</div></div>
     <div class="actions" style="margin:0 0 10px"><button type="button" id="api-token-add" data-i18n="btn_add_api_token">新增 API Token</button></div>
     <div class="field"><label data-i18n="lbl_admin_private">僅限私人 IP 存取管理頁面</label><input id="adminPrivateOnly" type="checkbox"><div class="hint">狀態頁 / 儀表板 / 功能頁 / 設定頁 / 訊息 / ReadMe / 登入頁僅允許內網（10.x / 172.16–31.x / 192.168.x / 127.x）存取；webhook 不受影響</div></div>
@@ -1448,9 +1451,12 @@ function renderSettingsHtml() {
   function fillForm(s) {
     $("allowedIps").value = (s.allowedIps || []).join(", ");
     $("hmacSecret").value = s.hmacSecret || "";
+    $("hmacEnabled").checked = s.hmacEnabled !== false;
     $("hmacMaxSkewSec").value = s.hmacMaxSkewSec;
     $("webhookToken").value = s.webhookToken || "";
+    $("webhookTokenEnabled").checked = s.webhookTokenEnabled !== false;
     $("apiToken").value = s.apiToken || "";
+    $("apiTokenEnabled").checked = s.apiTokenEnabled !== false;
     $("adminPrivateOnly").checked = !!s.adminPrivateOnly;
     $("rateLimit-windowMs").value = s.rateLimit.windowMs;
     $("rateLimit-max").value = s.rateLimit.max;
@@ -1511,9 +1517,12 @@ function renderSettingsHtml() {
     return {
       allowedIps: $("allowedIps").value.split(/[\\n,]/).map(function (x) { return x.trim(); }).filter(Boolean),
       hmacSecret: $("hmacSecret").value,
+      hmacEnabled: $("hmacEnabled").checked,
       hmacMaxSkewSec: Number($("hmacMaxSkewSec").value),
       webhookToken: $("webhookToken").value,
+      webhookTokenEnabled: $("webhookTokenEnabled").checked,
       apiToken: $("apiToken").value,
+      apiTokenEnabled: $("apiTokenEnabled").checked,
       apiTokens: collectApiTokens(),
       adminPrivateOnly: $("adminPrivateOnly").checked,
       targets: targets,
@@ -2861,8 +2870,11 @@ export function createServer(line: LineService): express.Express {
         res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
         next();
     });
-    if (!config.hmacSecret && !config.webhookToken && !config.apiToken && !config.apiTokens.some((item) => item.token)) {
-        logger.warn("webhook 未設定任何驗證（HMAC/Token/API Token），將接受所有來源呼叫");
+    const authEnabled = (config.hmacEnabled && config.hmacSecret)
+        || (config.webhookTokenEnabled && config.webhookToken)
+        || (config.apiTokenEnabled && (config.apiToken || config.apiTokens.some((item) => item.token)));
+    if (!authEnabled) {
+        logger.warn("webhook 未啟用任何驗證（HMAC/Token/API Token），將接受所有來源呼叫");
     }
     app.use(express.json({
         limit: `${config.maxBodyMb}mb`,

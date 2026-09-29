@@ -16,15 +16,21 @@ const stubLine = {
 
 const saved = {
   hmacSecret: config.hmacSecret,
+  hmacEnabled: config.hmacEnabled,
   webhookToken: config.webhookToken,
+  webhookTokenEnabled: config.webhookTokenEnabled,
   apiToken: config.apiToken,
+  apiTokenEnabled: config.apiTokenEnabled,
   apiTokens: config.apiTokens,
 };
 
 before(async () => {
   config.hmacSecret = "";
+  config.hmacEnabled = true;
   config.webhookToken = "";
+  config.webhookTokenEnabled = true;
   config.apiToken = "main-secret";
+  config.apiTokenEnabled = true;
   config.apiTokens = [
     { name: "reader", token: "ro-secret", scopes: ["read"] },
     { name: "sender", token: "send-secret", scopes: ["send"] },
@@ -43,8 +49,11 @@ before(async () => {
 
 after(async () => {
   config.hmacSecret = saved.hmacSecret;
+  config.hmacEnabled = saved.hmacEnabled;
   config.webhookToken = saved.webhookToken;
+  config.webhookTokenEnabled = saved.webhookTokenEnabled;
   config.apiToken = saved.apiToken;
+  config.apiTokenEnabled = saved.apiTokenEnabled;
   config.apiTokens = saved.apiTokens;
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
@@ -129,5 +138,96 @@ describe("admin scope", () => {
     assert.ok(names.includes("boss"));
     const sender = data.usage.find((u) => u.name === "sender")!;
     assert.ok(sender.count >= 1);
+  });
+});
+
+describe("驗證方式開關", () => {
+  const baseTokens = [
+    { name: "reader", token: "ro-secret", scopes: ["read"] },
+    { name: "sender", token: "send-secret", scopes: ["send"] },
+    { name: "boss", token: "admin-secret", scopes: ["admin"] },
+    { name: "dead", token: "dead-secret", scopes: [] },
+  ] as never;
+  const resetBaseline = () => {
+    config.hmacSecret = "";
+    config.hmacEnabled = true;
+    config.webhookToken = "";
+    config.webhookTokenEnabled = true;
+    config.apiToken = "main-secret";
+    config.apiTokenEnabled = true;
+    config.apiTokens = baseTokens;
+  };
+  const postWebhook = (headers: Record<string, string>, body = "{}") =>
+    call("/webhook", { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body });
+
+  it("關掉 API Token，Bearer 被拒（另有啟用的方式時）", async () => {
+    config.webhookToken = "url-secret";
+    config.apiTokenEnabled = false;
+    try {
+      const res = await postWebhook(bearer("send-secret"));
+      assert.equal(res.status, 403);
+    } finally {
+      resetBaseline();
+    }
+  });
+
+  it("關掉 URL Token，?token 被拒", async () => {
+    config.webhookToken = "url-secret";
+    config.webhookTokenEnabled = false;
+    try {
+      const res2 = await call("/webhook?token=url-secret", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      assert.equal(res2.status, 403);
+    } finally {
+      resetBaseline();
+    }
+  });
+
+  it("打開 URL Token，?token 可通過（body 錯誤回 400）", async () => {
+    config.webhookToken = "url-secret";
+    config.apiToken = "";
+    config.apiTokens = [];
+    try {
+      const res = await call("/webhook?token=url-secret", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      assert.equal(res.status, 400);
+    } finally {
+      resetBaseline();
+    }
+  });
+
+  it("關掉 HMAC，有效簽章也被拒", async () => {
+    const crypto = await import("node:crypto");
+    config.hmacSecret = "hmac-secret";
+    config.hmacEnabled = false;
+    try {
+      const body = "{}";
+      const ts = String(Date.now());
+      const sig = crypto.createHmac("sha256", "hmac-secret").update(`${ts}.${body}`).digest("hex");
+      const res = await postWebhook({ "X-Timestamp": ts, "X-Signature": sig });
+      assert.equal(res.status, 403);
+    } finally {
+      resetBaseline();
+    }
+  });
+
+  it("打開 HMAC，有效簽章可通過（body 錯誤回 400）", async () => {
+    const crypto = await import("node:crypto");
+    config.hmacSecret = "hmac-secret";
+    try {
+      const body = "{}";
+      const ts = String(Date.now());
+      const sig = crypto.createHmac("sha256", "hmac-secret").update(`${ts}.${body}`).digest("hex");
+      const res = await postWebhook({ "X-Timestamp": ts, "X-Signature": sig });
+      assert.equal(res.status, 400);
+    } finally {
+      resetBaseline();
+    }
   });
 });
