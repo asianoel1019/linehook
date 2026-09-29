@@ -545,6 +545,8 @@ const SETTINGS_STYLE = `
   legend { font-weight: 700; padding: 0 8px; color: #67e8f9; letter-spacing: .06em; }
   .field { display: grid; grid-template-columns: 240px 1fr; gap: 8px 12px; align-items: center; margin-bottom: 10px; }
   .field .hint { grid-column: 2; font-size: 12px; color: #94a3b8; }
+  .auth-box { border: 1px solid rgba(244,114,182,.3); border-radius: 12px; margin: 0 0 12px; padding: 12px 14px 2px; background: rgba(0,0,0,.25); }
+  .auth-box-title { font-weight: 700; margin-bottom: 10px; color: #f0abfc; letter-spacing: .04em; }
   details { margin: 12px 0; }
   summary { cursor: pointer; font-weight: 700; color: #67e8f9; padding: 6px 0; }
   a { color: #67e8f9; }
@@ -1065,15 +1067,24 @@ function renderSettingsHtml() {
   <fieldset class="fn-panel active" data-fn="security">
     <legend data-i18n="legend_security">安全 / 來源</legend>
     <div class="field"><label data-i18n="lbl_allowed_ips">允許的來源 IP</label><textarea id="allowedIps" data-i18n-ph="ph_allowed_ips" placeholder="逗號或換行分隔，留空 = 不限制"></textarea></div>
+    <div class="auth-box">
+    <div class="auth-box-title" data-i18n="lbl_hmac">HMAC 簽章密鑰</div>
     <div class="field"><label data-i18n="lbl_hmac">HMAC 簽章密鑰</label><span style="display:flex;gap:8px"><input id="hmacSecret" type="text" style="flex:1"><button type="button" id="hmac-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint" data-i18n="hint_hmac">留空 = 不驗證簽章</div></div>
     <div class="field"><label data-i18n="auth_enabled">啟用此驗證方式</label><input id="hmacEnabled" type="checkbox"><div class="hint" data-i18n="hint_auth_enabled">關閉後 HMAC 簽章不再被接受（建議只留一種驗證方式）</div></div>
     <div class="field"><label data-i18n="lbl_skew">時間戳記容許誤差（秒）</label><input id="hmacMaxSkewSec" type="number" min="0"></div>
+    </div>
+    <div class="auth-box">
+    <div class="auth-box-title" data-i18n="lbl_webhook_token">Webhook URL Token</div>
     <div class="field"><label data-i18n="lbl_webhook_token">Webhook URL Token</label><span style="display:flex;gap:8px"><input id="webhookToken" type="text" style="flex:1"><button type="button" id="token-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint">供無法簽章的來源：網址帶 <code>?token=...</code> 或標頭 <code>X-Webhook-Token</code>；與 HMAC 並存時任一通過即可</div></div>
     <div class="field"><label data-i18n="auth_enabled">啟用此驗證方式</label><input id="webhookTokenEnabled" type="checkbox"><div class="hint" data-i18n="hint_auth_enabled">關閉後 URL Token 不再被接受（建議只留一種驗證方式）</div></div>
+    </div>
+    <div class="auth-box">
+    <div class="auth-box-title" data-i18n="lbl_api_token">API Token（Bearer）</div>
     <div class="field"><label data-i18n="lbl_api_token">API Token（Bearer）</label><span style="display:flex;gap:8px"><input id="apiToken" type="text" style="flex:1"><button type="button" id="api-token-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint">主 Token（僅發送權限）。呼叫 webhook 時帶 <code>Authorization: Bearer &lt;token&gt;</code>；與 HMAC / URL Token 並存時任一通過即可</div></div>
     <div class="field"><label data-i18n="auth_enabled">啟用此驗證方式</label><input id="apiTokenEnabled" type="checkbox"><div class="hint" data-i18n="hint_auth_enabled">關閉後所有 Bearer Token（含多組）不再被接受（建議只留一種驗證方式）</div></div>
     <div class="field"><label data-i18n="lbl_api_tokens">多組 API Token</label><div id="apiTokens"></div><div class="hint" style="grid-column:1" data-i18n="token_hint_scopes">具名 token，可各自撤銷；與上方 API Token、HMAC、URL Token 任一通過即可</div></div>
     <div class="actions" style="margin:0 0 10px"><button type="button" id="api-token-add" data-i18n="btn_add_api_token">新增 API Token</button></div>
+    </div>
     <div class="field"><label data-i18n="lbl_admin_private">僅限私人 IP 存取管理頁面</label><input id="adminPrivateOnly" type="checkbox"><div class="hint">狀態頁 / 儀表板 / 功能頁 / 設定頁 / 訊息 / ReadMe / 登入頁僅允許內網（10.x / 172.16–31.x / 192.168.x / 127.x）存取；webhook 不受影響</div></div>
     <div class="field"><label data-i18n="lbl_rate_window">速率限制視窗（ms）</label><input id="rateLimit-windowMs" type="number" min="1"></div>
     <div class="field"><label data-i18n="lbl_rate_max">每 IP 最大請求數</label><input id="rateLimit-max" type="number" min="1"></div>
