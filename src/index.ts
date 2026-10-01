@@ -9,6 +9,8 @@ import { initTokenStats } from "./token-stats.js";
 import { loadSkills } from "./skills/index.js";
 import { setState } from "./state.js";
 import { LineService } from "./line/client.js";
+import { TelegramService } from "./telegram/client.js";
+import { registerService } from "./messaging/services.js";
 import { createServer } from "./webhook/server.js";
 import { startHealthMonitor } from "./monitor/token.js";
 
@@ -41,6 +43,16 @@ async function main(): Promise<void> {
   logger.info("服務啟動中", { port: config.port });
 
   const line = new LineService();
+  registerService(line);
+
+  // Telegram 與 LINE 可同時上線；未設定 botToken 時不註冊（/webhook/tg、/tg/update 回 503）。
+  let telegram: TelegramService | null = null;
+  if (config.telegram.enabled && config.telegram.botToken.trim()) {
+    telegram = new TelegramService();
+    registerService(telegram);
+    logger.info("Telegram 已啟用");
+  }
+
   const app = createServer(line);
 
   const server = await new Promise<Server>((resolve) => {
@@ -60,6 +72,12 @@ async function main(): Promise<void> {
     setState({ status: "需人工", lastError: String(error) });
   });
 
+  if (telegram) {
+    void telegram.init().catch((error) => {
+      logger.error("Telegram 初始化失敗", { error: String(error) });
+    });
+  }
+
   let shuttingDown = false;
   const shutdown = (signal: string): void => {
     if (shuttingDown) return;
@@ -69,6 +87,7 @@ async function main(): Promise<void> {
     monitor.stop();
     line.stopListening();
     line.stopQueue();
+    telegram?.stopQueue();
 
     const force = setTimeout(() => {
       logger.warn("關閉逾時，強制結束");

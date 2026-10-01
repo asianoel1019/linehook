@@ -2,7 +2,7 @@ import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { getState, setState } from "../state.js";
 import { sendMail } from "../notify/mailer.js";
-import type { LineService } from "../line/client.js";
+import type { IMessagingService } from "../messaging/types.js";
 
 const PENDING_STATUSES = new Set(["未登入", "登入中", "待驗證"]);
 
@@ -10,7 +10,7 @@ export interface HealthMonitor {
   stop(): void;
 }
 
-export function startHealthMonitor(line: LineService): HealthMonitor {
+export function startHealthMonitor(line: IMessagingService): HealthMonitor {
   let healthy = true;
   let notified = false;
   let recovering = false;

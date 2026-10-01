@@ -55,6 +55,7 @@ export const DICT: Record<string, Entry> = {
   card_scheduled: { zh: "排程中的訊息", en: "Scheduled", ja: "予約メッセージ" },
   card_security: { zh: "安全 / 來源", en: "Security / Source", ja: "セキュリティ / 送信元" },
   card_line: { zh: "LINE 登入", en: "LINE login", ja: "LINE ログイン" },
+  card_telegram: { zh: "Telegram", en: "Telegram", ja: "Telegram" },
   card_send: { zh: "發送 / 重試", en: "Sending / Retry", ja: "送信 / 再試行" },
   card_monitor: { zh: "監控 / Log", en: "Monitor / Log", ja: "監視 / ログ" },
   card_targets_config: { zh: "目標對照", en: "Target mapping", ja: "送信先マッピング" },
@@ -115,6 +116,18 @@ export const DICT: Record<string, Entry> = {
   lbl_device_name: { zh: "顯示名稱（systemName）", en: "Display name (systemName)", ja: "表示名（systemName）" },
   lbl_model_name: { zh: "機型（modelName）", en: "Model (modelName)", ja: "機種（modelName）" },
   hint_relogin_needed: { zh: "顯示名稱需重新登入才生效", en: "Display name takes effect after re-login", ja: "表示名は再ログイン後に有効" },
+
+  // telegram
+  legend_telegram: { zh: "Telegram Bot", en: "Telegram bot", ja: "Telegram Bot" },
+  lbl_tg_enabled: { zh: "啟用 Telegram Bot", en: "Enable Telegram bot", ja: "Telegram Bot を有効化" },
+  lbl_tg_bot_token: { zh: "Bot Token", en: "Bot token", ja: "Bot トークン" },
+  hint_tg_bot_token: { zh: "向 @BotFather 申請；留空 = 停用 Telegram", en: "Get one from @BotFather; empty = disabled", ja: "@BotFather で取得。空欄 = 無効" },
+  lbl_tg_secret: { zh: "Webhook Secret Token", en: "Webhook secret token", ja: "Webhook シークレット" },
+  hint_tg_secret: { zh: "設定後 Telegram 會以此密鑰傳送 update（X-Telegram-Bot-Api-Secret-Token），建議設定", en: "If set, Telegram sends updates with this secret header; recommended", ja: "設定するとこのシークレットで update を送信します（推奨）" },
+  lbl_tg_webhook: { zh: "Webhook URL", en: "Webhook URL", ja: "Webhook URL" },
+  hint_tg_webhook: { zh: "對外可存取的網址，結尾固定為 /tg/update；設定後重啟會自動註冊", en: "Public URL ending with /tg/update; registered on startup when set", ja: "外部から到達可能な URL（末尾 /tg/update）。設定すると起動時に自動登録" },
+  lbl_tg_targets: { zh: "目標對照（名稱=chat_id）", en: "Target mapping (name=chat_id)", ja: "送信先（名称=chat_id）" },
+  hint_tg_targets: { zh: "每行一筆，例如：我的群組=-1001234567890；也可填 @username", en: "One per line, e.g. MyGroup=-1001234567890; @username also works", ja: "1 行に 1 件（例 MyGroup=-1001234567890）。@username も可" },
 
   // send
   legend_send: { zh: "發送 / 重試", en: "Sending / Retry", ja: "送信 / 再試行" },

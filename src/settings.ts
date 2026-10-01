@@ -27,6 +27,15 @@ const settingsSchema = z.object({
   statusPublic: z.boolean().default(true),
   adminPrivateOnly: z.boolean().default(false),
   targets: z.record(z.string(), z.string()).default({}),
+  telegram: z
+    .object({
+      enabled: z.boolean().default(false),
+      botToken: z.string().trim().default(""),
+      secretToken: z.string().trim().default(""),
+      webhookUrl: z.string().trim().default(""),
+      targets: z.record(z.string(), z.string()).default({}),
+    })
+    .default({ enabled: false, botToken: "", secretToken: "", webhookUrl: "", targets: {} }),
   templates: z
     .array(
       z.object({
@@ -130,6 +139,13 @@ export function currentSettings(): EditableSettings {
     statusPublic: config.statusPublic,
     adminPrivateOnly: config.adminPrivateOnly,
     targets: { ...config.targets },
+    telegram: {
+      enabled: config.telegram.enabled,
+      botToken: config.telegram.botToken,
+      secretToken: config.telegram.secretToken,
+      webhookUrl: config.telegram.webhookUrl,
+      targets: { ...config.telegram.targets },
+    },
     templates: config.templates.map((template) => ({ ...template })),
     flexTemplates: config.flexTemplates.map((template) => ({ ...template })),
     healthCheckIntervalSec: config.healthCheckIntervalSec,
@@ -184,6 +200,13 @@ function apply(settings: EditableSettings): void {
   config.statusPublic = settings.statusPublic;
   config.adminPrivateOnly = settings.adminPrivateOnly;
   config.targets = settings.targets;
+  config.telegram = {
+    enabled: settings.telegram.enabled,
+    botToken: settings.telegram.botToken,
+    secretToken: settings.telegram.secretToken,
+    webhookUrl: settings.telegram.webhookUrl,
+    targets: { ...settings.telegram.targets },
+  };
   config.templates = settings.templates.map((template) => ({ ...template }));
   config.flexTemplates = settings.flexTemplates.map((template) => ({ ...template }));
   config.healthCheckIntervalSec = settings.healthCheckIntervalSec;
@@ -250,6 +273,7 @@ export function loadSettings(): void {
       smtp: { ...base.smtp, ...(data.smtp ?? {}) },
       commands: { ...base.commands, ...(data.commands ?? {}) },
       assistant: { ...base.assistant, ...(data.assistant ?? {}) },
+      telegram: { ...base.telegram, ...(data.telegram ?? {}) },
     });
     logger.info("已載入 settings.json", { path });
   } catch (error) {

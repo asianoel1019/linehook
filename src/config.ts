@@ -46,6 +46,11 @@ const schema = z.object({
   LINE_MODEL_NAME: z.string().default("LINE Webhook"),
   STORAGE_PATH: z.string().default("./storage.json"),
   TARGETS: z.string().default(""),
+  TELEGRAM_ENABLED: boolDefault(false),
+  TELEGRAM_BOT_TOKEN: z.string().trim().default(""),
+  TELEGRAM_SECRET_TOKEN: z.string().trim().default(""),
+  TELEGRAM_WEBHOOK_URL: z.string().trim().default(""),
+  TELEGRAM_TARGETS: z.string().default(""),
   HEALTH_CHECK_INTERVAL_SEC: z.coerce.number().int().positive().default(60),
   LOG_LIMIT: z.coerce.number().int().positive().default(200),
   LOG_FILE: z.string().default("./logs/app.log"),
@@ -182,6 +187,13 @@ export interface Config {
     storagePath: string;
   };
   targets: Record<string, string>;
+  telegram: {
+    enabled: boolean;
+    botToken: string;
+    secretToken: string;
+    webhookUrl: string;
+    targets: Record<string, string>;
+  };
   templates: MessageTemplate[];
   flexTemplates: FlexTemplate[];
   healthCheckIntervalSec: number;
@@ -264,6 +276,13 @@ export const config: Config = {
     storagePath: env.STORAGE_PATH,
   },
   targets: parseTargets(env.TARGETS),
+  telegram: {
+    enabled: env.TELEGRAM_ENABLED,
+    botToken: env.TELEGRAM_BOT_TOKEN,
+    secretToken: env.TELEGRAM_SECRET_TOKEN,
+    webhookUrl: env.TELEGRAM_WEBHOOK_URL,
+    targets: parseTargets(env.TELEGRAM_TARGETS),
+  },
   templates: [],
   flexTemplates: [],
   healthCheckIntervalSec: env.HEALTH_CHECK_INTERVAL_SEC,

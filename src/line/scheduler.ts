@@ -98,12 +98,14 @@ export class SendScheduler {
   private jobs: Job[] = [];
   private timer: NodeJS.Timeout | null = null;
   private stopped = false;
-  private readonly path = config.schedulesPath;
+  private readonly path: string;
 
   constructor(
     private readonly execute: (inputs: SendInput[]) => Promise<void>,
     private readonly onSkillTask?: (job: Job) => Promise<void>,
+    schedulesPath: string = config.schedulesPath,
   ) {
+    this.path = schedulesPath;
     this.load();
   }
 

@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { timingSafeEqual } from "node:crypto";
 import express, {
   type ErrorRequestHandler,
   type NextFunction,
@@ -19,7 +20,9 @@ import { resolveText } from "../skills/types.js";
 import { installZip, listInstalled, uninstallSkill } from "../skills/install.js";
 import { llmConfigFrom, listModels } from "../skills/llm.js";
 import { LANGS, LANG_LABELS, isLang, langMap, tr, type Lang } from "../i18n.js";
-import { NotLoggedInError, TargetNotFoundError, type FlexInput, type LineService, type LocationInput, type SendInput, type StickerInput } from "../line/client.js";
+import { NotLoggedInError, TargetNotFoundError, type FlexInput, type LocationInput, type SendInput, type StickerInput } from "../line/client.js";
+import type { IMessagingService } from "../messaging/types.js";
+import { getService, listServices } from "../messaging/services.js";
 import { isDuplicateIdempotency, markIdempotency, requireSessionOrApi, verifyWebhookAuth, type RawBodyRequest } from "../middleware/hmac.js";
 import { getMessages, reloadMessages, searchMessages } from "../messages.js";
 import { clientIp, ipGuard, isPrivateRequest } from "../middleware/ip.js";
@@ -898,6 +901,7 @@ const SESSION_SCRIPT = `
 function renderDashboardHtml() {
     const body = `
 <div><span id="badge" class="badge">-</span></div>
+<div id="platforms" class="msg" style="margin-top:6px"></div>
 <div id="qrbox" style="display:none">
   <p><b>請用手機 LINE 的掃描功能掃描：</b></p>
   <img id="qrimg" alt="LINE QR" style="width:280px;height:280px;background:#fff;border:1px solid #ddd;padding:8px">
@@ -1012,6 +1016,11 @@ function renderDashboardHtml() {
 
     renderSummary(s, data.queue);
 
+    var platforms = data.platforms || [];
+    $("platforms").textContent = platforms.map(function (p) {
+      return p.platform + "（目標 " + p.targets + "、佇列 " + p.queue.pending + (p.queue.running ? " 傳送中" : "") + "）";
+    }).join("　·　");
+
     var stats = data.stats || { total: 0, ok: 0, fail: 0, successRate: 0, byType: {}, days: [] };
     $("stat-total").textContent = String(stats.total);
     $("stat-ok").textContent = String(stats.ok);
@@ -1097,6 +1106,15 @@ function renderSettingsHtml() {
     <div class="field"><label data-i18n="lbl_model_name">機型（modelName）</label><input id="line-modelName" type="text"><div class="hint" data-i18n="hint_relogin_needed">顯示名稱需重新登入才生效</div></div>
   </fieldset>
 
+  <fieldset class="fn-panel" data-fn="telegram">
+    <legend data-i18n="legend_telegram">Telegram Bot</legend>
+    <div class="field"><label data-i18n="lbl_tg_enabled">啟用 Telegram Bot</label><input id="tg-enabled" type="checkbox"><div class="hint">與 LINE 可同時上線；停用後 <code>/webhook/tg</code>、<code>/tg/update</code> 回 503</div></div>
+    <div class="field"><label data-i18n="lbl_tg_bot_token">Bot Token</label><input id="tg-botToken" type="text" placeholder="123456:ABC-DEF..."><div class="hint" data-i18n="hint_tg_bot_token">向 @BotFather 申請；留空 = 停用 Telegram</div></div>
+    <div class="field"><label data-i18n="lbl_tg_secret">Webhook Secret Token</label><input id="tg-secretToken" type="text"><div class="hint" data-i18n="hint_tg_secret">設定後 Telegram 會以此密鑰傳送 update（X-Telegram-Bot-Api-Secret-Token），建議設定</div></div>
+    <div class="field"><label data-i18n="lbl_tg_webhook">Webhook URL</label><input id="tg-webhookUrl" type="text" placeholder="https://example.com/tg/update"><div class="hint" data-i18n="hint_tg_webhook">對外可存取的網址，結尾固定為 /tg/update；設定後重啟會自動註冊</div></div>
+    <div class="field"><label data-i18n="lbl_tg_targets">目標對照（名稱=chat_id）</label><textarea id="tg-targets" placeholder="每行一筆，例如：我的群組=-1001234567890"></textarea><div class="hint" data-i18n="hint_tg_targets">每行一筆；也可填 @username</div></div>
+  </fieldset>
+
   <fieldset class="fn-panel" data-fn="send">
     <legend data-i18n="legend_send">發送 / 重試</legend>
     <div class="field"><label data-i18n="lbl_max_retries">最大重試次數</label><input id="send-maxRetries" type="number" min="0"></div>
@@ -1174,7 +1192,7 @@ function renderSettingsHtml() {
     const script = `
   ${HELPERS}
   ${SESSION_SCRIPT}
-  var CONFIG_SECTIONS = ["security", "line", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
+  var CONFIG_SECTIONS = ["security", "line", "telegram", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
 
   function addForwardRow(rule) {
     rule = rule || {};
@@ -1474,6 +1492,11 @@ function renderSettingsHtml() {
     $("line-device").value = s.line.device;
     $("line-deviceName").value = s.line.deviceName || "";
     $("line-modelName").value = s.line.modelName || "";
+    $("tg-enabled").checked = !!(s.telegram && s.telegram.enabled);
+    $("tg-botToken").value = (s.telegram && s.telegram.botToken) || "";
+    $("tg-secretToken").value = (s.telegram && s.telegram.secretToken) || "";
+    $("tg-webhookUrl").value = (s.telegram && s.telegram.webhookUrl) || "";
+    $("tg-targets").value = Object.keys((s.telegram && s.telegram.targets) || {}).map(function (k) { return k + "=" + s.telegram.targets[k]; }).join("\\n");
     $("send-maxRetries").value = s.send.maxRetries;
     $("send-retryBaseMs").value = s.send.retryBaseMs;
     $("send-minIntervalMs").value = s.send.minIntervalMs;
@@ -1525,6 +1548,14 @@ function renderSettingsHtml() {
       if (i <= 0) return;
       targets[t.slice(0, i).trim()] = t.slice(i + 1).trim();
     });
+    var tgTargets = {};
+    $("tg-targets").value.split(/\\r?\\n/).forEach(function (line) {
+      var t = line.trim();
+      if (!t) return;
+      var i = t.indexOf("=");
+      if (i <= 0) return;
+      tgTargets[t.slice(0, i).trim()] = t.slice(i + 1).trim();
+    });
     return {
       allowedIps: $("allowedIps").value.split(/[\\n,]/).map(function (x) { return x.trim(); }).filter(Boolean),
       hmacSecret: $("hmacSecret").value,
@@ -1560,6 +1591,13 @@ function renderSettingsHtml() {
         device: $("line-device").value,
         deviceName: $("line-deviceName").value,
         modelName: $("line-modelName").value
+      },
+      telegram: {
+        enabled: $("tg-enabled").checked,
+        botToken: $("tg-botToken").value.trim(),
+        secretToken: $("tg-secretToken").value.trim(),
+        webhookUrl: $("tg-webhookUrl").value.trim(),
+        targets: tgTargets
       },
       smtp: {
         host: $("smtp-host").value,
@@ -1655,6 +1693,7 @@ function renderSettingsHtml() {
 <div class="fn-list">
   <button type="button" class="fn-card setting active" data-fn="security">${tr(config.language, "card_security")}</button>
   <button type="button" class="fn-card setting" data-fn="line">${tr(config.language, "card_line")}</button>
+  <button type="button" class="fn-card setting" data-fn="telegram">${tr(config.language, "card_telegram")}</button>
   <button type="button" class="fn-card setting" data-fn="send">${tr(config.language, "card_send")}</button>
   <button type="button" class="fn-card setting" data-fn="monitor">${tr(config.language, "card_monitor")}</button>
   <button type="button" class="fn-card setting" data-fn="targets-config">${tr(config.language, "card_targets_config")}</button>
@@ -1763,7 +1802,7 @@ function renderConsoleHtml() {
     var query = $("target-search").value.trim().toLowerCase();
     var list = allTargets.filter(function (t) {
       if (!query) return true;
-      return t.name.toLowerCase().indexOf(query) !== -1 || t.mid.toLowerCase().indexOf(query) !== -1;
+      return t.name.toLowerCase().indexOf(query) !== -1 || t.id.toLowerCase().indexOf(query) !== -1;
     });
     var body = $("targets");
     if (list.length === 0) {
@@ -1774,7 +1813,7 @@ function renderConsoleHtml() {
       var copyBtn = document.createElement("button");
       copyBtn.textContent = T("btn_copy_mapping");
       copyBtn.addEventListener("click", function () {
-        var text = t.name + "=" + t.mid;
+        var text = t.name + "=" + t.id;
         copyText(text).then(function (ok) {
           $("target-msg").textContent = ok ? "已複製：" + t.name : "無法自動複製，請手動選取：" + text;
         });
@@ -1789,7 +1828,7 @@ function renderConsoleHtml() {
       var actions = document.createElement("td");
       actions.className = "actions-cell";
       actions.append(copyBtn, testBtn);
-      return tr(td(t.name), td(t.mid, "mono"), actions);
+      return tr(td(t.name), td(t.id, "mono"), actions);
     }));
   }
 
@@ -2869,7 +2908,107 @@ function renderMessagesHtml() {
 `;
     return page(tr(config.language, "title_messages"), "messages", body, script);
 }
-export function createServer(line: LineService): express.Express {
+/** 各平台服務摘要（給 dashboard / status 用）。 */
+function platformSummaries() {
+    return listServices().map((service) => ({
+        platform: service.platform,
+        targets: service.listTargets().length,
+        queue: service.getQueueStats(),
+    }));
+}
+/** 固定時間比較字串（避免以回應時間洩漏密鑰）。 */
+function constantTimeEqual(a: string, b: string): boolean {
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
+}
+/**
+ * 產生 /webhook 系列的發送處理器，讓 LINE 與其他平台共用同一套請求解析/排程/轉發邏輯。
+ * resolve 在請求時才解析服務，讓未啟用的平台回 503 而非啟動即失敗。
+ */
+function makeWebhookSender(resolveService: (req: Request) => IMessagingService | undefined) {
+    return async (req: Request, res: Response): Promise<void> => {
+        const service = resolveService(req);
+        if (!service) {
+            res.status(503).json({ ok: false, error: "平台服務未啟用" });
+            return;
+        }
+        const body = asRecord(req.body) ?? {};
+        const targets = parseTargets(body.to);
+        const allowedExtraTo = Array.isArray(body.messages) &&
+            body.messages.every((item: unknown) => {
+                const record = asRecord(item);
+                return record && typeof record.to === "string" && record.to.trim();
+            });
+        if (targets.length === 0 && !allowedExtraTo) {
+            res.status(400).json({ ok: false, error: "to 必填（字串或字串陣列）" });
+            return;
+        }
+        const resolved = resolveInputs(body, targets);
+        if ("error" in resolved) {
+            res.status(400).json({ ok: false, error: resolved.error });
+            return;
+        }
+        const inputs = resolved;
+        const { runAt, error: runAtError } = resolveRunAt(body);
+        if (runAtError) {
+            res.status(400).json({ ok: false, error: runAtError });
+            return;
+        }
+        const repeatChecked = validateRepeat(body.repeat);
+        if ("error" in repeatChecked) {
+            res.status(400).json({ ok: false, error: repeatChecked.error });
+            return;
+        }
+        const repeat = repeatChecked.repeat;
+        const dedupKey = typeof req.header("x-idempotency-key") === "string"
+            ? (req.header("x-idempotency-key") as string).trim()
+            : "";
+        if (dedupKey && isDuplicateIdempotency(dedupKey)) {
+            logger.info("重複的 idempotency key，略過", { ip: req.ip, dedupKey });
+            res.json({ ok: true, duplicate: true });
+            return;
+        }
+        try {
+            if (runAt !== undefined) {
+                const job = service.schedule(inputs, runAt, repeat || undefined);
+                if (dedupKey)
+                    markIdempotency(dedupKey);
+                logger.info("訊息已排程", {
+                    ip: req.ip,
+                    platform: service.platform,
+                    count: inputs.length,
+                    runAt: job.runAt,
+                    repeat: job.repeat,
+                });
+                res.json({
+                    ok: true,
+                    scheduled: true,
+                    id: job.id,
+                    runAt: job.runAt,
+                    repeat: job.repeat,
+                    count: inputs.length,
+                });
+                return;
+            }
+            await service.sendAdvanced(inputs);
+            if (dedupKey)
+                markIdempotency(dedupKey);
+            logger.info("訊息已轉發", { ip: req.ip, platform: service.platform, count: inputs.length });
+            res.json({ ok: true, count: inputs.length });
+        }
+        catch (error) {
+            logger.error("轉發失敗", {
+                ip: req.ip,
+                platform: service.platform,
+                targets,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            sendError(res, error);
+        }
+    };
+}
+export function createServer(line: IMessagingService): express.Express {
     const app = express();
     app.disable("x-powered-by");
     // 只信任本機迴路 proxy，避免直接對外暴露時被偽造 X-Forwarded-For 繞過 IP 限制。
@@ -2909,6 +3048,7 @@ export function createServer(line: LineService): express.Express {
             targets: line.listTargets(),
             queue: line.getQueueStats(),
             scheduled: line.listScheduled(),
+            platforms: platformSummaries(),
             stats: getStats(),
             messages: getMessages().slice(-50),
         });
@@ -2921,6 +3061,7 @@ export function createServer(line: LineService): express.Express {
             targets: line.listTargets(),
             queue: line.getQueueStats(),
             scheduled: line.listScheduled(),
+            platforms: platformSummaries(),
         });
     });
     app.get("/tokens/usage.json", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
@@ -3334,78 +3475,32 @@ export function createServer(line: LineService): express.Express {
             });
         }
     });
-    app.post("/webhook", ipGuard, rateLimit, verifyWebhookAuth, async (req, res) => {
-        const body = asRecord(req.body) ?? {};
-        const targets = parseTargets(body.to);
-        const allowedExtraTo = Array.isArray(body.messages) &&
-            body.messages.every((item: unknown) => {
-                const record = asRecord(item);
-                return record && typeof record.to === "string" && record.to.trim();
-            });
-        if (targets.length === 0 && !allowedExtraTo) {
-            res.status(400).json({ ok: false, error: "to 必填（字串或字串陣列）" });
+    app.post("/webhook", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => line));
+    // Telegram 發送端點：語意與 /webhook 相同，走 Telegram 服務。
+    app.post("/webhook/tg", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("telegram")));
+    // Telegram 接收端點：由 Telegram Bot API 推送 update 進來，驗 X-Telegram-Bot-Api-Secret-Token。
+    app.post("/tg/update", rateLimit, (req, res) => {
+        const service = getService("telegram");
+        if (!service || !config.telegram.enabled || !config.telegram.botToken.trim()) {
+            res.status(503).json({ ok: false, error: "Telegram 未啟用" });
             return;
         }
-        const resolved = resolveInputs(body, targets);
-        if ("error" in resolved) {
-            res.status(400).json({ ok: false, error: resolved.error });
-            return;
-        }
-        const inputs = resolved;
-        const { runAt, error: runAtError } = resolveRunAt(body);
-        if (runAtError) {
-            res.status(400).json({ ok: false, error: runAtError });
-            return;
-        }
-        const repeatChecked = validateRepeat(body.repeat);
-        if ("error" in repeatChecked) {
-            res.status(400).json({ ok: false, error: repeatChecked.error });
-            return;
-        }
-        const repeat = repeatChecked.repeat;
-        const dedupKey = typeof req.header("x-idempotency-key") === "string"
-            ? (req.header("x-idempotency-key") as string).trim()
-            : "";
-        if (dedupKey && isDuplicateIdempotency(dedupKey)) {
-            logger.info("重複的 idempotency key，略過", { ip: req.ip, dedupKey });
-            res.json({ ok: true, duplicate: true });
-            return;
-        }
-        try {
-            if (runAt !== undefined) {
-                const job = line.schedule(inputs, runAt, repeat || undefined);
-                if (dedupKey)
-                    markIdempotency(dedupKey);
-                logger.info("訊息已排程", {
-                    ip: req.ip,
-                    count: inputs.length,
-                    runAt: job.runAt,
-                    repeat: job.repeat,
-                });
-                res.json({
-                    ok: true,
-                    scheduled: true,
-                    id: job.id,
-                    runAt: job.runAt,
-                    repeat: job.repeat,
-                    count: inputs.length,
-                });
+        const expected = config.telegram.secretToken.trim();
+        if (expected) {
+            const provided = req.header("x-telegram-bot-api-secret-token") ?? "";
+            if (!constantTimeEqual(provided, expected)) {
+                logger.warn("Telegram update 密鑰不符", { ip: clientIp(req) });
+                res.status(403).json({ ok: false });
                 return;
             }
-            await line.sendAdvanced(inputs);
-            if (dedupKey)
-                markIdempotency(dedupKey);
-            logger.info("訊息已轉發", { ip: req.ip, count: inputs.length });
-            res.json({ ok: true, count: inputs.length });
         }
-        catch (error) {
-            logger.error("轉發失敗", {
-                ip: req.ip,
-                targets,
+        // 先回 200 避免 Telegram 重送；實際處理非同步進行。
+        res.json({ ok: true });
+        void Promise.resolve(service.handleIncoming?.(req.body)).catch((error: unknown) => {
+            logger.error("Telegram update 處理失敗", {
                 error: error instanceof Error ? error.message : String(error),
             });
-            sendError(res, error);
-        }
+        });
     });
     const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
         const status = typeof err?.status === "number"
