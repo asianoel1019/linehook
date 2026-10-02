@@ -21,7 +21,7 @@ import { installZip, listInstalled, uninstallSkill } from "../skills/install.js"
 import { llmConfigFrom, listModels } from "../skills/llm.js";
 import { LANGS, LANG_LABELS, isLang, langMap, tr, type Lang } from "../i18n.js";
 import { NotLoggedInError, TargetNotFoundError, type FlexInput, type LocationInput, type SendInput, type StickerInput } from "../line/client.js";
-import type { IMessagingService } from "../messaging/types.js";
+import type { IMessagingService, Platform } from "../messaging/types.js";
 import { getService, listServices } from "../messaging/services.js";
 import { isDuplicateIdempotency, markIdempotency, requireSessionOrApi, verifyWebhookAuth, type RawBodyRequest } from "../middleware/hmac.js";
 import { getMessages, reloadMessages, searchMessages } from "../messages.js";
@@ -905,8 +905,18 @@ const SESSION_SCRIPT = `
   }
 `;
 function renderDashboardHtml() {
+    const dashPanels = [
+        { id: "line", label: tr(config.language, "platform_line") },
+        { id: "telegram", label: tr(config.language, "platform_telegram") },
+    ];
+    const dashPlatformSwitch = dashPanels
+        .map((p, index) => `<button type="button" data-platform="${p.id}"${index === 0 ? ' class="active"' : ""}>${p.label}</button>`)
+        .join("");
     const body = `
 <div><span id="badge" class="badge">-</span></div>
+<div class="platform-switch" id="dash-platform-switch" style="max-width:360px;margin:10px 0">
+  ${dashPlatformSwitch}
+</div>
 <div id="platforms" class="msg" style="margin-top:6px"></div>
 <div id="qrbox" style="display:none">
   <p><b>請用手機 LINE 的掃描功能掃描：</b></p>
@@ -944,14 +954,37 @@ function renderDashboardHtml() {
   var qrImg = $("qrimg");
   var qrLink = $("qrlink");
   var lastQr = "";
+  var DASH_PLATFORMS = ${JSON.stringify(dashPanels.map((p) => p.id))};
+  var dashPlatform = DASH_PLATFORMS[0];
 
-  function renderSummary(s, queue) {
+  function initDashPlatform() {
+    var saved = null;
+    try { saved = window.localStorage.getItem("lw_dashboard_platform"); } catch (e) {}
+    dashPlatform = DASH_PLATFORMS.indexOf(saved) !== -1 ? saved : DASH_PLATFORMS[0];
+    Array.prototype.forEach.call(document.querySelectorAll("#dash-platform-switch button"), function (b) {
+      b.classList.toggle("active", b.getAttribute("data-platform") === dashPlatform);
+      b.addEventListener("click", function () {
+        dashPlatform = b.getAttribute("data-platform");
+        try { window.localStorage.setItem("lw_dashboard_platform", dashPlatform); } catch (e) {}
+        Array.prototype.forEach.call(document.querySelectorAll("#dash-platform-switch button"), function (x) {
+          x.classList.toggle("active", x.getAttribute("data-platform") === dashPlatform);
+        });
+        refresh();
+      });
+    });
+  }
+
+  function renderSummary(s, queue, data) {
+    var platforms = data.platforms || [];
+    var selected = platforms.filter(function (p) { return p.platform === dashPlatform; })[0];
+    var targetCount = selected ? selected.targets : (data.targets || []).length;
     var summary = [
       [T("sum_status"), s.status],
       [T("sum_name"), s.profileName || "-"],
       [T("sum_mid"), s.myMid || "-"],
       [T("sum_friends"), String(s.friendCount == null ? 0 : s.friendCount)],
       [T("sum_groups"), String(s.chatCount == null ? 0 : s.chatCount)],
+      ["平台目標", String(targetCount)],
       [T("sum_queue"), String(queue.pending) + (queue.running ? "（" + T("sending") + "）" : "")],
       [T("sum_last_login"), s.lastLoginAt || "-"],
       [T("sum_last_send"), s.lastSendAt || "-"],
@@ -1020,11 +1053,12 @@ function renderDashboardHtml() {
       verify.appendChild(p);
     }
 
-    renderSummary(s, data.queue);
+    renderSummary(s, data.queue, data);
 
     var platforms = data.platforms || [];
     $("platforms").textContent = platforms.map(function (p) {
-      return p.platform + "（目標 " + p.targets + "、佇列 " + p.queue.pending + (p.queue.running ? " 傳送中" : "") + "）";
+      var active = p.platform === dashPlatform ? "▶ " : "";
+      return active + p.platform + "（目標 " + p.targets + "、佇列 " + p.queue.pending + (p.queue.running ? " 傳送中" : "") + "）";
     }).join("　·　");
 
     var stats = data.stats || { total: 0, ok: 0, fail: 0, successRate: 0, byType: {}, days: [] };
@@ -1048,7 +1082,7 @@ function renderDashboardHtml() {
   }
 
   function refresh() {
-    fetch("/dashboard.json", { cache: "no-store" })
+    fetch("/dashboard.json?platform=" + encodeURIComponent(dashPlatform), { cache: "no-store" })
       .then(function (res) {
         if (res.status === 401) { window.location.href = "/login"; return null; }
         return res.ok ? res.json() : null;
@@ -1057,6 +1091,7 @@ function renderDashboardHtml() {
       .catch(function () {});
   }
 
+  initDashPlatform();
   refresh();
   setInterval(refresh, 5000);
 `;
@@ -1754,12 +1789,19 @@ function renderSettingsHtml() {
     return page(tr(config.language, "title_settings"), "settings", body, script, { sidebar });
 }
 function renderConsoleHtml() {
+    const panels = [
+        { id: "line", label: tr(config.language, "platform_line") },
+        { id: "telegram", label: tr(config.language, "platform_telegram") },
+    ];
+    const consolePlatformSwitch = panels
+        .map((p, index) => `<button type="button" data-platform="${p.id}"${index === 0 ? ' class="active"' : ""}>${p.label}</button>`)
+        .join("");
     const body = `
 <div class="fn-panel active" data-fn="test">
 <h2 style="margin-top:0" data-i18n="panel_test">測試發送</h2>
 <div class="glass glass-hover">
 <form id="test-form">
-  <div class="field"><label data-i18n="lbl_to">對象</label><input id="test-to" placeholder="好友名稱或 mid" required></div>
+  <div class="field"><label data-i18n="lbl_to">對象</label><input id="test-to" placeholder="好友名稱或 mid" required><div class="hint">發送平台由左側「通訊平台」決定</div></div>
   <div class="field"><label data-i18n="lbl_text">文字</label><input id="test-text" placeholder="訊息內容（可留空）"></div>
   <div class="field"><label data-i18n="lbl_file_path">檔案路徑</label><input id="test-file" placeholder="伺服器上的檔案路徑，例如 /opt/app/quote.pdf"></div>
   <div class="field"><label data-i18n="lbl_image">圖片（URL 或路徑）</label><input id="test-image" placeholder="https://... 或 /opt/app/a.jpg"></div>
@@ -1845,6 +1887,27 @@ function renderConsoleHtml() {
   ${HELPERS}
   ${SESSION_SCRIPT}
   var allTargets = [];
+  var CONSOLE_PLATFORMS = ${JSON.stringify(panels.map((p) => p.id))};
+  var currentPlatform = CONSOLE_PLATFORMS[0];
+
+  function applyConsolePlatform(platform) {
+    currentPlatform = platform;
+    try { window.localStorage.setItem("lw_console_platform", platform); } catch (e) {}
+    Array.prototype.forEach.call(document.querySelectorAll("#console-platform-switch button"), function (b) {
+      b.classList.toggle("active", b.getAttribute("data-platform") === platform);
+    });
+    refreshData();
+  }
+
+  function initConsolePlatform() {
+    var saved = null;
+    try { saved = window.localStorage.getItem("lw_console_platform"); } catch (e) {}
+    var start = CONSOLE_PLATFORMS.indexOf(saved) !== -1 ? saved : CONSOLE_PLATFORMS[0];
+    Array.prototype.forEach.call(document.querySelectorAll("#console-platform-switch button"), function (b) {
+      b.addEventListener("click", function () { applyConsolePlatform(b.getAttribute("data-platform")); });
+    });
+    applyConsolePlatform(start);
+  }
 
   function renderTargets() {
     var query = $("target-search").value.trim().toLowerCase();
@@ -1936,7 +1999,7 @@ function renderConsoleHtml() {
   }
 
   function refreshData() {
-    fetch("/status.json", { cache: "no-store" })
+    fetch("/status.json?platform=" + encodeURIComponent(currentPlatform), { cache: "no-store" })
       .then(function (res) {
         if (res.status === 401) { window.location.href = "/login"; return null; }
         return res.ok ? res.json() : null;
@@ -2023,6 +2086,7 @@ function renderConsoleHtml() {
     e.preventDefault();
     var payload = {
       to: $("test-to").value.trim(),
+      platform: currentPlatform,
       text: $("test-text").value,
       file: $("test-file").value.trim(),
       image: $("test-image").value.trim(),
@@ -2270,10 +2334,14 @@ function renderConsoleHtml() {
   syncFlexEditor(false);
 
   setupCards([], "test");
-  refreshData();
+  initConsolePlatform();
   setInterval(refreshData, 10000);
 `;
     const sidebar = `
+<div class="side-section">${tr(config.language, "section_platform")}</div>
+<div class="platform-switch" id="console-platform-switch">
+  ${consolePlatformSwitch}
+</div>
 <div class="side-section">${tr(config.language, "section_functions")}</div>
 <div class="fn-list">
   <button type="button" class="fn-card active" data-fn="test">${tr(config.language, "card_test")}</button>
@@ -3088,27 +3156,32 @@ export function createServer(line: IMessagingService): express.Express {
     app.get("/dashboard", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
         res.type("html").send(renderDashboardHtml());
     });
-    app.get("/dashboard.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
+    app.get("/dashboard.json", statusAccess, requireSessionOrApi("read"), (req, res) => {
         res.set("Cache-Control", "no-store");
+        const platform = typeof req.query.platform === "string" ? req.query.platform : "";
+        const service = platform && platform !== "line" ? getService(platform as Platform) : line;
+        const svc = service ?? line;
         res.json({
             state: getState(),
             logs: logger.getRecent(),
-            targets: line.listTargets(),
-            queue: line.getQueueStats(),
-            scheduled: line.listScheduled(),
+            targets: svc.listTargets(),
+            queue: svc.getQueueStats(),
+            scheduled: svc.listScheduled(),
             platforms: platformSummaries(),
             stats: getStats(),
             messages: getMessages().slice(-50),
         });
     });
-    app.get("/status.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
+    app.get("/status.json", statusAccess, requireSessionOrApi("read"), (req, res) => {
         res.set("Cache-Control", "no-store");
+        const platform = typeof req.query.platform === "string" ? req.query.platform : "";
+        const service = platform && platform !== "line" ? getService(platform as Platform) : line;
         res.json({
             state: getState(),
             logs: logger.getRecent(),
-            targets: line.listTargets(),
-            queue: line.getQueueStats(),
-            scheduled: line.listScheduled(),
+            targets: (service ?? line).listTargets(),
+            queue: (service ?? line).getQueueStats(),
+            scheduled: (service ?? line).listScheduled(),
             platforms: platformSummaries(),
         });
     });
@@ -3438,6 +3511,13 @@ export function createServer(line: IMessagingService): express.Express {
             res.status(400).json({ ok: false, error: "to 必填" });
             return;
         }
+        // 可指定平台（LINE / Telegram）；未指定則用 LINE，維持舊行為。
+        const platform = typeof body.platform === "string" ? body.platform.trim() : "";
+        const target = platform && platform !== "line" ? getService(platform as Platform) : line;
+        if (!target) {
+            res.status(400).json({ ok: false, error: `平台未啟用：${platform}` });
+            return;
+        }
         const parsed = resolveInputs({ ...body, to }, [to]);
         if ("error" in parsed) {
             res.status(400).json({ ok: false, error: parsed.error });
@@ -3456,11 +3536,11 @@ export function createServer(line: IMessagingService): express.Express {
         const repeat = repeatChecked.repeat;
         try {
             if (runAt !== undefined) {
-                const job = line.schedule(parsed, runAt, repeat || undefined);
+                const job = target.schedule(parsed, runAt, repeat || undefined);
                 res.json({ ok: true, scheduled: true, id: job.id, runAt: job.runAt, repeat: job.repeat });
                 return;
             }
-            await line.sendAdvanced(parsed);
+            await target.sendAdvanced(parsed);
             res.json({ ok: true });
         }
         catch (error) {
