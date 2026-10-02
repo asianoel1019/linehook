@@ -984,8 +984,8 @@ function renderDashboardHtml() {
 <div><span id="badge" class="badge">-</span></div>
 <div id="platforms" class="platform-chips" style="margin-top:10px"></div>
 <div id="qrbox" style="display:none">
-  <p><b>請用手機 LINE 的掃描功能掃描：</b></p>
-  <img id="qrimg" alt="LINE QR" style="width:280px;height:280px;background:#fff;border:1px solid #ddd;padding:8px">
+  <p><b id="qr-hint"></b></p>
+  <img id="qrimg" alt="QR" style="width:280px;height:280px;background:#fff;border:1px solid #ddd;padding:8px">
   <div id="qrlink" class="msg"></div>
 </div>
 <div id="verify"></div>
@@ -1116,20 +1116,39 @@ function renderDashboardHtml() {
 
   function render(data) {
     var s = data.state;
+    var platforms = data.platforms || [];
+    // 只顯示目前選取平台；若該平台不在線則回退到 LINE。
+    var selected = platforms.filter(function (p) { return p.platform === dashPlatform; });
+    if (selected.length === 0) selected = platforms.filter(function (p) { return p.platform === "line"; });
+    var sel = selected[0] || { platform: dashPlatform };
+
     var badge = $("badge");
     badge.textContent = s.status;
     badge.className = "badge " + (s.status === "已登入" ? "ok" : (s.status === "待驗證" || s.status === "需人工" ? "bad" : "warn"));
 
+    // QR：依選取平台顯示（LINE 用 global qrUrl；WhatsApp Web 由服務提供）。
     var verify = $("verify");
     verify.replaceChildren();
-    if (s.qrUrl) {
+    var qrHint = $("qr-hint");
+    if (sel.qr) {
       qrBox.style.display = "block";
-      if (s.qrUrl !== lastQr) { lastQr = s.qrUrl; qrImg.src = "/status/qr?t=" + Date.now(); }
-      var a = document.createElement("a");
-      a.href = s.qrUrl;
-      a.textContent = "或點此在手機開啟驗證連結";
-      a.target = "_blank";
-      qrLink.replaceChildren(a);
+      var thisQr = sel.platform + ":" + dashPlatform;
+      if (thisQr !== lastQr) {
+        lastQr = thisQr;
+        qrImg.src = "/status/qr?platform=" + encodeURIComponent(sel.platform) + "&t=" + Date.now();
+      }
+      qrHint.textContent = sel.platform === "whatsapp"
+        ? "請用手機 WhatsApp「設定 → 已連結的裝置 → 連結裝置」掃描："
+        : "請用手機 LINE 的掃描功能掃描：";
+      if (sel.platform === "line" && s.qrUrl) {
+        var a = document.createElement("a");
+        a.href = s.qrUrl;
+        a.textContent = "或點此在手機開啟驗證連結";
+        a.target = "_blank";
+        qrLink.replaceChildren(a);
+      } else {
+        qrLink.replaceChildren();
+      }
     } else {
       qrBox.style.display = "none";
       lastQr = "";
@@ -1144,12 +1163,8 @@ function renderDashboardHtml() {
       verify.appendChild(p);
     }
 
-    var platforms = data.platforms || [];
     renderChips(platforms);
 
-    // 只顯示目前選取平台；若該平台不在線則回退到 LINE。
-    var selected = platforms.filter(function (p) { return p.platform === dashPlatform; });
-    if (selected.length === 0) selected = platforms.filter(function (p) { return p.platform === "line"; });
     var blocks = $("platform-blocks");
     blocks.replaceChildren.apply(blocks, selected.map(function (p) { return renderPlatformBlock(p, data); }));
 
@@ -3150,12 +3165,23 @@ function renderMessagesHtml() {
 `;
     return page(tr(config.language, "title_messages"), "messages", body, script);
 }
+/** 某平台目前的登入 QR（若需人工掃描）。LINE 的 QR 在 global state；WhatsApp Web 在服務內。 */
+function platformQr(platform: string): string {
+    if (platform === "whatsapp") {
+        const wa = getService("whatsapp") as { getQr?: () => string } | undefined;
+        return wa?.getQr?.() || "";
+    }
+    if (platform === "line") return getState().qrUrl || "";
+    return "";
+}
 /** 各平台服務摘要（給 dashboard / status 用）。 */
 function platformSummaries() {
     return listServices().map((service) => ({
         platform: service.platform,
         targets: service.listTargets().length,
         queue: service.getQueueStats(),
+        qr: platformQr(service.platform) ? true : false,
+        status: service.platform === "line" ? getState().status : undefined,
     }));
 }
 /** 固定時間比較字串（避免以回應時間洩漏密鑰）。 */
