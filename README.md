@@ -515,6 +515,11 @@ curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
 
 詳見 [`docs/architecture.md`](docs/architecture.md)。
 
+## 各平台申請與設定
+
+LINE / Telegram / WhatsApp 的申請流程、如何產生本系統所需設定值（Bot Token、secret、chat_id / 電話號碼、驗證方式等），
+與各平台端點對照，詳見 [`docs/IM-setup.md`](docs/IM-setup.md)。
+
 ## 部署（更新程式、保留狀態）
 
 `settings.json` 是**執行期資料庫**（助理開關／技能啟用與參數／目標對照／UI 產生或編輯的密鑰都在裡面）；`.env`、`storage.json`、`data/`、`logs/` 同理。
@@ -589,6 +594,7 @@ src/
   monitor/token.ts      健康檢查與重登
   webhook/server.ts     HTTP server（webhook + 狀態 / 設定 / 訊息 / ReadMe 頁）
 docs/architecture.md    架構圖
+docs/IM-setup.md        LINE / Telegram / WhatsApp 申請與設定說明
 ```
 
 ## 疑難排解
