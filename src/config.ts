@@ -51,6 +51,13 @@ const schema = z.object({
   TELEGRAM_SECRET_TOKEN: z.string().trim().default(""),
   TELEGRAM_WEBHOOK_URL: z.string().trim().default(""),
   TELEGRAM_TARGETS: z.string().default(""),
+  WHATSAPP_ENABLED: boolDefault(false),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().trim().default(""),
+  WHATSAPP_ACCESS_TOKEN: z.string().trim().default(""),
+  WHATSAPP_VERIFY_TOKEN: z.string().trim().default(""),
+  WHATSAPP_APP_SECRET: z.string().trim().default(""),
+  WHATSAPP_API_VERSION: z.string().trim().default("v21.0"),
+  WHATSAPP_TARGETS: z.string().default(""),
   HEALTH_CHECK_INTERVAL_SEC: z.coerce.number().int().positive().default(60),
   LOG_LIMIT: z.coerce.number().int().positive().default(200),
   LOG_FILE: z.string().default("./logs/app.log"),
@@ -194,6 +201,15 @@ export interface Config {
     webhookUrl: string;
     targets: Record<string, string>;
   };
+  whatsapp: {
+    enabled: boolean;
+    phoneNumberId: string;
+    accessToken: string;
+    verifyToken: string;
+    appSecret: string;
+    apiVersion: string;
+    targets: Record<string, string>;
+  };
   templates: MessageTemplate[];
   flexTemplates: FlexTemplate[];
   healthCheckIntervalSec: number;
@@ -282,6 +298,15 @@ export const config: Config = {
     secretToken: env.TELEGRAM_SECRET_TOKEN,
     webhookUrl: env.TELEGRAM_WEBHOOK_URL,
     targets: parseTargets(env.TELEGRAM_TARGETS),
+  },
+  whatsapp: {
+    enabled: env.WHATSAPP_ENABLED,
+    phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID,
+    accessToken: env.WHATSAPP_ACCESS_TOKEN,
+    verifyToken: env.WHATSAPP_VERIFY_TOKEN,
+    appSecret: env.WHATSAPP_APP_SECRET,
+    apiVersion: env.WHATSAPP_API_VERSION,
+    targets: parseTargets(env.WHATSAPP_TARGETS),
   },
   templates: [],
   flexTemplates: [],

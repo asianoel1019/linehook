@@ -23,6 +23,7 @@ import { LANGS, LANG_LABELS, isLang, langMap, tr, type Lang } from "../i18n.js";
 import { NotLoggedInError, TargetNotFoundError, type FlexInput, type LocationInput, type SendInput, type StickerInput } from "../line/client.js";
 import type { IMessagingService, Platform } from "../messaging/types.js";
 import { getService, listServices } from "../messaging/services.js";
+import { verifyWhatsAppSignature } from "../whatsapp/client.js";
 import { isDuplicateIdempotency, markIdempotency, requireSessionOrApi, verifyWebhookAuth, type RawBodyRequest } from "../middleware/hmac.js";
 import { getMessages, reloadMessages, searchMessages } from "../messages.js";
 import { clientIp, ipGuard, isPrivateRequest } from "../middleware/ip.js";
@@ -645,6 +646,7 @@ ${userDock}
     const imOptions = [
         { id: "line", label: tr(lang, "platform_line") },
         { id: "telegram", label: tr(lang, "platform_telegram") },
+        { id: "whatsapp", label: tr(lang, "platform_whatsapp") },
     ];
     const imSwitch = showNav
         ? `<div class="im-switch" id="im-switch">
@@ -1199,6 +1201,7 @@ function renderSettingsHtml() {
     const platforms = [
         { id: "line", label: tr(config.language, "platform_line") },
         { id: "telegram", label: tr(config.language, "platform_telegram") },
+        { id: "whatsapp", label: tr(config.language, "platform_whatsapp") },
     ];
     const body = `
 <p class="msg" data-i18n="settings_note">設定儲存於 <code>settings.json</code>，修改後立即生效（LINE 裝置名稱需重新登入才生效）；點左側卡片切換設定項目。</p>
@@ -1244,6 +1247,18 @@ function renderSettingsHtml() {
     <div class="field"><label data-i18n="lbl_tg_secret">Webhook Secret Token</label><span style="display:flex;gap:8px"><input id="tg-secretToken" type="text" style="flex:1"><button type="button" id="tg-secret-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint" data-i18n="hint_tg_secret">設定後 Telegram 會以此密鑰傳送 update（X-Telegram-Bot-Api-Secret-Token），建議設定</div></div>
     <div class="field"><label data-i18n="lbl_tg_webhook">Webhook URL</label><input id="tg-webhookUrl" type="text" placeholder="https://example.com/tg/update"><div class="hint" data-i18n="hint_tg_webhook">對外可存取的網址，結尾固定為 /tg/update；設定後重啟會自動註冊</div></div>
     <div class="field"><label data-i18n="lbl_tg_targets">目標對照（名稱=chat_id）</label><textarea id="tg-targets" placeholder="每行一筆，例如：我的群組=-1001234567890"></textarea><div class="hint" data-i18n="hint_tg_targets">每行一筆；也可填 @username</div></div>
+  </fieldset>
+
+  <fieldset class="fn-panel" data-fn="whatsapp" data-im="whatsapp">
+    <legend data-i18n="legend_whatsapp">WhatsApp Cloud API</legend>
+    <div class="field"><label data-i18n="lbl_wa_enabled">啟用 WhatsApp</label><input id="wa-enabled" type="checkbox"><div class="hint">與 LINE / Telegram 可同時上線；停用後 <code>/webhook/wa</code>、<code>/wa/webhook</code> 回 503</div></div>
+    <div class="field"><label data-i18n="lbl_wa_phone_id">Phone Number ID</label><input id="wa-phoneNumberId" type="text" placeholder="123456789012345"><div class="hint" data-i18n="hint_wa_phone_id">Meta 應用中的 WhatsApp 電話號碼 ID（數字）</div></div>
+    <div class="field"><label data-i18n="lbl_wa_token">Access Token</label><input id="wa-accessToken" type="text" placeholder="EAA..."><div class="hint" data-i18n="hint_wa_token">Meta 永久或臨時權杖（Bearer）；留空 = 停用 WhatsApp</div></div>
+    <div class="field"><label data-i18n="lbl_wa_verify">Webhook Verify Token</label><input id="wa-verifyToken" type="text"><div class="hint" data-i18n="hint_wa_verify">Meta Webhook 設定時自訂的驗證字串（GET 訂閱驗證用），建議設定</div></div>
+    <div class="field"><label data-i18n="lbl_wa_secret">App Secret</label><input id="wa-appSecret" type="text"><div class="hint" data-i18n="hint_wa_secret">Meta 應用密鑰，用於驗證 X-Hub-Signature-256；留空 = 不驗簽章（不建議）</div></div>
+    <div class="field"><label data-i18n="lbl_wa_version">Graph API 版本</label><input id="wa-apiVersion" type="text" placeholder="v21.0"><div class="hint" data-i18n="hint_wa_version">預設 v21.0；Meta 若升版可於此調整</div></div>
+    <div class="field"><label data-i18n="lbl_wa_targets">目標對照（名稱=電話號碼）</label><textarea id="wa-targets" placeholder="每行一筆，例如：小明=886912345678"></textarea><div class="hint" data-i18n="hint_wa_targets">每行一筆，E.164 不含 +</div></div>
+    <div class="field"><div class="hint" data-i18n="hint_wa_window">注意：WhatsApp 有 24 小時視窗，主動推播（排程 / 到價通知）可能需改用預審模板</div></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="send">
@@ -1325,7 +1340,7 @@ function renderSettingsHtml() {
     const script = `
   ${HELPERS}
   ${SESSION_SCRIPT}
-  var CONFIG_SECTIONS = ["security", "line", "telegram", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
+  var CONFIG_SECTIONS = ["security", "line", "telegram", "whatsapp", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
 
   function applySettingsPlatform(platform, jump) {
     Array.prototype.forEach.call(document.querySelectorAll("[data-im]"), function (el) {
@@ -1642,6 +1657,13 @@ function renderSettingsHtml() {
     $("tg-secretToken").value = (s.telegram && s.telegram.secretToken) || "";
     $("tg-webhookUrl").value = (s.telegram && s.telegram.webhookUrl) || "";
     $("tg-targets").value = Object.keys((s.telegram && s.telegram.targets) || {}).map(function (k) { return k + "=" + s.telegram.targets[k]; }).join("\\n");
+    $("wa-enabled").checked = !!(s.whatsapp && s.whatsapp.enabled);
+    $("wa-phoneNumberId").value = (s.whatsapp && s.whatsapp.phoneNumberId) || "";
+    $("wa-accessToken").value = (s.whatsapp && s.whatsapp.accessToken) || "";
+    $("wa-verifyToken").value = (s.whatsapp && s.whatsapp.verifyToken) || "";
+    $("wa-appSecret").value = (s.whatsapp && s.whatsapp.appSecret) || "";
+    $("wa-apiVersion").value = (s.whatsapp && s.whatsapp.apiVersion) || "v21.0";
+    $("wa-targets").value = Object.keys((s.whatsapp && s.whatsapp.targets) || {}).map(function (k) { return k + "=" + s.whatsapp.targets[k]; }).join("\\n");
     $("send-maxRetries").value = s.send.maxRetries;
     $("send-retryBaseMs").value = s.send.retryBaseMs;
     $("send-minIntervalMs").value = s.send.minIntervalMs;
@@ -1701,6 +1723,14 @@ function renderSettingsHtml() {
       if (i <= 0) return;
       tgTargets[t.slice(0, i).trim()] = t.slice(i + 1).trim();
     });
+    var waTargets = {};
+    $("wa-targets").value.split(/\\r?\\n/).forEach(function (line) {
+      var t = line.trim();
+      if (!t) return;
+      var i = t.indexOf("=");
+      if (i <= 0) return;
+      waTargets[t.slice(0, i).trim()] = t.slice(i + 1).trim();
+    });
     return {
       allowedIps: $("allowedIps").value.split(/[\\n,]/).map(function (x) { return x.trim(); }).filter(Boolean),
       hmacSecret: $("hmacSecret").value,
@@ -1743,6 +1773,15 @@ function renderSettingsHtml() {
         secretToken: $("tg-secretToken").value.trim(),
         webhookUrl: $("tg-webhookUrl").value.trim(),
         targets: tgTargets
+      },
+      whatsapp: {
+        enabled: $("wa-enabled").checked,
+        phoneNumberId: $("wa-phoneNumberId").value.trim(),
+        accessToken: $("wa-accessToken").value.trim(),
+        verifyToken: $("wa-verifyToken").value.trim(),
+        appSecret: $("wa-appSecret").value.trim(),
+        apiVersion: $("wa-apiVersion").value.trim() || "v21.0",
+        targets: waTargets
       },
       smtp: {
         host: $("smtp-host").value,
@@ -1844,6 +1883,7 @@ function renderSettingsHtml() {
   <button type="button" class="fn-card setting active" data-fn="security">${tr(config.language, "card_security")}</button>
   <button type="button" class="fn-card setting" data-fn="line" data-im="line">${tr(config.language, "card_line")}</button>
   <button type="button" class="fn-card setting" data-fn="telegram" data-im="telegram">${tr(config.language, "card_telegram")}</button>
+  <button type="button" class="fn-card setting" data-fn="whatsapp" data-im="whatsapp">${tr(config.language, "card_whatsapp")}</button>
   <button type="button" class="fn-card setting" data-fn="send">${tr(config.language, "card_send")}</button>
   <button type="button" class="fn-card setting" data-fn="monitor">${tr(config.language, "card_monitor")}</button>
   <button type="button" class="fn-card setting" data-fn="targets-config" data-im="line">${tr(config.language, "card_targets_config")}</button>
@@ -3685,6 +3725,8 @@ export function createServer(line: IMessagingService): express.Express {
     app.post("/webhook", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => line));
     // Telegram 發送端點：語意與 /webhook 相同，走 Telegram 服務。
     app.post("/webhook/tg", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("telegram")));
+    // WhatsApp 發送端點：語意與 /webhook 相同，走 WhatsApp 服務。
+    app.post("/webhook/wa", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("whatsapp")));
     // Telegram 接收端點：由 Telegram Bot API 推送 update 進來，驗 X-Telegram-Bot-Api-Secret-Token。
     app.post("/tg/update", rateLimit, (req, res) => {
         const service = getService("telegram");
@@ -3705,6 +3747,45 @@ export function createServer(line: IMessagingService): express.Express {
         res.json({ ok: true });
         void Promise.resolve(service.handleIncoming?.(req.body)).catch((error: unknown) => {
             logger.error("Telegram update 處理失敗", {
+                error: error instanceof Error ? error.message : String(error),
+            });
+        });
+    });
+    // WhatsApp 接收端點。
+    // GET：Meta 訂閱驗證（hub.mode=subscribe、hub.verify_token、hub.challenge）。
+    app.get("/wa/webhook", (req, res) => {
+        const mode = req.query["hub.mode"];
+        const token = req.query["hub.verify_token"];
+        const challenge = req.query["hub.challenge"];
+        const expected = config.whatsapp.verifyToken.trim();
+        if (mode === "subscribe" && expected && token === expected) {
+            res.status(200).type("text/plain").send(String(challenge ?? ""));
+            return;
+        }
+        logger.warn("WhatsApp webhook 驗證失敗", { ip: clientIp(req) });
+        res.sendStatus(403);
+    });
+    // POST：接收訊息，驗 X-Hub-Signature-256（sha256=HMAC-SHA256(appSecret, rawBody)）。
+    app.post("/wa/webhook", rateLimit, (req, res) => {
+        const service = getService("whatsapp");
+        if (!service || !config.whatsapp.enabled || !config.whatsapp.accessToken.trim() || !config.whatsapp.phoneNumberId.trim()) {
+            res.status(503).json({ ok: false, error: "WhatsApp 未啟用" });
+            return;
+        }
+        const appSecret = config.whatsapp.appSecret.trim();
+        if (appSecret) {
+            const rawBody = (req as RawBodyRequest).rawBody;
+            const signature = req.header("x-hub-signature-256") ?? "";
+            if (!rawBody || !verifyWhatsAppSignature(rawBody, signature, appSecret)) {
+                logger.warn("WhatsApp webhook 簽章不符", { ip: clientIp(req) });
+                res.status(403).json({ ok: false });
+                return;
+            }
+        }
+        // 先回 200 避免 Meta 重送；實際處理非同步進行。
+        res.json({ ok: true });
+        void Promise.resolve(service.handleIncoming?.(req.body)).catch((error: unknown) => {
+            logger.error("WhatsApp webhook 處理失敗", {
                 error: error instanceof Error ? error.message : String(error),
             });
         });

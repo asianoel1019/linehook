@@ -56,6 +56,7 @@ export const DICT: Record<string, Entry> = {
   card_security: { zh: "安全 / 來源", en: "Security / Source", ja: "セキュリティ / 送信元" },
   card_line: { zh: "LINE 登入", en: "LINE login", ja: "LINE ログイン" },
   card_telegram: { zh: "Telegram", en: "Telegram", ja: "Telegram" },
+  card_whatsapp: { zh: "WhatsApp", en: "WhatsApp", ja: "WhatsApp" },
   card_send: { zh: "發送 / 重試", en: "Sending / Retry", ja: "送信 / 再試行" },
   card_monitor: { zh: "監控 / Log", en: "Monitor / Log", ja: "監視 / ログ" },
   card_targets_config: { zh: "目標對照", en: "Target mapping", ja: "送信先マッピング" },
@@ -71,6 +72,7 @@ export const DICT: Record<string, Entry> = {
   section_platform: { zh: "通訊平台", en: "Platform", ja: "プラットフォーム" },
   platform_line: { zh: "LINE", en: "LINE", ja: "LINE" },
   platform_telegram: { zh: "Telegram", en: "Telegram", ja: "Telegram" },
+  platform_whatsapp: { zh: "WhatsApp", en: "WhatsApp", ja: "WhatsApp" },
 
   relogin: { zh: "Line重新登入", en: "Relogin LINE", ja: "LINE 再ログイン" },
   refresh_contacts: { zh: "重新整理聯絡人", en: "Refresh contacts", ja: "連絡先を更新" },
@@ -131,6 +133,23 @@ export const DICT: Record<string, Entry> = {
   hint_tg_webhook: { zh: "對外可存取的網址，結尾固定為 /tg/update；設定後重啟會自動註冊", en: "Public URL ending with /tg/update; registered on startup when set", ja: "外部から到達可能な URL（末尾 /tg/update）。設定すると起動時に自動登録" },
   lbl_tg_targets: { zh: "目標對照（名稱=chat_id）", en: "Target mapping (name=chat_id)", ja: "送信先（名称=chat_id）" },
   hint_tg_targets: { zh: "每行一筆，例如：我的群組=-1001234567890；也可填 @username", en: "One per line, e.g. MyGroup=-1001234567890; @username also works", ja: "1 行に 1 件（例 MyGroup=-1001234567890）。@username も可" },
+
+  // whatsapp
+  legend_whatsapp: { zh: "WhatsApp Cloud API", en: "WhatsApp Cloud API", ja: "WhatsApp Cloud API" },
+  lbl_wa_enabled: { zh: "啟用 WhatsApp", en: "Enable WhatsApp", ja: "WhatsApp を有効化" },
+  lbl_wa_phone_id: { zh: "Phone Number ID", en: "Phone number ID", ja: "電話番号 ID" },
+  hint_wa_phone_id: { zh: "Meta 應用中的 WhatsApp 電話號碼 ID（數字）", en: "WhatsApp phone number ID from your Meta app", ja: "Meta アプリの WhatsApp 電話番号 ID" },
+  lbl_wa_token: { zh: "Access Token", en: "Access token", ja: "アクセストークン" },
+  hint_wa_token: { zh: "Meta 永久或臨時權杖（Bearer）；留空 = 停用 WhatsApp", en: "Meta permanent/temporary token (Bearer); empty = disabled", ja: "Meta のアクセストークン。空欄 = 無効" },
+  lbl_wa_verify: { zh: "Webhook Verify Token", en: "Webhook verify token", ja: "Webhook 検証トークン" },
+  hint_wa_verify: { zh: "Meta Webhook 設定時自訂的驗證字串（GET 訂閱驗證用），建議設定", en: "Self-chosen string used by Meta's GET subscription check; recommended", ja: "Meta の GET 購読確認に使う任意文字列（推奨）" },
+  lbl_wa_secret: { zh: "App Secret", en: "App secret", ja: "App シークレット" },
+  hint_wa_secret: { zh: "Meta 應用密鑰，用於驗證 X-Hub-Signature-256；留空 = 不驗簽章（不建議）", en: "Meta app secret for X-Hub-Signature-256; empty = no signature check (not recommended)", ja: "X-Hub-Signature-256 検証用の App シークレット。空欄 = 検証なし（非推奨）" },
+  lbl_wa_version: { zh: "Graph API 版本", en: "Graph API version", ja: "Graph API バージョン" },
+  hint_wa_version: { zh: "預設 v21.0；Meta 若升版可於此調整", en: "Defaults to v21.0", ja: "既定 v21.0" },
+  lbl_wa_targets: { zh: "目標對照（名稱=電話號碼）", en: "Target mapping (name=phone)", ja: "送信先（名称=電話番号）" },
+  hint_wa_targets: { zh: "每行一筆，例如：小明=886912345678（E.164，不含 +）", en: "One per line, e.g. Bob=886912345678 (E.164, no +)", ja: "1 行に 1 件（例 Bob=886912345678、E.164）" },
+  hint_wa_window: { zh: "注意：WhatsApp 有 24 小時視窗，主動推播（排程 / 到價通知）可能需改用預審模板", en: "Note: WhatsApp's 24-hour window means proactive pushes may need pre-approved templates", ja: "注意：24 時間ウィンドウのため能動的な配信はテンプレートが必要な場合があります" },
 
   // send
   legend_send: { zh: "發送 / 重試", en: "Sending / Retry", ja: "送信 / 再試行" },

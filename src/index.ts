@@ -10,6 +10,7 @@ import { loadSkills } from "./skills/index.js";
 import { setState } from "./state.js";
 import { LineService } from "./line/client.js";
 import { TelegramService } from "./telegram/client.js";
+import { WhatsAppService } from "./whatsapp/client.js";
 import { registerService } from "./messaging/services.js";
 import { createServer } from "./webhook/server.js";
 import { startHealthMonitor } from "./monitor/token.js";
@@ -53,6 +54,14 @@ async function main(): Promise<void> {
     logger.info("Telegram 已啟用");
   }
 
+  // WhatsApp 同理；未設定 accessToken / phoneNumberId 時不註冊（/webhook/wa、/wa/webhook 回 503）。
+  let whatsapp: WhatsAppService | null = null;
+  if (config.whatsapp.enabled && config.whatsapp.accessToken.trim() && config.whatsapp.phoneNumberId.trim()) {
+    whatsapp = new WhatsAppService();
+    registerService(whatsapp);
+    logger.info("WhatsApp 已啟用");
+  }
+
   const app = createServer(line);
 
   const server = await new Promise<Server>((resolve) => {
@@ -78,6 +87,12 @@ async function main(): Promise<void> {
     });
   }
 
+  if (whatsapp) {
+    void whatsapp.init().catch((error) => {
+      logger.error("WhatsApp 初始化失敗", { error: String(error) });
+    });
+  }
+
   let shuttingDown = false;
   const shutdown = (signal: string): void => {
     if (shuttingDown) return;
@@ -88,6 +103,7 @@ async function main(): Promise<void> {
     line.stopListening();
     line.stopQueue();
     telegram?.stopQueue();
+    whatsapp?.stopQueue();
 
     const force = setTimeout(() => {
       logger.warn("關閉逾時，強制結束");

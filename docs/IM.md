@@ -102,6 +102,8 @@ interface IMessagingService {
 
 ### 3.3 WhatsApp（Phase 3）
 
+> 進度：`src/whatsapp/client.ts`、`POST /webhook/wa`、`GET/POST /wa/webhook`、設定頁卡片、平台切換、統計與正規化測試**已完成**。
+
 - **前置**：Meta Business 帳號＋企業驗證、專用電話號碼（不可綁個人號）、WABA；
   **費用**：Cloud API 本體免費，但 business-initiated 訊息按模板類別逐則收費（另加 BSP 費用，視供應商而定）。
 - **實作**：`src/whatsapp/client.ts`，Cloud API REST（發送）＋ webhook（接收，驗 `X-Hub-Signature-256`），形狀與 Telegram adapter 高度相似。
@@ -120,9 +122,9 @@ interface IMessagingService {
 
 | 用途 | LINE（既有） | Telegram | Teams | WhatsApp | Discord |
 |---|---|---|---|---|---|
-| 發送 | `POST /webhook` | `POST /webhook/tg` | `POST /webhook/teams` | `POST /webhook/wa` | `POST /webhook/discord` |
-| 接收 | 長連接（自 bot） | `POST /tg/update` | `POST /teams/messages` | `POST /wa/webhook` | Gateway |
-| 目標對照 | `targets` | `tgTargets` | `teamsTargets` | `waTargets` | `discordTargets` |
+| 發送 | `POST /webhook` | `POST /webhook/tg` | `POST /webhook/teams` | `POST /webhook/wa` ✅ | `POST /webhook/discord` |
+| 接收 | 長連接（自 bot） | `POST /tg/update` | `POST /teams/messages` | `GET+POST /wa/webhook` ✅ | Gateway |
+| 目標對照 | `targets` | `tgTargets` | `teamsTargets` | `whatsapp.targets` ✅ | `discordTargets` |
 
 ## 5. 風險總覽
 

@@ -36,6 +36,25 @@ const settingsSchema = z.object({
       targets: z.record(z.string(), z.string()).default({}),
     })
     .default({ enabled: false, botToken: "", secretToken: "", webhookUrl: "", targets: {} }),
+  whatsapp: z
+    .object({
+      enabled: z.boolean().default(false),
+      phoneNumberId: z.string().trim().default(""),
+      accessToken: z.string().trim().default(""),
+      verifyToken: z.string().trim().default(""),
+      appSecret: z.string().trim().default(""),
+      apiVersion: z.string().trim().default("v21.0"),
+      targets: z.record(z.string(), z.string()).default({}),
+    })
+    .default({
+      enabled: false,
+      phoneNumberId: "",
+      accessToken: "",
+      verifyToken: "",
+      appSecret: "",
+      apiVersion: "v21.0",
+      targets: {},
+    }),
   templates: z
     .array(
       z.object({
@@ -146,6 +165,15 @@ export function currentSettings(): EditableSettings {
       webhookUrl: config.telegram.webhookUrl,
       targets: { ...config.telegram.targets },
     },
+    whatsapp: {
+      enabled: config.whatsapp.enabled,
+      phoneNumberId: config.whatsapp.phoneNumberId,
+      accessToken: config.whatsapp.accessToken,
+      verifyToken: config.whatsapp.verifyToken,
+      appSecret: config.whatsapp.appSecret,
+      apiVersion: config.whatsapp.apiVersion,
+      targets: { ...config.whatsapp.targets },
+    },
     templates: config.templates.map((template) => ({ ...template })),
     flexTemplates: config.flexTemplates.map((template) => ({ ...template })),
     healthCheckIntervalSec: config.healthCheckIntervalSec,
@@ -206,6 +234,15 @@ function apply(settings: EditableSettings): void {
     secretToken: settings.telegram.secretToken,
     webhookUrl: settings.telegram.webhookUrl,
     targets: { ...settings.telegram.targets },
+  };
+  config.whatsapp = {
+    enabled: settings.whatsapp.enabled,
+    phoneNumberId: settings.whatsapp.phoneNumberId,
+    accessToken: settings.whatsapp.accessToken,
+    verifyToken: settings.whatsapp.verifyToken,
+    appSecret: settings.whatsapp.appSecret,
+    apiVersion: settings.whatsapp.apiVersion,
+    targets: { ...settings.whatsapp.targets },
   };
   config.templates = settings.templates.map((template) => ({ ...template }));
   config.flexTemplates = settings.flexTemplates.map((template) => ({ ...template }));
@@ -274,6 +311,7 @@ export function loadSettings(): void {
       commands: { ...base.commands, ...(data.commands ?? {}) },
       assistant: { ...base.assistant, ...(data.assistant ?? {}) },
       telegram: { ...base.telegram, ...(data.telegram ?? {}) },
+      whatsapp: { ...base.whatsapp, ...(data.whatsapp ?? {}) },
     });
     logger.info("已載入 settings.json", { path });
   } catch (error) {
