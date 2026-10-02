@@ -1004,13 +1004,13 @@ function renderDashboardHtml() {
 
   function platformLabel(p) { return T("platform_" + p) || p; }
 
-  function summaryRows(status, queue) {
+  function summaryRows(state, queue) {
     return [
-      [T("sum_status"), status],
+      [T("sum_status"), state.status || "-"],
       [T("sum_queue"), String(queue.pending) + (queue.running ? "（" + T("sending") + "）" : "")],
-      [T("sum_last_send"), status.lastSendAt || "-"],
-      [T("sum_last_to"), status.lastSendTo || "-"],
-      [T("sum_last_error"), status.lastError || "-"]
+      [T("sum_last_send"), state.lastSendAt || "-"],
+      [T("sum_last_to"), state.lastSendTo || "-"],
+      [T("sum_last_error"), state.lastError || "-"]
     ];
   }
 
@@ -1098,15 +1098,14 @@ function renderDashboardHtml() {
 
   function renderChips(platforms) {
     var host = $("platforms");
-    host.replaceChildren.apply(host, platforms.map(function (p) {
+    // 只顯示目前選取平台的 chip。
+    var shown = platforms.filter(function (p) { return p.platform === dashPlatform; });
+    if (shown.length === 0) shown = platforms.filter(function (p) { return p.platform === "line"; });
+    host.replaceChildren.apply(host, shown.map(function (p) {
       var b = document.createElement("button");
       b.type = "button";
+      b.className = "active";
       b.textContent = platformLabel(p.platform) + "（目標 " + p.targets + "、佇列 " + p.queue.pending + (p.queue.running ? " 傳送中" : "") + "）";
-      if (p.platform === window.LW_PLATFORM) b.classList.add("active");
-      b.addEventListener("click", function () {
-        var el = document.querySelector('#platform-blocks [data-platform="' + p.platform + '"]');
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
       return b;
     }));
   }
@@ -1144,8 +1143,11 @@ function renderDashboardHtml() {
     var platforms = data.platforms || [];
     renderChips(platforms);
 
+    // 只顯示目前選取平台；若該平台不在線則回退到 LINE。
+    var selected = platforms.filter(function (p) { return p.platform === dashPlatform; });
+    if (selected.length === 0) selected = platforms.filter(function (p) { return p.platform === "line"; });
     var blocks = $("platform-blocks");
-    blocks.replaceChildren.apply(blocks, platforms.map(function (p) { return renderPlatformBlock(p, data); }));
+    blocks.replaceChildren.apply(blocks, selected.map(function (p) { return renderPlatformBlock(p, data); }));
 
     var logs = (data.logs || []).slice(-12).reverse();
     var logBody = $("logs");
@@ -1160,10 +1162,7 @@ function renderDashboardHtml() {
 
   window.onPlatformChange = function (platform) {
     dashPlatform = platform;
-    var chip = document.querySelector("#platforms [data-platform]");
-    void chip;
-    var blocks = document.querySelectorAll("#platform-blocks [data-platform]");
-    Array.prototype.forEach.call(blocks, function (el) { el.classList.toggle("active", el.getAttribute("data-platform") === platform); });
+    refresh();
   };
 
   function refresh() {
