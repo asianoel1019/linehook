@@ -24,6 +24,7 @@ import { NotLoggedInError, TargetNotFoundError, type FlexInput, type LocationInp
 import type { IMessagingService, Platform } from "../messaging/types.js";
 import { getService, listServices } from "../messaging/services.js";
 import { verifyWhatsAppSignature } from "../whatsapp/client.js";
+import { encryptSettings, decryptSettings, isEncryptedEnvelope } from "../settings-crypto.js";
 import { isDuplicateIdempotency, markIdempotency, requireSessionOrApi, verifyWebhookAuth, type RawBodyRequest } from "../middleware/hmac.js";
 import { getMessages, reloadMessages, searchMessages } from "../messages.js";
 import { clientIp, ipGuard, isPrivateRequest } from "../middleware/ip.js";
@@ -1356,7 +1357,7 @@ function renderSettingsHtml() {
 
   <fieldset class="fn-panel" data-fn="backup">
     <legend data-i18n="legend_backup">設定匯出 / 匯入</legend>
-    <div class="hint" style="margin-bottom:8px">匯出為 JSON 檔（含密鑰，請妥善保管）；匯入會覆蓋目前設定。</div>
+    <div class="hint" style="margin-bottom:8px">匯出時可設定一組密碼，將整份設定（含所有密鑰）以 AES-256-GCM 加密；匯入時需輸入同一密碼。留空密碼則匯出明文（不建議）。匯入會覆蓋目前設定。</div>
     <div class="actions">
       <button type="button" id="settings-export" data-i18n="btn_export">匯出設定</button>
       <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><span data-i18n="btn_import">匯入設定</span><input id="settings-import-file" type="file" accept="application/json,.json" style="display:none"></label>
@@ -1883,7 +1884,11 @@ function renderSettingsHtml() {
   });
 
   $("settings-export").addEventListener("click", function () {
-    window.location.href = "/settings/export";
+    var pw = window.prompt("設定匯出密碼（用來加密整份設定，含密鑰；匯入時需同一組）。留空 = 不加密（含明文密鑰，不建議）", "");
+    if (pw === null) return;
+    var url = "/settings/export";
+    if (pw) url += "?password=" + encodeURIComponent(pw);
+    window.location.href = url;
   });
 
   $("settings-import-file").addEventListener("change", function () {
@@ -1894,7 +1899,14 @@ function renderSettingsHtml() {
       var parsed;
       try { parsed = JSON.parse(String(reader.result)); }
       catch (e) { $("settings-msg").textContent = "匯入失敗：JSON 格式錯誤"; return; }
-      post("settings/import", { settings: parsed }).then(function (r) {
+      var payload = { settings: parsed };
+      // 若為加密信封，詢問密碼。
+      if (parsed && parsed.enc === "aes-256-gcm") {
+        var pw = window.prompt("此設定檔已加密，請輸入匯出時的密碼：", "");
+        if (pw === null) { input.value = ""; return; }
+        payload.password = pw;
+      }
+      post("settings/import", payload).then(function (r) {
         if (!r.ok) { $("settings-msg").textContent = "匯入失敗：" + (r.data.error || ""); return; }
         $("settings-msg").textContent = "已匯入設定";
         fillForm(r.data.settings);
@@ -3574,16 +3586,38 @@ export function createServer(line: IMessagingService): express.Express {
         res.set("Cache-Control", "no-store");
         res.json(currentSettings());
     });
-    app.get("/settings/export", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
+    app.get("/settings/export", statusAccess, requireSessionOrApi("admin"), (req, res) => {
         const data = currentSettings();
+        const password = typeof req.query.password === "string" ? req.query.password : "";
         res.set("Cache-Control", "no-store");
-        res.setHeader("Content-Disposition", `attachment; filename="linehook-settings-${Date.now()}.json"`);
+        if (password) {
+            // 密碼加密匯出：整個設定以 AES-256-GCM 加密。
+            const envelope = encryptSettings(data, password);
+            res.setHeader("Content-Disposition", `attachment; filename="im-webhook-settings-${Date.now()}.enc.json"`);
+            res.type("application/json").send(JSON.stringify(envelope, null, 2));
+            return;
+        }
+        res.setHeader("Content-Disposition", `attachment; filename="im-webhook-settings-${Date.now()}.json"`);
         res.type("application/json").send(JSON.stringify(data, null, 2));
     });
     app.post("/settings/import", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
         try {
             const body = asRecord(req.body) ?? {};
-            const incoming = body.settings ?? req.body;
+            let incoming: unknown = body.settings ?? req.body;
+            // 若為加密信封，需 body.password 才能解。
+            if (isEncryptedEnvelope(incoming)) {
+                const password = typeof body.password === "string" ? body.password : "";
+                if (!password) {
+                    res.status(400).json({ ok: false, error: "此為加密設定檔，請輸入匯出時的密碼" });
+                    return;
+                }
+                try {
+                    incoming = decryptSettings(incoming, password);
+                } catch {
+                    res.status(400).json({ ok: false, error: "密碼錯誤或檔案已損毀" });
+                    return;
+                }
+            }
             const saved = saveSettings(incoming);
             reloadMessages();
             logger.info("已匯入設定", { ip: req.ip });
@@ -3598,7 +3632,11 @@ export function createServer(line: IMessagingService): express.Express {
     });
     app.post("/settings", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
         try {
-            const saved = saveSettings(req.body);
+            // 設定頁只送出它管理的欄位；其餘（assistant / skills / language / statusPublic…）
+            // 以現值補齊，避免被 schema 預設值覆蓋（例如助理名稱被重設回「阿寶」）。
+            const body = asRecord(req.body) ?? {};
+            const merged = { ...currentSettings(), ...body };
+            const saved = saveSettings(merged);
             reloadMessages();
             res.json({ ok: true, settings: saved });
         }

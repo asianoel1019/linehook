@@ -447,8 +447,10 @@ export default skill;
 
 `/settings`「匯出 / 匯入」：
 
-- **匯出設定**：下載 `settings.json`（含密鑰，請妥善保管）。
-- **匯入設定**：上傳 JSON 覆蓋目前設定（會即時套用）。
+- **匯出設定**：點擊後輸入一組密碼，將整份設定（**含所有密鑰**：HMAC secret、Webhook token、API token、SMTP 密碼、Telegram/WhatsApp token 等）以 **AES-256-GCM** 加密後下載（`.enc.json`）。留空密碼則下載明文 JSON（不建議）。
+- **匯入設定**：上傳 JSON；若為加密檔會提示輸入匯出時的密碼，解密後覆蓋目前設定（即時套用）。密碼錯誤或檔案遭竄改會被拒絕。
+
+> 匯出檔案一律只從**現行生效中的設定**產生，不會是舊值。
 
 ## 訊息模板與排程
 
