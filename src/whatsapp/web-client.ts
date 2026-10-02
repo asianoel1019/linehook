@@ -24,15 +24,42 @@ import {
   type StickerInput,
 } from "../messaging/types.js";
 
-/* Baileys 是 ESM 套件；型別以 any 為主避免耦合其快速變動的型別定義。 */
-import makeWASocket, {
-  useMultiFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  type WASocket,
-  type WAMessage,
-  type AnyMessageContent,
-} from "@whiskeysockets/baileys";
+/*
+ * Baileys 是 ESM 且帶原生/WASM 相依，若在頂層 import，某些主機（缺原生模組的部署環境）
+ * 會在啟動載入階段就丟錯，導致整個服務起不來（nginx 502）。
+ * 因此改為「啟用 Web 模式時才動態載入」，LINE / Telegram 不受影響。
+ */
+type WASocket = {
+  ev: {
+    on(event: "creds.update", cb: (update: unknown) => void): void;
+    on(event: "connection.update", cb: (update: { connection?: string; qr?: string; lastDisconnect?: { error?: unknown } }) => void): void;
+    on(event: "messages.upsert", cb: (event: { type: string; messages: WAMessage[] }) => void): void;
+  };
+  user?: { id?: string; name?: string } | null;
+  sendMessage(jid: string, content: unknown): Promise<unknown>;
+  end(error?: Error): void;
+};
+type WAMessage = {
+  key?: { remoteJid?: string | null; fromMe?: boolean | null; id?: string };
+  pushName?: string | null;
+  message?: Record<string, unknown> | null;
+};
+
+interface BaileysModule {
+  makeWASocket: (opts: Record<string, unknown>) => WASocket;
+  useMultiFileAuthState: (path: string) => Promise<{ state: unknown; saveCreds: () => Promise<void> }>;
+  DisconnectReason: { loggedOut?: number };
+  fetchLatestBaileysVersion: () => Promise<{ version: [number, number, number] }>;
+}
+
+let baileysPromise: Promise<BaileysModule> | null = null;
+
+function loadBaileys(): Promise<BaileysModule> {
+  if (!baileysPromise) {
+    baileysPromise = import("@whiskeysockets/baileys") as unknown as Promise<BaileysModule>;
+  }
+  return baileysPromise;
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -133,6 +160,7 @@ export class WhatsAppWebService implements IMessagingService {
   }
 
   private async connect(): Promise<void> {
+    const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } = await loadBaileys();
     const { state, saveCreds } = await useMultiFileAuthState(config.whatsapp.webAuthPath);
     let version: [number, number, number] | undefined;
     try {
@@ -149,7 +177,7 @@ export class WhatsAppWebService implements IMessagingService {
     });
     this.sock = sock;
     sock.ev.on("creds.update", saveCreds);
-    sock.ev.on("connection.update", (update) => {
+    sock.ev.on("connection.update", (update: { connection?: string; qr?: string; lastDisconnect?: { error?: unknown } }) => {
       const { connection, lastDisconnect, qr } = update;
       if (qr) {
         this.qrDataUrl = qr;
@@ -184,7 +212,7 @@ export class WhatsAppWebService implements IMessagingService {
         }
       }
     });
-    sock.ev.on("messages.upsert", (event) => {
+    sock.ev.on("messages.upsert", (event: { type: string; messages: WAMessage[] }) => {
       if (event.type !== "notify") return;
       for (const msg of event.messages) {
         void this.handleWebMessage(msg);
@@ -446,13 +474,13 @@ export class WhatsAppWebService implements IMessagingService {
     // 公開 URL：Baileys 可直接帶 URL。
     if (/^https?:\/\//i.test(source)) {
       const payload = this.mediaPayload(kind, { url: source }, filename);
-      await this.sock.sendMessage(jid, payload as AnyMessageContent);
+      await this.sock.sendMessage(jid, payload);
       logger.info("已傳送媒體（WhatsApp Web URL）", { to: jid, kind });
       return;
     }
     const { data } = this.loadMediaBytes(source);
     const payload = this.mediaPayload(kind, data, filename);
-    await this.sock.sendMessage(jid, payload as AnyMessageContent);
+    await this.sock.sendMessage(jid, payload);
     logger.info("已傳送媒體（WhatsApp Web 上傳）", { to: jid, kind, bytes: data.length });
   }
 

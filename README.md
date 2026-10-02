@@ -535,6 +535,8 @@ pm2 restart line-webhook
 ```
 
 > 切勿在伺服器上執行 `git clean -fdx` 或重新 clone，否則會刪掉未追蹤的 runtime 檔案。
+>
+> **每次部署都要跑 `npm ci`**：若新版本新增了依賴（例如 WhatsApp 個人帳號模式需要 `@whiskeysockets/baileys`），沒安裝會導致該功能載入失敗（嚴重時服務起不來 → nginx 502）。
 
 rsync 部署（**不要**用範圍過大的 `--delete`，並排除狀態檔）：
 
