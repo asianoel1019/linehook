@@ -1881,7 +1881,7 @@ function renderConsoleHtml() {
 </div>
 </div>
 
-<div class="fn-panel" data-fn="flex-editor">
+<div class="fn-panel" data-fn="flex-editor" data-im="line">
 <h2 style="margin-top:0" data-i18n="panel_flex_editor">Flex 可視化編輯</h2>
 <div class="glass">
 <div style="display:flex;gap:16px;flex-wrap:wrap">
@@ -1945,10 +1945,23 @@ function renderConsoleHtml() {
   var allTargets = [];
   var currentPlatform = window.LW_PLATFORM || "line";
 
+  function applyConsoleImVisibility(platform) {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-im]"), function (el) {
+      el.classList.toggle("plat-off", el.getAttribute("data-im") !== platform);
+    });
+    // 若目前開啟的分頁屬於其他平台（被隱藏），退回「測試發送」。
+    var activeCard = document.querySelector(".fn-card.active");
+    if (activeCard && activeCard.classList.contains("plat-off")) {
+      showSection("test", []);
+    }
+  }
+
   window.onPlatformChange = function (platform) {
     currentPlatform = platform;
+    applyConsoleImVisibility(platform);
     refreshData();
   };
+  applyConsoleImVisibility(currentPlatform);
 
   function renderTargets() {
     var query = $("target-search").value.trim().toLowerCase();
@@ -2381,17 +2394,17 @@ function renderConsoleHtml() {
 <div class="side-section">${tr(config.language, "section_functions")}</div>
 <div class="fn-list">
   <button type="button" class="fn-card active" data-fn="test">${tr(config.language, "card_test")}</button>
-  <button type="button" class="fn-card" data-fn="flex-editor">${tr(config.language, "panel_flex_editor")}</button>
+  <button type="button" class="fn-card" data-fn="flex-editor" data-im="line">${tr(config.language, "panel_flex_editor")}</button>
   <button type="button" class="fn-card" data-fn="targets-list">${tr(config.language, "card_targets")}</button>
   <button type="button" class="fn-card" data-fn="logs">${tr(config.language, "card_logs")}</button>
   <button type="button" class="fn-card" data-fn="scheduled">${tr(config.language, "card_scheduled")}</button>
 </div>
-<div class="side-section">${tr(config.language, "section_actions")}</div>
-<div class="fn-list">
+<div class="side-section" data-im="line">${tr(config.language, "section_actions")}</div>
+<div class="fn-list" data-im="line">
   <button type="button" class="fn-card" id="btn-relogin">${tr(config.language, "relogin")}</button>
   <button type="button" class="fn-card" id="btn-refresh">${tr(config.language, "refresh_contacts")}</button>
 </div>
-<p id="action-msg" class="msg" style="align-self:stretch; word-break:break-word; margin:6px 2px 0"></p>`;
+<p id="action-msg" class="msg" style="align-self:stretch; word-break:break-word; margin:6px 2px 0" data-im="line"></p>`;
     return page(tr(config.language, "title_console"), "console", body, script, { sidebar });
 }
 function renderSkillsHtml() {
