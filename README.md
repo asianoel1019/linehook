@@ -58,6 +58,8 @@ npm run typecheck
 - **`/settings` 頁面（存於 `settings.json`，修改後立即生效）**：其餘所有項目
 - 優先順序：`.env` < `settings.json`（`.env` 可作為初始預設值）
 
+> `settings.json` 是執行期資料庫（助理 / 技能 / 目標對照 / 密鑰都在裡面），部署時務必保留、勿覆蓋，詳見下方「部署」章節。
+
 ### `.env`（bootstrap）
 
 | 變數 | 預設 | 說明 |
@@ -511,6 +513,36 @@ curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
 5. Webhook 發送進入佇列：節流 → 失敗退避重試 → 回應結果
 
 詳見 [`docs/architecture.md`](docs/architecture.md)。
+
+## 部署（更新程式、保留狀態）
+
+`settings.json` 是**執行期資料庫**（助理開關／技能啟用與參數／目標對照／UI 產生或編輯的密鑰都在裡面）；`.env`、`storage.json`、`data/`、`logs/` 同理。
+**部署只更新程式碼，絕不覆蓋這些檔案**，否則每次上線都會重置設定（例如助理會被關回預設的關閉）。
+
+Git 部署（檔案已在 `.gitignore`，`git pull` 不會動到它們）：
+
+```sh
+git pull
+npm ci
+npm run build
+pm2 restart line-webhook
+```
+
+> 切勿在伺服器上執行 `git clean -fdx` 或重新 clone，否則會刪掉未追蹤的 runtime 檔案。
+
+rsync 部署（**不要**用範圍過大的 `--delete`，並排除狀態檔）：
+
+```sh
+rsync -av \
+  --exclude='.env' --exclude='settings.json' --exclude='storage.json' \
+  --exclude='data/' --exclude='logs/' --exclude='node_modules/' --exclude='dist/' \
+  ./ user@host:/path/line-webhook/
+ssh user@host 'cd /path/line-webhook && npm ci && npm run build && pm2 restart line-webhook'
+```
+
+**更保險**：把 runtime 檔案放到部署目錄外，並在 `.env` 指定（見 `.env.example` 的「正式部署建議」）：
+`SETTINGS_PATH`、`STORAGE_PATH`、`AUTH_PATH`、`MESSAGES_PATH`、`SCHEDULES_PATH`、`STATS_PATH`、`UPLOADS_PATH`、`SKILLS_PATH`、`CACHE_PATH`、`LOG_FILE`。
+如此一來部署目錄可整包覆蓋，狀態完全不受影響。
 
 ## Docker
 
