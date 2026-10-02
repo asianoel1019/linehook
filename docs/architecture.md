@@ -154,7 +154,7 @@ X-Signature: <HMAC-SHA256(body, secret)>   # 或 ?token=<WEBHOOK_TOKEN> / Author
 | **共用** | 安全/來源（allowedIps、hmac*、webhookToken*、apiToken*、adminPrivateOnly、rateLimit*）；發送/重試（send.*、replyMaxChars）；監控/Log（timezone、healthCheckIntervalSec、log*、messagesPersist）；訊息模板 `templates`（純文字）；訊息轉發規則 `forward`；指令 `commands`；Email `smtp.*`；匯出/匯入；語言；技能頁 `assistant` + `skills`；Console 的測試發送、目標清單、最近紀錄、排程；Dashboard 的狀態摘要與發送統計 |
 | **LINE 專屬** | 設定：`line.device` / `deviceName` / `modelName`、`targets`（mid）、**Flex 樣板 `flexTemplates`**；Console：Flex 可視化編輯器、操作（重新登入 / 重新整理聯絡人）；Dashboard：QR / PIN |
 | **Telegram 專屬** | 設定：`telegram.enabled` / `botToken` / `secretToken` / `webhookUrl` / `telegram.targets`（chat_id） |
-| **WhatsApp 專屬** | 設定：`whatsapp.enabled` / `phoneNumberId` / `accessToken` / `verifyToken` / `appSecret` / `apiVersion` / `whatsapp.targets`（E.164 電話號碼） |
+| **WhatsApp 專屬** | 設定：`whatsapp.enabled` / `mode`（cloud\|web）/ `phoneNumberId` / `accessToken` / `verifyToken` / `appSecret` / `apiVersion` / `webAuthPath` / `whatsapp.targets`（E.164）。Cloud 走 `/wa/webhook` + Meta 驗簽；web（個人帳號）走長連線、無 webhook |
 
 判準：看該值被**哪個 adapter** 消費。例如 `flexTemplates` 只有 LINE 用得到（Telegram 會降級成 altText），故為 LINE 專屬；`templates` 送出前已轉成文字，故共用。
 

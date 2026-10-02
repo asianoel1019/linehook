@@ -1250,15 +1250,31 @@ function renderSettingsHtml() {
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="whatsapp" data-im="whatsapp">
-    <legend data-i18n="legend_whatsapp">WhatsApp Cloud API</legend>
-    <div class="field"><label data-i18n="lbl_wa_enabled">啟用 WhatsApp</label><input id="wa-enabled" type="checkbox"><div class="hint">與 LINE / Telegram 可同時上線；停用後 <code>/webhook/wa</code>、<code>/wa/webhook</code> 回 503</div></div>
-    <div class="field"><label data-i18n="lbl_wa_phone_id">Phone Number ID</label><input id="wa-phoneNumberId" type="text" placeholder="123456789012345"><div class="hint" data-i18n="hint_wa_phone_id">Meta 應用中的 WhatsApp 電話號碼 ID（數字）</div></div>
-    <div class="field"><label data-i18n="lbl_wa_token">Access Token</label><input id="wa-accessToken" type="text" placeholder="EAA..."><div class="hint" data-i18n="hint_wa_token">Meta 永久或臨時權杖（Bearer）；留空 = 停用 WhatsApp</div></div>
-    <div class="field"><label data-i18n="lbl_wa_verify">Webhook Verify Token</label><input id="wa-verifyToken" type="text"><div class="hint" data-i18n="hint_wa_verify">Meta Webhook 設定時自訂的驗證字串（GET 訂閱驗證用），建議設定</div></div>
-    <div class="field"><label data-i18n="lbl_wa_secret">App Secret</label><input id="wa-appSecret" type="text"><div class="hint" data-i18n="hint_wa_secret">Meta 應用密鑰，用於驗證 X-Hub-Signature-256；留空 = 不驗簽章（不建議）</div></div>
-    <div class="field"><label data-i18n="lbl_wa_version">Graph API 版本</label><input id="wa-apiVersion" type="text" placeholder="v21.0"><div class="hint" data-i18n="hint_wa_version">預設 v21.0；Meta 若升版可於此調整</div></div>
+    <legend data-i18n="legend_whatsapp">WhatsApp</legend>
+    <div class="field"><label data-i18n="lbl_wa_enabled">啟用 WhatsApp</label><input id="wa-enabled" type="checkbox"><div class="hint">與 LINE / Telegram 可同時上線；停用後 <code>/webhook/wa</code> 回 503</div></div>
+    <div class="field"><label data-i18n="lbl_wa_mode">模式</label>
+      <span style="display:flex;gap:16px;flex-wrap:wrap">
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="wa-mode" value="cloud" id="wa-mode-cloud" style="width:auto"><span data-i18n="wa_mode_cloud">Cloud API（官方）</span></label>
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="wa-mode" value="web" id="wa-mode-web" style="width:auto"><span data-i18n="wa_mode_web">個人帳號（WhatsApp Web）</span></label>
+      </span>
+      <div class="hint" data-i18n="hint_wa_mode">Cloud API 需 Meta Business 帳號與專用號碼；個人帳號模式以 QR 登入，違反 WhatsApp ToS 有停權風險</div>
+    </div>
+
+    <div data-wa-mode="cloud">
+      <div class="field"><label data-i18n="lbl_wa_phone_id">Phone Number ID</label><input id="wa-phoneNumberId" type="text" placeholder="123456789012345"><div class="hint" data-i18n="hint_wa_phone_id">Meta 應用中的 WhatsApp 電話號碼 ID（數字）</div></div>
+      <div class="field"><label data-i18n="lbl_wa_token">Access Token</label><input id="wa-accessToken" type="text" placeholder="EAA..."><div class="hint" data-i18n="hint_wa_token">Meta 永久或臨時權杖（Bearer）；留空 = 停用 WhatsApp</div></div>
+      <div class="field"><label data-i18n="lbl_wa_verify">Webhook Verify Token</label><input id="wa-verifyToken" type="text"><div class="hint" data-i18n="hint_wa_verify">Meta Webhook 設定時自訂的驗證字串（GET 訂閱驗證用），建議設定</div></div>
+      <div class="field"><label data-i18n="lbl_wa_secret">App Secret</label><input id="wa-appSecret" type="text"><div class="hint" data-i18n="hint_wa_secret">Meta 應用密鑰，用於驗證 X-Hub-Signature-256；留空 = 不驗簽章（不建議）</div></div>
+      <div class="field"><label data-i18n="lbl_wa_version">Graph API 版本</label><input id="wa-apiVersion" type="text" placeholder="v21.0"><div class="hint" data-i18n="hint_wa_version">預設 v21.0；Meta 若升版可於此調整</div></div>
+    </div>
+
+    <div data-wa-mode="web">
+      <div class="field"><label data-i18n="lbl_wa_web_auth">Session 儲存目錄</label><input id="wa-webAuthPath" type="text" placeholder="./data/whatsapp-web"><div class="hint" data-i18n="hint_wa_web_auth">登入憑證（多檔案）儲存位置；刪除此目錄 = 登出並重新掃 QR</div></div>
+      <div class="field"><div class="hint" data-i18n="hint_wa_web_login">儲存並重啟後，至 <code>/dashboard</code>（切到 WhatsApp）掃描 QR 完成登入</div></div>
+    </div>
+
     <div class="field"><label data-i18n="lbl_wa_targets">目標對照（名稱=電話號碼）</label><textarea id="wa-targets" placeholder="每行一筆，例如：小明=886912345678"></textarea><div class="hint" data-i18n="hint_wa_targets">每行一筆，E.164 不含 +</div></div>
-    <div class="field"><div class="hint" data-i18n="hint_wa_window">注意：WhatsApp 有 24 小時視窗，主動推播（排程 / 到價通知）可能需改用預審模板</div></div>
+    <div class="field" data-wa-mode="cloud"><div class="hint" data-i18n="hint_wa_window">注意：WhatsApp 有 24 小時視窗，主動推播（排程 / 到價通知）可能需改用預審模板</div></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="send">
@@ -1663,6 +1679,10 @@ function renderSettingsHtml() {
     $("wa-verifyToken").value = (s.whatsapp && s.whatsapp.verifyToken) || "";
     $("wa-appSecret").value = (s.whatsapp && s.whatsapp.appSecret) || "";
     $("wa-apiVersion").value = (s.whatsapp && s.whatsapp.apiVersion) || "v21.0";
+    $("wa-webAuthPath").value = (s.whatsapp && s.whatsapp.webAuthPath) || "./data/whatsapp-web";
+    var waMode = (s.whatsapp && s.whatsapp.mode) === "web" ? "web" : "cloud";
+    $("wa-mode-cloud").checked = waMode === "cloud";
+    $("wa-mode-web").checked = waMode === "web";
     $("wa-targets").value = Object.keys((s.whatsapp && s.whatsapp.targets) || {}).map(function (k) { return k + "=" + s.whatsapp.targets[k]; }).join("\\n");
     $("send-maxRetries").value = s.send.maxRetries;
     $("send-retryBaseMs").value = s.send.retryBaseMs;
@@ -1776,11 +1796,13 @@ function renderSettingsHtml() {
       },
       whatsapp: {
         enabled: $("wa-enabled").checked,
+        mode: $("wa-mode-web").checked ? "web" : "cloud",
         phoneNumberId: $("wa-phoneNumberId").value.trim(),
         accessToken: $("wa-accessToken").value.trim(),
         verifyToken: $("wa-verifyToken").value.trim(),
         appSecret: $("wa-appSecret").value.trim(),
         apiVersion: $("wa-apiVersion").value.trim() || "v21.0",
+        webAuthPath: $("wa-webAuthPath").value.trim() || "./data/whatsapp-web",
         targets: waTargets
       },
       smtp: {
@@ -1866,6 +1888,15 @@ function renderSettingsHtml() {
     input.value = "";
   });
 
+  function applyWaMode() {
+    var mode = $("wa-mode-web").checked ? "web" : "cloud";
+    Array.prototype.forEach.call(document.querySelectorAll("[data-wa-mode]"), function (el) {
+      el.classList.toggle("plat-off", el.getAttribute("data-wa-mode") !== mode);
+    });
+  }
+  $("wa-mode-cloud").addEventListener("change", applyWaMode);
+  $("wa-mode-web").addEventListener("change", applyWaMode);
+
   $("settings-form").addEventListener("submit", function (e) {
     e.preventDefault();
     $("settings-msg").textContent = "儲存中…";
@@ -1876,6 +1907,8 @@ function renderSettingsHtml() {
 
   setupCards(CONFIG_SECTIONS, "security");
   loadForm();
+  // loadForm 是非同步；等填完再用目前選擇套用 WhatsApp 模式顯示。
+  setTimeout(applyWaMode, 300);
 `;
     const sidebar = `
 <div class="side-section">${tr(config.language, "section_settings")}</div>
@@ -3299,8 +3332,14 @@ export function createServer(line: IMessagingService): express.Express {
         res.set("Cache-Control", "no-store");
         res.json({ usage: getTokenUsage() });
     });
-    app.get("/status/qr", statusAccess, requireSession, async (_req, res) => {
-        const { qrUrl } = getState();
+    app.get("/status/qr", statusAccess, requireSession, async (req, res) => {
+        const platform = typeof req.query.platform === "string" ? req.query.platform : "";
+        // WhatsApp（Web 模式）：QR 由 Baileys 產生，存於服務內。
+        let qrUrl = getState().qrUrl;
+        if (platform === "whatsapp") {
+            const wa = getService("whatsapp") as { getQr?: () => string } | undefined;
+            qrUrl = wa?.getQr?.() || "";
+        }
         if (!qrUrl) {
             res.status(404).send("no qr");
             return;
@@ -3754,6 +3793,11 @@ export function createServer(line: IMessagingService): express.Express {
     // WhatsApp 接收端點。
     // GET：Meta 訂閱驗證（hub.mode=subscribe、hub.verify_token、hub.challenge）。
     app.get("/wa/webhook", (req, res) => {
+        // Web（個人帳號）模式不需要 Meta webhook。
+        if (config.whatsapp.mode !== "cloud") {
+            res.status(503).json({ ok: false, error: "WhatsApp 為個人帳號模式，不使用 webhook" });
+            return;
+        }
         const mode = req.query["hub.mode"];
         const token = req.query["hub.verify_token"];
         const challenge = req.query["hub.challenge"];
@@ -3768,6 +3812,10 @@ export function createServer(line: IMessagingService): express.Express {
     // POST：接收訊息，驗 X-Hub-Signature-256（sha256=HMAC-SHA256(appSecret, rawBody)）。
     app.post("/wa/webhook", rateLimit, (req, res) => {
         const service = getService("whatsapp");
+        if (config.whatsapp.mode !== "cloud") {
+            res.status(503).json({ ok: false, error: "WhatsApp 為個人帳號模式，不使用 webhook" });
+            return;
+        }
         if (!service || !config.whatsapp.enabled || !config.whatsapp.accessToken.trim() || !config.whatsapp.phoneNumberId.trim()) {
             res.status(503).json({ ok: false, error: "WhatsApp 未啟用" });
             return;

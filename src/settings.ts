@@ -39,20 +39,24 @@ const settingsSchema = z.object({
   whatsapp: z
     .object({
       enabled: z.boolean().default(false),
+      mode: z.enum(["cloud", "web"]).default("cloud"),
       phoneNumberId: z.string().trim().default(""),
       accessToken: z.string().trim().default(""),
       verifyToken: z.string().trim().default(""),
       appSecret: z.string().trim().default(""),
       apiVersion: z.string().trim().default("v21.0"),
+      webAuthPath: z.string().trim().default("./data/whatsapp-web"),
       targets: z.record(z.string(), z.string()).default({}),
     })
     .default({
       enabled: false,
+      mode: "cloud",
       phoneNumberId: "",
       accessToken: "",
       verifyToken: "",
       appSecret: "",
       apiVersion: "v21.0",
+      webAuthPath: "./data/whatsapp-web",
       targets: {},
     }),
   templates: z
@@ -167,11 +171,13 @@ export function currentSettings(): EditableSettings {
     },
     whatsapp: {
       enabled: config.whatsapp.enabled,
+      mode: config.whatsapp.mode,
       phoneNumberId: config.whatsapp.phoneNumberId,
       accessToken: config.whatsapp.accessToken,
       verifyToken: config.whatsapp.verifyToken,
       appSecret: config.whatsapp.appSecret,
       apiVersion: config.whatsapp.apiVersion,
+      webAuthPath: config.whatsapp.webAuthPath,
       targets: { ...config.whatsapp.targets },
     },
     templates: config.templates.map((template) => ({ ...template })),
@@ -237,11 +243,13 @@ function apply(settings: EditableSettings): void {
   };
   config.whatsapp = {
     enabled: settings.whatsapp.enabled,
+    mode: settings.whatsapp.mode,
     phoneNumberId: settings.whatsapp.phoneNumberId,
     accessToken: settings.whatsapp.accessToken,
     verifyToken: settings.whatsapp.verifyToken,
     appSecret: settings.whatsapp.appSecret,
     apiVersion: settings.whatsapp.apiVersion,
+    webAuthPath: settings.whatsapp.webAuthPath,
     targets: { ...settings.whatsapp.targets },
   };
   config.templates = settings.templates.map((template) => ({ ...template }));

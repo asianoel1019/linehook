@@ -11,6 +11,7 @@ import { setState } from "./state.js";
 import { LineService } from "./line/client.js";
 import { TelegramService } from "./telegram/client.js";
 import { WhatsAppService } from "./whatsapp/client.js";
+import { WhatsAppWebService } from "./whatsapp/web-client.js";
 import { registerService } from "./messaging/services.js";
 import { createServer } from "./webhook/server.js";
 import { startHealthMonitor } from "./monitor/token.js";
@@ -54,12 +55,21 @@ async function main(): Promise<void> {
     logger.info("Telegram 已啟用");
   }
 
-  // WhatsApp 同理；未設定 accessToken / phoneNumberId 時不註冊（/webhook/wa、/wa/webhook 回 503）。
-  let whatsapp: WhatsAppService | null = null;
-  if (config.whatsapp.enabled && config.whatsapp.accessToken.trim() && config.whatsapp.phoneNumberId.trim()) {
-    whatsapp = new WhatsAppService();
-    registerService(whatsapp);
-    logger.info("WhatsApp 已啟用");
+  // WhatsApp 同理；依 mode 選擇 Cloud API 或個人帳號（WhatsApp Web）。
+  // Cloud 需 accessToken + phoneNumberId；Web 需 enabled 即可（QR 登入）。
+  let whatsapp: WhatsAppService | WhatsAppWebService | null = null;
+  if (config.whatsapp.enabled) {
+    if (config.whatsapp.mode === "web") {
+      whatsapp = new WhatsAppWebService();
+      registerService(whatsapp);
+      logger.info("WhatsApp 已啟用（個人帳號 / Web 模式）");
+    } else if (config.whatsapp.accessToken.trim() && config.whatsapp.phoneNumberId.trim()) {
+      whatsapp = new WhatsAppService();
+      registerService(whatsapp);
+      logger.info("WhatsApp 已啟用（Cloud API 模式）");
+    } else {
+      logger.warn("WhatsApp 已啟用但模式為 cloud 且未設定 accessToken / phoneNumberId，略過");
+    }
   }
 
   const app = createServer(line);

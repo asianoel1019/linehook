@@ -52,11 +52,13 @@ const schema = z.object({
   TELEGRAM_WEBHOOK_URL: z.string().trim().default(""),
   TELEGRAM_TARGETS: z.string().default(""),
   WHATSAPP_ENABLED: boolDefault(false),
+  WHATSAPP_MODE: z.enum(["cloud", "web"]).default("cloud"),
   WHATSAPP_PHONE_NUMBER_ID: z.string().trim().default(""),
   WHATSAPP_ACCESS_TOKEN: z.string().trim().default(""),
   WHATSAPP_VERIFY_TOKEN: z.string().trim().default(""),
   WHATSAPP_APP_SECRET: z.string().trim().default(""),
   WHATSAPP_API_VERSION: z.string().trim().default("v21.0"),
+  WHATSAPP_WEB_AUTH_PATH: z.string().trim().default("./data/whatsapp-web"),
   WHATSAPP_TARGETS: z.string().default(""),
   HEALTH_CHECK_INTERVAL_SEC: z.coerce.number().int().positive().default(60),
   LOG_LIMIT: z.coerce.number().int().positive().default(200),
@@ -203,11 +205,13 @@ export interface Config {
   };
   whatsapp: {
     enabled: boolean;
+    mode: "cloud" | "web";
     phoneNumberId: string;
     accessToken: string;
     verifyToken: string;
     appSecret: string;
     apiVersion: string;
+    webAuthPath: string;
     targets: Record<string, string>;
   };
   templates: MessageTemplate[];
@@ -301,11 +305,13 @@ export const config: Config = {
   },
   whatsapp: {
     enabled: env.WHATSAPP_ENABLED,
+    mode: env.WHATSAPP_MODE,
     phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID,
     accessToken: env.WHATSAPP_ACCESS_TOKEN,
     verifyToken: env.WHATSAPP_VERIFY_TOKEN,
     appSecret: env.WHATSAPP_APP_SECRET,
     apiVersion: env.WHATSAPP_API_VERSION,
+    webAuthPath: env.WHATSAPP_WEB_AUTH_PATH,
     targets: parseTargets(env.WHATSAPP_TARGETS),
   },
   templates: [],

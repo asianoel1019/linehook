@@ -86,16 +86,29 @@
 
 ---
 
-## 3. WhatsApp（Cloud API）
+## 3. WhatsApp
+
+WhatsApp 有**兩種模式**，在 `/settings` → WhatsApp → **模式** 選擇：
+
+| 模式 | 說明 | 適合 |
+| --- | --- | --- |
+| **Cloud API**（官方） | Meta 官方商業 API，穩定合法 | 正式、企業用途 |
+| **個人帳號（WhatsApp Web）** | 以 QR 登入**個人號**（Baileys 實作） | 不想申請 Business、只想用個人號 |
+
+> ⚠️ 個人帳號模式屬非官方逆向（與 LINE selfbot 同性質），**違反 WhatsApp 服務條款、帳號有被停權風險**。請自行評估，建議使用備用號。
+
+---
+
+### 3A. Cloud API 模式
 
 透過 **Meta for Developers** 的 WhatsApp Cloud API（免費本體，business-initiated 訊息按模板收費）。
 
-### 需要什麼
+#### 需要什麼
 - Meta（Facebook）帳號。
 - Meta Business 帳號（企業驗證視用量而定）。
 - 一個**專用電話號碼**（不可與現有 WhatsApp 個人帳號重複）。
 
-### 申請與產生資訊
+#### 申請與產生資訊
 1. 前往 **developers.facebook.com** → 建立 App → 選 **Business** 類型。
 2. 在 App 中加入 **WhatsApp** 產品。
 3. 取得以下三項：
@@ -109,18 +122,48 @@
    - 每行 `名稱=號碼`，號碼為 **E.164 格式、不含 `+`**，例如 `886912345678`。
    - 測試階段只有加到「收件者測試清單」的號碼能收到訊息。
 
-### 設定 Webhook（在 Meta 後台）
+#### 設定 Webhook（在 Meta 後台）
 - Callback URL：`https://你的網域/wa/webhook`
 - Verify Token：填與系統 `Webhook Verify Token` **相同**的值。
 - Meta 會先發 **GET** 驗證（系統比對 `hub.verify_token` 並回 `hub.challenge`）；通過後才開始 POST 推播訊息。
 - Subscribe 欄位請勾選 **messages**。
 
-### 端點
+#### 端點
 - 發送：`POST https://你的網域/webhook/wa`
 - 接收：`GET /wa/webhook`（訂閱驗證）、`POST /wa/webhook`（訊息，驗 `X-Hub-Signature-256`）
 
-### 重要限制
+#### 重要限制
 - **24 小時視窗**：使用者最後一次傳訊後 24 小時內，可自由回覆；超過後**主動推播（排程、到價通知）需使用預先審核的訊息模板**，否則會被拒。
+- 系統遇到此情況會記錄警告並提示改用模板。
+
+---
+
+### 3B. 個人帳號模式（WhatsApp Web）
+
+#### 需要什麼
+- 一支 **WhatsApp 個人帳號 + 手機**（登入時用手機掃 QR）。
+
+#### 產生本系統所需資訊
+- **登入 QR**：系統啟動後在 `/dashboard`（右上下拉切到 **WhatsApp**）顯示，用手機 WhatsApp → **連結裝置** 掃描。
+- 登入憑證自動存到 **Session 儲存目錄**（`WHATSAPP_WEB_AUTH_PATH`，預設 `./data/whatsapp-web`）：
+  - **刪除此目錄 = 登出**，下次啟動需重新掃 QR。
+- **目標對照**（名稱=電話號碼）：同 Cloud，每行 `名稱=號碼`（E.164 不含 `+`）。
+  - 可先用 `@userinfobot` 之類或請對方提供號碼；號碼即對方 WhatsApp 註冊號。
+
+#### 設定步驟
+1. `/settings` → WhatsApp → 模式選 **個人帳號（WhatsApp Web）**。
+2. （選填）調整 **Session 儲存目錄**，填好**目標對照**。
+3. 按「儲存設定」→ **重啟服務**（`pm2 restart`）。
+4. 到 `/dashboard`，右上角切到 WhatsApp，掃描 QR 完成登入。
+5. 之後即可收訊（關鍵字自動回覆 / 技能）與發送（`POST /webhook/wa`）。
+
+#### 端點
+- 發送：`POST https://你的網域/webhook/wa`
+- 接收：**不需要** webhook（透過長連線接收）；`GET/POST /wa/webhook` 在此模式回 `503`。
+
+#### 重要限制
+- 非官方 API，**有被停權風險**；Baileys 為社群套件，WhatsApp 伺服器改版時可能需更新。
+- 同樣有非正式的「未互動即無法主動傳訊」實務限制。
 - 系統遇到此情況會記錄警告並提示改用模板。
 - Flex 卡片與 LINE 貼圖在 WhatsApp 會降級為文字；位置訊息用原生 location 支援。
 
@@ -150,8 +193,10 @@ LINE / Telegram / WhatsApp 的**發送**端點共用同一套驗證（任一通�
 | Telegram Bot Token | @BotFather `/newbot` | `TELEGRAM_BOT_TOKEN` |
 | Telegram secret | 自己自訂（可用「隨機產生」） | `TELEGRAM_SECRET_TOKEN` |
 | Telegram chat_id | `getUpdates` / @userinfobot | 目標對照 |
-| WhatsApp Phone Number ID | Meta App → WhatsApp → API Setup | `WHATSAPP_PHONE_NUMBER_ID` |
-| WhatsApp Access Token | Meta App API Setup（測試）/ System User（永久） | `WHATSAPP_ACCESS_TOKEN` |
-| WhatsApp App Secret | Meta App → Settings → Basic | `WHATSAPP_APP_SECRET` |
-| WhatsApp verify token | 自己自訂 | `WHATSAPP_VERIFY_TOKEN` |
+| WhatsApp Phone Number ID | Meta App → WhatsApp → API Setup | `WHATSAPP_PHONE_NUMBER_ID`（Cloud） |
+| WhatsApp Access Token | Meta App API Setup（測試）/ System User（永久） | `WHATSAPP_ACCESS_TOKEN`（Cloud） |
+| WhatsApp App Secret | Meta App → Settings → Basic | `WHATSAPP_APP_SECRET`（Cloud） |
+| WhatsApp verify token | 自己自訂 | `WHATSAPP_VERIFY_TOKEN`（Cloud） |
+| WhatsApp 登入 QR | 系統產生，手機 WhatsApp「連結裝置」掃描 | （Web 模式，自動） |
+| WhatsApp session | 存於 Session 儲存目錄 | `WHATSAPP_WEB_AUTH_PATH`（Web） |
 | WhatsApp 目標號碼 | 收件者測試清單 / 使用者號碼（E.164） | 目標對照 |

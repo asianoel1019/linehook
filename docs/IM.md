@@ -102,7 +102,8 @@ interface IMessagingService {
 
 ### 3.3 WhatsApp（Phase 3）
 
-> 進度：`src/whatsapp/client.ts`、`POST /webhook/wa`、`GET/POST /wa/webhook`、設定頁卡片、平台切換、統計與正規化測試**已完成**。
+> 進度：`src/whatsapp/client.ts`（Cloud API）、`src/whatsapp/web-client.ts`（個人帳號 / Baileys）、
+> `POST /webhook/wa`、`GET/POST /wa/webhook`、設定頁**模式切換（Cloud / 個人帳號）**、平台切換、統計與正規化測試**已完成**。
 
 - **前置**：Meta Business 帳號＋企業驗證、專用電話號碼（不可綁個人號）、WABA；
   **費用**：Cloud API 本體免費，但 business-initiated 訊息按模板類別逐則收費（另加 BSP 費用，視供應商而定）。

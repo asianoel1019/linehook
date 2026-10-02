@@ -135,8 +135,15 @@ export const DICT: Record<string, Entry> = {
   hint_tg_targets: { zh: "每行一筆，例如：我的群組=-1001234567890；也可填 @username", en: "One per line, e.g. MyGroup=-1001234567890; @username also works", ja: "1 行に 1 件（例 MyGroup=-1001234567890）。@username も可" },
 
   // whatsapp
-  legend_whatsapp: { zh: "WhatsApp Cloud API", en: "WhatsApp Cloud API", ja: "WhatsApp Cloud API" },
+  legend_whatsapp: { zh: "WhatsApp", en: "WhatsApp", ja: "WhatsApp" },
   lbl_wa_enabled: { zh: "啟用 WhatsApp", en: "Enable WhatsApp", ja: "WhatsApp を有効化" },
+  lbl_wa_mode: { zh: "模式", en: "Mode", ja: "モード" },
+  wa_mode_cloud: { zh: "Cloud API（官方）", en: "Cloud API (official)", ja: "Cloud API（公式）" },
+  wa_mode_web: { zh: "個人帳號（WhatsApp Web）", en: "Personal account (WhatsApp Web)", ja: "個人アカウント（WhatsApp Web）" },
+  hint_wa_mode: { zh: "Cloud API 需 Meta Business 帳號與專用號碼；個人帳號模式以 QR 登入，違反 WhatsApp ToS 有停權風險", en: "Cloud API needs a Meta Business account and dedicated number; personal mode logs in via QR and violates WhatsApp ToS (ban risk)", ja: "Cloud API は Meta Business アカウントと専用番号が必要。個人モードは QR ログインで WhatsApp ToS 違反（停止リスク）" },
+  lbl_wa_web_auth: { zh: "Session 儲存目錄", en: "Session directory", ja: "セッション保存先" },
+  hint_wa_web_auth: { zh: "登入憑證（多檔案）儲存位置；刪除此目錄 = 登出並重新掃 QR", en: "Where login credentials are stored; delete it to log out and re-scan QR", ja: "ログイン情報の保存先。削除するとログアウトされ再スキャン" },
+  hint_wa_web_login: { zh: "儲存並重啟後，至 /dashboard（切到 WhatsApp）掃描 QR 完成登入", en: "After saving and restarting, scan the QR on /dashboard (switch to WhatsApp)", ja: "保存・再起動後、/dashboard（WhatsApp に切替）で QR をスキャン" },
   lbl_wa_phone_id: { zh: "Phone Number ID", en: "Phone number ID", ja: "電話番号 ID" },
   hint_wa_phone_id: { zh: "Meta 應用中的 WhatsApp 電話號碼 ID（數字）", en: "WhatsApp phone number ID from your Meta app", ja: "Meta アプリの WhatsApp 電話番号 ID" },
   lbl_wa_token: { zh: "Access Token", en: "Access token", ja: "アクセストークン" },

@@ -1,7 +1,7 @@
 # IM Webhook
 
 接收外部端點傳來的訊息，轉發到多個通訊軟體（目前支援 LINE、Telegram、WhatsApp，架構可擴充）。
-LINE 透過已登入的個人帳號（selfbot），Telegram 走 Bot API，WhatsApp 走 Cloud API。
+LINE 透過已登入的個人帳號（selfbot），Telegram 走 Bot API，WhatsApp 可選官方 Cloud API 或個人帳號（WhatsApp Web）。
 附登入狀態頁（可互動）、Email 通知，登入失效時會自動嘗試重登。
 
 > ⚠️ 本專案使用非官方 LINE API（[`@evex/linejs`](https://github.com/evex/linejs)）模擬個人帳號，屬 selfbot，
