@@ -133,3 +133,37 @@ X-Signature: <HMAC-SHA256(body, secret)>   # 或 ?token=<WEBHOOK_TOKEN> / Author
 - **目標解析**：好友名稱可能重複，建議優先使用 `mid`；支援名稱時需處理「找不到 / 多筆」。
 - **安全性**：IP 白名單可被偽造/共用，建議搭配 HMAC 簽章驗證。
 - **重試**：LINE 發送遇暫時性錯誤應重試，並記錄於 log。
+
+## 多平台（IM）支援
+
+### 傳輸抽象層
+
+- `src/messaging/types.ts`：`Platform`、`IMessagingService`、`IncomingMessage`、`ChatTarget`。
+- `src/messaging/services.ts`：服務註冊表（`registerService` / `getService` / `listServices`）。
+- `src/messaging/dispatch.ts`：共用的收訊管線（指令 → 技能 → 轉發規則），吃 `DispatchDeps`。
+- 各平台 adapter（`src/line/client.ts`、`src/telegram/client.ts`…）實作 `IMessagingService`，
+  只負責傳輸；`index.ts` 在啟動時 `registerService()`。
+
+### 平台歸屬對照表（顯示與設定分離的依據）
+
+> 規則：**只有某個 IM 才用得到的設定/UI，一律標 `data-im="<平台>"`**；共用者不標。
+> 設定頁、Console、Dashboard 都靠 `[data-im]` + 右上角全域切換（localStorage `lw_platform`）自動過濾。
+
+| 歸屬 | 設定欄位 / UI |
+| --- | --- |
+| **共用** | 安全/來源（allowedIps、hmac*、webhookToken*、apiToken*、adminPrivateOnly、rateLimit*）；發送/重試（send.*、replyMaxChars）；監控/Log（timezone、healthCheckIntervalSec、log*、messagesPersist）；訊息模板 `templates`（純文字）；訊息轉發規則 `forward`；指令 `commands`；Email `smtp.*`；匯出/匯入；語言；技能頁 `assistant` + `skills`；Console 的測試發送、目標清單、最近紀錄、排程；Dashboard 的狀態摘要與發送統計 |
+| **LINE 專屬** | 設定：`line.device` / `deviceName` / `modelName`、`targets`（mid）、**Flex 樣板 `flexTemplates`**；Console：Flex 可視化編輯器、操作（重新登入 / 重新整理聯絡人）；Dashboard：QR / PIN |
+| **Telegram 專屬** | 設定：`telegram.enabled` / `botToken` / `secretToken` / `webhookUrl` / `telegram.targets`（chat_id） |
+
+判準：看該值被**哪個 adapter** 消費。例如 `flexTemplates` 只有 LINE 用得到（Telegram 會降級成 altText），故為 LINE 專屬；`templates` 送出前已轉成文字，故共用。
+
+### 新增一個 IM 的檢查清單
+
+1. **型別 / 服務**：`Platform` union 加新平台；新增 `src/<im>/client.ts implements IMessagingService`；`index.ts` 依設定 `registerService()`。
+2. **設定管線**：`src/config.ts`（env + `Config`）、`src/settings.ts`（schema / `currentSettings` / `apply` / `loadSettings` merge）各加一份 `<im>` 區塊。
+3. **路由**：發送端點 `POST /webhook/<im>`（用 `makeWebhookSender(() => getService("<im>"))`）；接收端點依平台驗證方式實作。所有管理用路由改用 **`serviceFor(req)`**（依 body 的 `platform` 解析），**切勿寫死 `line`**。
+4. **設定頁**：新增 `fieldset[data-fn="<im>"][data-im="<im>"]` 與側欄卡片；共用欄位不標 `data-im`。
+5. **Console / Dashboard**：在頁面的 `platforms` 陣列加一項；`[data-im]` 與右上角切換自動生效（Console 的 `applyConsoleImVisibility`、Dashboard 的 `selected` 過濾）。
+6. **統計**：所有 `recordSend` 帶 `platform`；`SendEvent.platform` 未標記者視為 `line`（相容舊資料）。
+7. **測試**：adapter 正規化單元測試 + 路由驗證測試；跑 `npm run typecheck && npm run build && npm test`。
+
