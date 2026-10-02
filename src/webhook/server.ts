@@ -1244,10 +1244,10 @@ function renderSettingsHtml() {
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="commands">
-    <legend data-i18n="legend_commands">LINE 指令</legend>
-    <div class="field"><label data-i18n="lbl_commands_enabled">啟用指令</label><input id="commands-enabled" type="checkbox"><div class="hint">允許在 LINE 對本帳號傳送指令（例如 <code>!help</code>）</div></div>
+    <legend data-i18n="legend_commands">指令</legend>
+    <div class="field"><label data-i18n="lbl_commands_enabled">啟用指令</label><input id="commands-enabled" type="checkbox"><div class="hint">允許在對話中對本帳號傳送指令（例如 <code>!help</code>）；LINE 與 Telegram 皆適用</div></div>
     <div class="field"><label data-i18n="lbl_commands_prefix">指令前綴</label><input id="commands-prefix" type="text" placeholder="!"><div class="hint">預設 <code>!</code></div></div>
-    <div class="field"><label data-i18n="lbl_commands_allow">允許來源</label><textarea id="commands-allowFrom" data-i18n-ph="ph_commands_allow" placeholder="留空 = 所有人；每行一個 mid 或 chat mid"></textarea><div class="hint">可用 <code>!id</code> 取得自己的 mid；建議限制來源避免被濫用</div></div>
+    <div class="field"><label data-i18n="lbl_commands_allow">允許來源</label><textarea id="commands-allowFrom" data-i18n-ph="ph_commands_allow" placeholder="留空 = 所有人；每行一個 mid 或 chat mid"></textarea><div class="hint">可用 <code>!id</code> 取得自己的 mid / chat_id；建議限制來源避免被濫用</div></div>
     <div class="hint">可用指令：<code>help</code>、<code>status</code>、<code>id</code>、<code>send &lt;對象&gt; &lt;訊息&gt;</code></div>
   </fieldset>
 

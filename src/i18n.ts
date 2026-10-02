@@ -62,7 +62,7 @@ export const DICT: Record<string, Entry> = {
   card_templates: { zh: "訊息模板", en: "Templates", ja: "テンプレート" },
   card_autoreply: { zh: "關鍵字自動回覆", en: "Auto reply", ja: "自動返信" },
   card_forward: { zh: "訊息轉發規則", en: "Forward rules", ja: "転送ルール" },
-  card_commands: { zh: "LINE 指令", en: "LINE commands", ja: "LINE コマンド" },
+  card_commands: { zh: "指令", en: "Commands", ja: "コマンド" },
   card_smtp: { zh: "Email 通知", en: "Email notify", ja: "メール通知" },
   card_backup: { zh: "匯出 / 匯入", en: "Export / Import", ja: "エクスポート / インポート" },
   section_actions: { zh: "操作", en: "Actions", ja: "操作" },
@@ -204,7 +204,7 @@ export const DICT: Record<string, Entry> = {
   help_secret: { zh: "需設定", en: "required", ja: "設定が必要" },
 
   // commands
-  legend_commands: { zh: "LINE 指令", en: "LINE commands", ja: "LINE コマンド" },
+  legend_commands: { zh: "指令", en: "Commands", ja: "コマンド" },
   lbl_commands_enabled: { zh: "啟用指令", en: "Enable commands", ja: "コマンドを有効化" },
   lbl_commands_prefix: { zh: "指令前綴", en: "Command prefix", ja: "コマンド接頭辞" },
   lbl_commands_allow: { zh: "允許來源", en: "Allowed sources", ja: "許可する送信元" },
