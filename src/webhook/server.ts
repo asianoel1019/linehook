@@ -1272,9 +1272,11 @@ function renderSettingsHtml() {
     <div class="hint" style="margin-bottom:8px">webhook 帶 <code>template</code> 名稱與 <code>vars</code> 變數即可套用；模板內用 <code>{{key}}</code> 取用變數，未提供的變數會原樣保留。</div>
     <div id="templates"></div>
     <div class="actions"><button type="button" id="template-add" data-i18n="lbl_btn_add_template">新增模板</button></div>
-    <div class="hint" style="margin:14px 0 8px">Flex 樣板：webhook 帶 <code>flexTemplate</code> 名稱即可套用；<code>contents</code> 為 Flex 容器 JSON（可用 <code>{{key}}</code> 變數）。</div>
+    <div data-im="line">
+    <div class="hint" style="margin:14px 0 8px">Flex 樣板（僅 LINE）：webhook 帶 <code>flexTemplate</code> 名稱即可套用；<code>contents</code> 為 Flex 容器 JSON（可用 <code>{{key}}</code> 變數）。</div>
     <div id="flexTemplates"></div>
     <div class="actions"><button type="button" id="flex-template-add" data-i18n="lbl_btn_add_flex">新增 Flex 樣板</button></div>
+    </div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="forward">
@@ -2010,7 +2012,7 @@ function renderConsoleHtml() {
       cancel.type = "button";
       cancel.textContent = T("btn_cancel");
       cancel.addEventListener("click", function () {
-        post("settings/scheduled/cancel", { id: j.id }).then(function () { refreshData(); });
+        post("settings/scheduled/cancel", { id: j.id, platform: currentPlatform }).then(function () { refreshData(); });
       });
       var edit = document.createElement("button");
       edit.type = "button";
@@ -2020,7 +2022,7 @@ function renderConsoleHtml() {
         if (input === null) return;
         var value = input.trim();
         if (!value) return;
-        var body = { id: j.id };
+        var body = { id: j.id, platform: currentPlatform };
         if (/^\d+$/.test(value)) body.delaySec = Number(value);
         else body.sendAt = value;
         post("settings/scheduled/update", body).then(function (r) {
@@ -3175,6 +3177,17 @@ function makeWebhookSender(resolveService: (req: Request) => IMessagingService |
 }
 export function createServer(line: IMessagingService): express.Express {
     const app = express();
+    // 依 request body 的 platform 解析服務；未指定或 "line" 一律用 LINE 服務。
+    const serviceFor = (req: Request): IMessagingService => {
+        const body = asRecord(req.body) ?? {};
+        const platform = typeof body.platform === "string" ? body.platform.trim() : "";
+        if (platform && platform !== "line") {
+            const svc = getService(platform as Platform);
+            if (!svc) throw new Error(`平台未啟用：${platform}`);
+            return svc;
+        }
+        return line;
+    };
     app.disable("x-powered-by");
     // 只信任本機迴路 proxy，避免直接對外暴露時被偽造 X-Forwarded-For 繞過 IP 限制。
     app.set("trust proxy", "loopback");
@@ -3605,11 +3618,19 @@ export function createServer(line: IMessagingService): express.Express {
     app.post("/settings/scheduled/cancel", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
         const body = asRecord(req.body) ?? {};
         const id = typeof body.id === "string" ? body.id : "";
-        if (!id || !line.cancelScheduled(id)) {
+        let svc: IMessagingService;
+        try {
+            svc = serviceFor(req);
+        }
+        catch (error) {
+            res.status(400).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
+            return;
+        }
+        if (!id || !svc.cancelScheduled(id)) {
             res.status(404).json({ ok: false, error: "找不到排程" });
             return;
         }
-        res.json({ ok: true });
+        res.json({ ok: true, platform: svc.platform });
     });
     app.post("/settings/scheduled/update", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
         const body = asRecord(req.body) ?? {};
@@ -3644,7 +3665,8 @@ export function createServer(line: IMessagingService): express.Express {
             patch.repeat = repeatChecked.repeat || null;
         }
         try {
-            const job = line.updateScheduled(id, patch);
+            const svc = serviceFor(req);
+            const job = svc.updateScheduled(id, patch);
             if (!job) {
                 res.status(404).json({ ok: false, error: "找不到排程" });
                 return;
