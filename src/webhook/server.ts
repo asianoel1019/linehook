@@ -397,6 +397,11 @@ const SETTINGS_STYLE = `
   .fn-card.setting { color: #fbcfe8; border: 1px solid rgba(244,114,182,.3); border-left: 3px solid rgba(244,114,182,.75); border-radius: 4px 10px 10px 4px; background: linear-gradient(90deg, rgba(244,114,182,.08), rgba(0,0,0,.3)); }
   .fn-card.setting:hover { background: linear-gradient(90deg, rgba(244,114,182,.2), rgba(0,0,0,.3)); box-shadow: 0 0 16px rgba(244,114,182,.4); }
   .fn-card.setting.active { color: #fff; background: linear-gradient(90deg, rgba(244,114,182,.45), rgba(129,140,248,.25)); border-color: transparent; border-left: 3px solid #f472b6; box-shadow: 0 0 20px rgba(244,114,182,.5); }
+  .plat-off { display: none !important; }
+  .platform-switch { display: flex; gap: 6px; margin: 0 0 4px; }
+  .platform-switch button { flex: 1; padding: 7px 10px; font-size: 12px; font-weight: 700; border-radius: 999px; border: 1px solid rgba(34,211,238,.3); background: rgba(0,0,0,.3); color: #a5f3fc; cursor: pointer; transition: all .25s ease; }
+  .platform-switch button:hover { box-shadow: 0 0 14px rgba(34,211,238,.4); }
+  .platform-switch button.active { color: #fff; border-color: transparent; background: linear-gradient(90deg, rgba(34,211,238,.45), rgba(244,114,182,.35)); box-shadow: 0 0 16px rgba(34,211,238,.45); }
   .user-dock { margin-top: auto; padding-top: 14px; position: relative; }
   .lang-dock { position: relative; margin-bottom: 8px; }
   .lang-toggle { padding: 4px 12px; font-size: 12px; border-radius: 999px; border: 1px solid rgba(34,211,238,.35); background: rgba(0,0,0,.3); color: #a5f3fc; cursor: pointer; }
@@ -450,6 +455,7 @@ const SETTINGS_STYLE = `
     nav .logout { width: auto; margin-top: 0; margin-left: auto; }
     .fn-list { flex-direction: row; flex-wrap: wrap; }
     .fn-card { width: auto; }
+    .platform-switch { width: 100%; }
     .side-section { width: 100%; }
     .stat-cards { grid-template-columns: repeat(2, 1fr); }
     .dash-grid { grid-template-columns: 1fr; }
@@ -1069,6 +1075,14 @@ function renderSettingsHtml() {
     ]
         .map((d) => `<option value="${d}">${d}</option>`)
         .join("");
+    // 新增 IM 時：這裡加一筆、做一個 platform 專屬 fieldset（data-im）與側欄卡片即可。
+    const platforms = [
+        { id: "line", label: tr(config.language, "platform_line") },
+        { id: "telegram", label: tr(config.language, "platform_telegram") },
+    ];
+    const platformSwitch = platforms
+        .map((p, index) => `<button type="button" data-platform="${p.id}"${index === 0 ? ' class="active"' : ""}>${p.label}</button>`)
+        .join("");
     const body = `
 <p class="msg" data-i18n="settings_note">設定儲存於 <code>settings.json</code>，修改後立即生效（LINE 裝置名稱需重新登入才生效）；點左側卡片切換設定項目。</p>
 
@@ -1099,14 +1113,14 @@ function renderSettingsHtml() {
     <div class="field"><label data-i18n="lbl_rate_max">每 IP 最大請求數</label><input id="rateLimit-max" type="number" min="1"></div>
   </fieldset>
 
-  <fieldset class="fn-panel" data-fn="line">
+  <fieldset class="fn-panel" data-fn="line" data-im="line">
     <legend data-i18n="legend_line">LINE 登入</legend>
     <div class="field"><label data-i18n="lbl_device">裝置類型</label><select id="line-device">${deviceOptions}</select></div>
     <div class="field"><label data-i18n="lbl_device_name">顯示名稱（systemName）</label><input id="line-deviceName" type="text"></div>
     <div class="field"><label data-i18n="lbl_model_name">機型（modelName）</label><input id="line-modelName" type="text"><div class="hint" data-i18n="hint_relogin_needed">顯示名稱需重新登入才生效</div></div>
   </fieldset>
 
-  <fieldset class="fn-panel" data-fn="telegram">
+  <fieldset class="fn-panel" data-fn="telegram" data-im="telegram">
     <legend data-i18n="legend_telegram">Telegram Bot</legend>
     <div class="field"><label data-i18n="lbl_tg_enabled">啟用 Telegram Bot</label><input id="tg-enabled" type="checkbox"><div class="hint">與 LINE 可同時上線；停用後 <code>/webhook/tg</code>、<code>/tg/update</code> 回 503</div></div>
     <div class="field"><label data-i18n="lbl_tg_bot_token">Bot Token</label><input id="tg-botToken" type="text" placeholder="123456:ABC-DEF..."><div class="hint" data-i18n="hint_tg_bot_token">向 @BotFather 申請；留空 = 停用 Telegram</div></div>
@@ -1133,7 +1147,7 @@ function renderSettingsHtml() {
     <div class="field"><label data-i18n="lbl_messages_persist">持久化收到的訊息</label><input id="messagesPersist" type="checkbox"><div class="hint">開啟後將收到的訊息寫入檔案（路徑：<code>${config.messagesPath}</code>，於 .env 設定）</div></div>
   </fieldset>
 
-  <fieldset class="fn-panel" data-fn="targets-config">
+  <fieldset class="fn-panel" data-fn="targets-config" data-im="line">
     <legend data-i18n="legend_targets">目標對照（TARGETS）</legend>
     <div class="field"><label data-i18n="lbl_name_mid">名稱=mid</label><textarea id="targets" placeholder="每行一筆，例如：小明=u1234567890abcdef"></textarea></div>
   </fieldset>
@@ -1193,6 +1207,30 @@ function renderSettingsHtml() {
   ${HELPERS}
   ${SESSION_SCRIPT}
   var CONFIG_SECTIONS = ["security", "line", "telegram", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
+  var SETTINGS_PLATFORMS = ${JSON.stringify(platforms.map((p) => p.id))};
+
+  function applySettingsPlatform(platform, jump) {
+    try { window.localStorage.setItem("lw_settings_platform", platform); } catch (e) {}
+    Array.prototype.forEach.call(document.querySelectorAll("#platform-switch button"), function (b) {
+      b.classList.toggle("active", b.getAttribute("data-platform") === platform);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-im]"), function (el) {
+      el.classList.toggle("plat-off", el.getAttribute("data-im") !== platform);
+    });
+    if (jump) showSection(platform, CONFIG_SECTIONS);
+  }
+
+  function initSettingsPlatform() {
+    var saved = null;
+    try { saved = window.localStorage.getItem("lw_settings_platform"); } catch (e) {}
+    var start = SETTINGS_PLATFORMS.indexOf(saved) !== -1 ? saved : SETTINGS_PLATFORMS[0];
+    Array.prototype.forEach.call(document.querySelectorAll("#platform-switch button"), function (b) {
+      b.addEventListener("click", function () {
+        applySettingsPlatform(b.getAttribute("data-platform"), true);
+      });
+    });
+    applySettingsPlatform(start, false);
+  }
 
   function addForwardRow(rule) {
     rule = rule || {};
@@ -1691,17 +1729,22 @@ function renderSettingsHtml() {
   });
 
   setupCards(CONFIG_SECTIONS, "security");
+  initSettingsPlatform();
   loadForm();
 `;
     const sidebar = `
+<div class="side-section">${tr(config.language, "section_platform")}</div>
+<div class="platform-switch" id="platform-switch">
+  ${platformSwitch}
+</div>
 <div class="side-section">${tr(config.language, "section_settings")}</div>
 <div class="fn-list">
   <button type="button" class="fn-card setting active" data-fn="security">${tr(config.language, "card_security")}</button>
-  <button type="button" class="fn-card setting" data-fn="line">${tr(config.language, "card_line")}</button>
-  <button type="button" class="fn-card setting" data-fn="telegram">${tr(config.language, "card_telegram")}</button>
+  <button type="button" class="fn-card setting" data-fn="line" data-im="line">${tr(config.language, "card_line")}</button>
+  <button type="button" class="fn-card setting" data-fn="telegram" data-im="telegram">${tr(config.language, "card_telegram")}</button>
   <button type="button" class="fn-card setting" data-fn="send">${tr(config.language, "card_send")}</button>
   <button type="button" class="fn-card setting" data-fn="monitor">${tr(config.language, "card_monitor")}</button>
-  <button type="button" class="fn-card setting" data-fn="targets-config">${tr(config.language, "card_targets_config")}</button>
+  <button type="button" class="fn-card setting" data-fn="targets-config" data-im="line">${tr(config.language, "card_targets_config")}</button>
   <button type="button" class="fn-card setting" data-fn="templates">${tr(config.language, "card_templates")}</button>
   <button type="button" class="fn-card setting" data-fn="forward">${tr(config.language, "card_forward")}</button>
   <button type="button" class="fn-card setting" data-fn="commands">${tr(config.language, "card_commands")}</button>

@@ -68,6 +68,9 @@ export const DICT: Record<string, Entry> = {
   section_actions: { zh: "操作", en: "Actions", ja: "操作" },
   section_functions: { zh: "功能", en: "Functions", ja: "機能" },
   section_settings: { zh: "設定", en: "Settings", ja: "設定" },
+  section_platform: { zh: "通訊平台", en: "Platform", ja: "プラットフォーム" },
+  platform_line: { zh: "LINE", en: "LINE", ja: "LINE" },
+  platform_telegram: { zh: "Telegram", en: "Telegram", ja: "Telegram" },
 
   relogin: { zh: "Line重新登入", en: "Relogin LINE", ja: "LINE 再ログイン" },
   refresh_contacts: { zh: "重新整理聯絡人", en: "Refresh contacts", ja: "連絡先を更新" },
