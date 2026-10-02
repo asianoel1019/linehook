@@ -12,6 +12,7 @@ import { LineService } from "./line/client.js";
 import { TelegramService } from "./telegram/client.js";
 import { WhatsAppService } from "./whatsapp/client.js";
 import { WhatsAppWebService } from "./whatsapp/web-client.js";
+import { TeamsService } from "./teams/client.js";
 import { registerService } from "./messaging/services.js";
 import { createServer } from "./webhook/server.js";
 import { startHealthMonitor } from "./monitor/token.js";
@@ -72,6 +73,14 @@ async function main(): Promise<void> {
     }
   }
 
+  // Teams：需 appId + appPassword（Entra client-credentials）。
+  let teams: TeamsService | null = null;
+  if (config.teams.enabled && config.teams.appId.trim() && config.teams.appPassword.trim()) {
+    teams = new TeamsService();
+    registerService(teams);
+    logger.info("Teams 已啟用");
+  }
+
   const app = createServer(line);
 
   const server = await new Promise<Server>((resolve) => {
@@ -103,6 +112,12 @@ async function main(): Promise<void> {
     });
   }
 
+  if (teams) {
+    void teams.init().catch((error) => {
+      logger.error("Teams 初始化失敗", { error: String(error) });
+    });
+  }
+
   let shuttingDown = false;
   const shutdown = (signal: string): void => {
     if (shuttingDown) return;
@@ -114,6 +129,7 @@ async function main(): Promise<void> {
     line.stopQueue();
     telegram?.stopQueue();
     whatsapp?.stopQueue();
+    teams?.stopQueue();
 
     const force = setTimeout(() => {
       logger.warn("關閉逾時，強制結束");

@@ -60,6 +60,12 @@ const schema = z.object({
   WHATSAPP_API_VERSION: z.string().trim().default("v21.0"),
   WHATSAPP_WEB_AUTH_PATH: z.string().trim().default("./data/whatsapp-web"),
   WHATSAPP_TARGETS: z.string().default(""),
+  TEAMS_ENABLED: boolDefault(false),
+  TEAMS_APP_ID: z.string().trim().default(""),
+  TEAMS_APP_PASSWORD: z.string().trim().default(""),
+  TEAMS_TENANT_ID: z.string().trim().default(""),
+  TEAMS_SERVICE_URL: z.string().trim().default("https://smba.trafficmanager.net/teams"),
+  TEAMS_TARGETS: z.string().default(""),
   HEALTH_CHECK_INTERVAL_SEC: z.coerce.number().int().positive().default(60),
   LOG_LIMIT: z.coerce.number().int().positive().default(200),
   LOG_FILE: z.string().default("./logs/app.log"),
@@ -214,6 +220,14 @@ export interface Config {
     webAuthPath: string;
     targets: Record<string, string>;
   };
+  teams: {
+    enabled: boolean;
+    appId: string;
+    appPassword: string;
+    tenantId: string;
+    serviceUrl: string;
+    targets: Record<string, string>;
+  };
   templates: MessageTemplate[];
   flexTemplates: FlexTemplate[];
   healthCheckIntervalSec: number;
@@ -313,6 +327,14 @@ export const config: Config = {
     apiVersion: env.WHATSAPP_API_VERSION,
     webAuthPath: env.WHATSAPP_WEB_AUTH_PATH,
     targets: parseTargets(env.WHATSAPP_TARGETS),
+  },
+  teams: {
+    enabled: env.TEAMS_ENABLED,
+    appId: env.TEAMS_APP_ID,
+    appPassword: env.TEAMS_APP_PASSWORD,
+    tenantId: env.TEAMS_TENANT_ID,
+    serviceUrl: env.TEAMS_SERVICE_URL,
+    targets: parseTargets(env.TEAMS_TARGETS),
   },
   templates: [],
   flexTemplates: [],

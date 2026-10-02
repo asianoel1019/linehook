@@ -59,6 +59,23 @@ const settingsSchema = z.object({
       webAuthPath: "./data/whatsapp-web",
       targets: {},
     }),
+  teams: z
+    .object({
+      enabled: z.boolean().default(false),
+      appId: z.string().trim().default(""),
+      appPassword: z.string().trim().default(""),
+      tenantId: z.string().trim().default(""),
+      serviceUrl: z.string().trim().default("https://smba.trafficmanager.net/teams"),
+      targets: z.record(z.string(), z.string()).default({}),
+    })
+    .default({
+      enabled: false,
+      appId: "",
+      appPassword: "",
+      tenantId: "",
+      serviceUrl: "https://smba.trafficmanager.net/teams",
+      targets: {},
+    }),
   templates: z
     .array(
       z.object({
@@ -180,6 +197,14 @@ export function currentSettings(): EditableSettings {
       webAuthPath: config.whatsapp.webAuthPath,
       targets: { ...config.whatsapp.targets },
     },
+    teams: {
+      enabled: config.teams.enabled,
+      appId: config.teams.appId,
+      appPassword: config.teams.appPassword,
+      tenantId: config.teams.tenantId,
+      serviceUrl: config.teams.serviceUrl,
+      targets: { ...config.teams.targets },
+    },
     templates: config.templates.map((template) => ({ ...template })),
     flexTemplates: config.flexTemplates.map((template) => ({ ...template })),
     healthCheckIntervalSec: config.healthCheckIntervalSec,
@@ -252,6 +277,14 @@ function apply(settings: EditableSettings): void {
     webAuthPath: settings.whatsapp.webAuthPath,
     targets: { ...settings.whatsapp.targets },
   };
+  config.teams = {
+    enabled: settings.teams.enabled,
+    appId: settings.teams.appId,
+    appPassword: settings.teams.appPassword,
+    tenantId: settings.teams.tenantId,
+    serviceUrl: settings.teams.serviceUrl,
+    targets: { ...settings.teams.targets },
+  };
   config.templates = settings.templates.map((template) => ({ ...template }));
   config.flexTemplates = settings.flexTemplates.map((template) => ({ ...template }));
   config.healthCheckIntervalSec = settings.healthCheckIntervalSec;
@@ -320,6 +353,7 @@ export function loadSettings(): void {
       assistant: { ...base.assistant, ...(data.assistant ?? {}) },
       telegram: { ...base.telegram, ...(data.telegram ?? {}) },
       whatsapp: { ...base.whatsapp, ...(data.whatsapp ?? {}) },
+      teams: { ...base.teams, ...(data.teams ?? {}) },
     });
     logger.info("已載入 settings.json", { path });
   } catch (error) {

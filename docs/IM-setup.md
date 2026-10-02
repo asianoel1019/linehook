@@ -1,6 +1,6 @@
 # IM 申請與設定說明書
 
-本文件說明如何為每個通訊平台（LINE / Telegram / WhatsApp）申請服務，並產生本系統所需的設定值。
+本文件說明如何為每個通訊平台（LINE / Telegram / WhatsApp / Teams）申請服務，並產生本系統所需的設定值。
 
 - 設定分兩層：`.env`（bootstrap，無法在網頁改）與 `/settings`（線上編輯，存於 `settings.json`）。
 - 各平台的設定都在 **`/settings` 頁面**對應的卡片中填寫，填完按「儲存設定」。
@@ -14,6 +14,7 @@
 | LINE | `POST /webhook` | 長連線（自 bot，無 webhook） | 設定 → 目標對照（名稱=mid） |
 | Telegram | `POST /webhook/tg` | `POST /tg/update` | 設定 → Telegram Bot → 目標對照 |
 | WhatsApp | `POST /webhook/wa` | `GET/POST /wa/webhook` | 設定 → WhatsApp → 目標對照 |
+| Teams | `POST /webhook/teams` | `POST /teams/messages` | 設定 → Microsoft Teams → 目標對照 |
 
 > 對外網址假設為 `https://你的網域`（本專案範例：`https://linehook.asianoel.space`）。所有接收端點都需能被平台伺服器以 HTTPS 呼叫。
 
@@ -169,9 +170,63 @@ WhatsApp 有**兩種模式**，在 `/settings` → WhatsApp → **模式** 選�
 
 ---
 
+## 4. Microsoft Teams（企業 Bot，單一模式）
+
+Teams **沒有個人帳號模式**（不像 WhatsApp 可選個人帳號）。Teams Bot 一定走 **Azure Bot + M365 tenant 的企業身分**，
+系統以不引 SDK 的 REST 直連對接（Bot Framework SDK 已歸檔）。
+
+### 需要什麼
+- **Azure 訂閱**（需能建立 Azure Bot resource）。
+- **M365 tenant**（有 Teams，並允許 sideloading 上傳自訂 App）。
+- 對外可連的網址（HTTPS），作為 Bot 的訊息端點。
+
+### 申請與產生資訊
+1. 建立 **Entra 應用程式註冊**（single-tenant 就用自家 tenant）：
+   - 到 Microsoft Entra admin center → 應用程式 → 應用程式註冊 → 新增註冊。
+   - 記下 **應用程式（用戶端）識別碼** → 填 `Microsoft App ID`（`TEAMS_APP_ID`）。
+   - 記下 **目錄（租用戶）識別碼** → 填 `Tenant ID`（`TEAMS_TENANT_ID`）。
+   - 在「憑證與密碼」新增 **用戶端密碼** → 填 `Client Secret`（`TEAMS_APP_PASSWORD`，只顯示一次，遺失需重建）。
+2. 建立 **Azure Bot** resource：
+   - 到 Azure Portal → 建立「Azure Bot」→ 類型選 **SingleTenant** → App ID 填上一步的。
+   - 定價層選 Free（F0）即可。
+3. 在 Azure Bot → **設定** → **訊息端點** 填：
+   - `https://你的網域/teams/messages`
+   - 之後 Bot Connector 收到訊息就會 POST activity 到這裡；系統以微軟公開金鑰驗證 Bearer JWT（audience＝你的 App ID），不合直接 403。
+4. 把 Bot 裝進 Teams：
+   - 到 Teams 系統管理中心（或 App 上傳）開啟 **sideloading**。
+   - 做一個最小 Teams App package（manifest 指向你的 Bot ID），上傳到要用的團隊/個人。
+   - Bot 收到 `conversationUpdate`（被加入）與 `message` activity。
+
+### 設定步驟
+1. `/settings` → 右上角切到 **Teams**。
+2. 勾選**啟用 Teams**，填 `Microsoft App ID`、`Client Secret`、`Tenant ID`。
+3. `Service URL` 通常留預設（`https://smba.trafficmanager.net/teams`）；系統在第一次收到該對話的訊息後會自動記住實際值。
+4. **目標對照**（名稱=conversation id）：每行 `名稱=19:xxx@thread.v2`（頻道）或 `a:xxx`（個人）。**收過訊息的對話會自動記住，通常不需手填**；主動推播前建議先讓 Bot 收到該對話一次訊息。
+5. 按「儲存設定」→ 重啟。
+
+### 測試是否成功
+- 在 Teams 裡對 Bot 傳一則訊息（例如「助理名稱請幫忙」），應會收到回覆。
+- 或呼叫 `POST https://你的網域/webhook/teams` 發送測試（驗證方式同共用驗證）。
+
+#### 常見問題
+- **收不到訊息**：確認 Azure Bot 的訊息端點是 `https://你的網域/teams/messages`、憑證有效、App 已裝進 Teams。
+- **主動推播 404/失敗**：該對話還沒被 Bot 收過訊息（serviceUrl 未知），先對 Bot 傳一次。
+- **JWT 驗證失敗**：App ID 與 Azure Bot 的不一致，或 token 過期／audience 錯誤。
+
+### 端點
+- 發送：`POST https://你的網域/webhook/teams`
+- 接收：`POST https://你的網域/teams/messages`（由 Bot Connector 呼叫，驗 Bearer JWT）
+
+### 重要限制
+- Flex 卡片會**轉譯為 Adaptive Card** 直接呈現（好消息：不是降級）；貼圖降級為文字；位置訊息附 Bing 地圖連結。
+- 無 24 小時視窗限制，但 Teams 訊息有長度上限，長文會自動分段。
+- sideloading 僅限自有 tenant；要全公司散佈需走 Teams Store（另案）。
+
+---
+
 ## 共用驗證（`/webhook*` 發送端點）
 
-LINE / Telegram / WhatsApp 的**發送**端點共用同一套驗證（任一通過即可）：
+LINE / Telegram / WhatsApp / Teams 的**發送**端點共用同一套驗證（任一通過即可）：
 
 | 方式 | 設定 | 呼叫方式 |
 | --- | --- | --- |
@@ -180,7 +235,7 @@ LINE / Telegram / WhatsApp 的**發送**端點共用同一套驗證（任一通�
 | API Token（Bearer） | `API_TOKEN` / 具名 `apiTokens`（可設 scopes `read`/`send`/`admin`） | 標頭 `Authorization: Bearer <token>` |
 
 - 三者各有獨立開關，**全關或皆未設定 = 開放模式**（開機時會警告）。
-- 接收端點（`/tg/update`、`/wa/webhook`）**不受**這套影響，各用平台自身的密鑰驗證（Telegram secret token、WhatsApp app signature）。
+- 接收端點（`/tg/update`、`/wa/webhook`、`/teams/messages`）**不受**這套影響，各用平台自身的密鑰驗證（Telegram secret token、WhatsApp app signature、Teams Bearer JWT）。
 
 ---
 
@@ -200,3 +255,8 @@ LINE / Telegram / WhatsApp 的**發送**端點共用同一套驗證（任一通�
 | WhatsApp 登入 QR | 系統產生，手機 WhatsApp「連結裝置」掃描 | （Web 模式，自動） |
 | WhatsApp session | 存於 Session 儲存目錄 | `WHATSAPP_WEB_AUTH_PATH`（Web） |
 | WhatsApp 目標號碼 | 收件者測試清單 / 使用者號碼（E.164） | 目標對照 |
+| Teams Microsoft App ID | Entra 應用程式註冊 → 應用程式（用戶端）識別碼 | `TEAMS_APP_ID` |
+| Teams Client Secret | Entra 應用程式 → 憑證與密碼 → 新增用戶端密碼 | `TEAMS_APP_PASSWORD` |
+| Teams Tenant ID | Entra 應用程式 → 目錄（租用戶）識別碼 | `TEAMS_TENANT_ID` |
+| Teams 訊息端點 | Azure Bot → 設定 → 訊息端點 | `https://你的網域/teams/messages` |
+| Teams 目標 conversation id | 收到訊息後自動記住（或手填 `19:xxx@thread.v2` / `a:xxx`） | 目標對照 |

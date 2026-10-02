@@ -24,6 +24,7 @@ import { NotLoggedInError, TargetNotFoundError, type FlexInput, type LocationInp
 import type { IMessagingService, Platform } from "../messaging/types.js";
 import { getService, listServices } from "../messaging/services.js";
 import { verifyWhatsAppSignature } from "../whatsapp/client.js";
+import { verifyTeamsJwt } from "../teams/client.js";
 import { encryptSettings, decryptSettings, isEncryptedEnvelope } from "../settings-crypto.js";
 import { isDuplicateIdempotency, markIdempotency, requireSessionOrApi, verifyWebhookAuth, type RawBodyRequest } from "../middleware/hmac.js";
 import { getMessages, reloadMessages, searchMessages } from "../messages.js";
@@ -648,6 +649,7 @@ ${userDock}
         { id: "line", label: tr(lang, "platform_line") },
         { id: "telegram", label: tr(lang, "platform_telegram") },
         { id: "whatsapp", label: tr(lang, "platform_whatsapp") },
+        { id: "teams", label: tr(lang, "platform_teams") },
     ];
     const imSwitch = showNav
         ? `<div class="im-switch" id="im-switch">
@@ -1103,9 +1105,8 @@ function renderDashboardHtml() {
 
   function renderChips(platforms) {
     var host = $("platforms");
-    // 只顯示目前選取平台的 chip。
+    // 只顯示目前選取平台的 chip；未啟用則不顯示任何 chip。
     var shown = platforms.filter(function (p) { return p.platform === dashPlatform; });
-    if (shown.length === 0) shown = platforms.filter(function (p) { return p.platform === "line"; });
     host.replaceChildren.apply(host, shown.map(function (p) {
       var b = document.createElement("button");
       b.type = "button";
@@ -1118,21 +1119,20 @@ function renderDashboardHtml() {
   function render(data) {
     var s = data.state;
     var platforms = data.platforms || [];
-    // 只顯示目前選取平台；若該平台不在線則回退到 LINE。
-    var selected = platforms.filter(function (p) { return p.platform === dashPlatform; });
-    if (selected.length === 0) selected = platforms.filter(function (p) { return p.platform === "line"; });
-    var sel = selected[0] || { platform: dashPlatform };
+    // 目前選取的平台；若未註冊（停用）則為 null，絕不回退顯示其他平台的資訊。
+    var sel = platforms.filter(function (p) { return p.platform === dashPlatform; })[0] || null;
+    var active = !!sel;
 
     var badge = $("badge");
-    var selStatus = sel.status || s.status;
+    var selStatus = active ? (sel.status || s.status) : "未啟用";
     badge.textContent = selStatus;
-    badge.className = "badge " + (selStatus === "已登入" ? "ok" : (selStatus === "待驗證" || selStatus === "需人工" ? "bad" : "warn"));
+    badge.className = "badge " + (active && selStatus === "已登入" ? "ok" : (active && (selStatus === "待驗證" || selStatus === "需人工") ? "bad" : "warn"));
 
     // QR：依選取平台顯示（LINE 用 global qrUrl；WhatsApp Web 由服務提供）。
     var verify = $("verify");
     verify.replaceChildren();
     var qrHint = $("qr-hint");
-    if (sel.qr) {
+    if (active && sel.qr) {
       qrBox.style.display = "block";
       var thisQr = sel.platform + ":" + dashPlatform;
       if (thisQr !== lastQr) {
@@ -1155,7 +1155,7 @@ function renderDashboardHtml() {
       qrBox.style.display = "none";
       lastQr = "";
     }
-    if (s.pin) {
+    if (active && sel.platform === "line" && s.pin) {
       var p = document.createElement("p");
       var b = document.createElement("b");
       b.textContent = "PIN 驗證碼：";
@@ -1168,7 +1168,21 @@ function renderDashboardHtml() {
     renderChips(platforms);
 
     var blocks = $("platform-blocks");
-    blocks.replaceChildren.apply(blocks, selected.map(function (p) { return renderPlatformBlock(p, data); }));
+    if (active) {
+      blocks.replaceChildren(renderPlatformBlock(sel, data));
+    } else {
+      var empty = document.createElement("div");
+      empty.className = "glass";
+      empty.style.marginTop = "14px";
+      var h = document.createElement("h2");
+      h.style.marginTop = "0";
+      h.textContent = platformLabel(dashPlatform);
+      var msg = document.createElement("div");
+      msg.className = "msg";
+      msg.textContent = T("platform_not_enabled");
+      empty.append(h, msg);
+      blocks.replaceChildren(empty);
+    }
 
     var logs = (data.logs || []).slice(-12).reverse();
     var logBody = $("logs");
@@ -1219,6 +1233,7 @@ function renderSettingsHtml() {
         { id: "line", label: tr(config.language, "platform_line") },
         { id: "telegram", label: tr(config.language, "platform_telegram") },
         { id: "whatsapp", label: tr(config.language, "platform_whatsapp") },
+        { id: "teams", label: tr(config.language, "platform_teams") },
     ];
     const body = `
 <p class="msg" data-i18n="settings_note">設定儲存於 <code>settings.json</code>，修改後立即生效（LINE 裝置名稱需重新登入才生效）；點左側卡片切換設定項目。</p>
@@ -1292,6 +1307,17 @@ function renderSettingsHtml() {
 
     <div class="field"><label data-i18n="lbl_wa_targets">目標對照（名稱=電話號碼）</label><textarea id="wa-targets" placeholder="每行一筆，例如：小明=886912345678"></textarea><div class="hint" data-i18n="hint_wa_targets">每行一筆，E.164 不含 +</div></div>
     <div class="field" data-wa-mode="cloud"><div class="hint" data-i18n="hint_wa_window">注意：WhatsApp 有 24 小時視窗，主動推播（排程 / 到價通知）可能需改用預審模板</div></div>
+  </fieldset>
+
+  <fieldset class="fn-panel" data-fn="teams" data-im="teams">
+    <legend data-i18n="legend_teams">Microsoft Teams</legend>
+    <div class="field"><label data-i18n="lbl_teams_enabled">啟用 Teams</label><input id="teams-enabled" type="checkbox"><div class="hint">與其他平台可同時上線；停用後 <code>/webhook/teams</code>、<code>/teams/messages</code> 回 503</div></div>
+    <div class="field"><label data-i18n="lbl_teams_app_id">Microsoft App ID</label><input id="teams-appId" type="text" placeholder="00000000-0000-0000-0000-000000000000"><div class="hint" data-i18n="hint_teams_app_id">Azure Bot 的 Microsoft App ID（Entra 應用程式用戶端識別碼）</div></div>
+    <div class="field"><label data-i18n="lbl_teams_app_password">Client Secret</label><input id="teams-appPassword" type="password" placeholder="••••••••"><div class="hint" data-i18n="hint_teams_app_password">Entra 應用程式的用戶端密碼；遺失需重建。留空 = 停用 Teams</div></div>
+    <div class="field"><label data-i18n="lbl_teams_tenant_id">Tenant ID</label><input id="teams-tenantId" type="text" placeholder="00000000-0000-0000-0000-000000000000"><div class="hint" data-i18n="hint_teams_tenant_id">Microsoft Entra 租用戶識別碼（single-tenant 就用這個）</div></div>
+    <div class="field"><label data-i18n="lbl_teams_service_url">Service URL</label><input id="teams-serviceUrl" type="text" placeholder="https://smba.trafficmanager.net/teams"><div class="hint" data-i18n="hint_teams_service_url">Bot Connector 服務端點，通常用預設即可；首次收訊後會自動記憶實際值，主動推播建議先讓 Bot 收到一次訊息</div></div>
+    <div class="field"><label data-i18n="lbl_teams_targets">目標對照（名稱=conversation id）</label><textarea id="teams-targets" placeholder="每行一筆，例如：客服頻道=19:abc@thread.v2"></textarea><div class="hint" data-i18n="hint_teams_targets">每行一筆；收到訊息後系統會自動記住對話，無需手填</div></div>
+    <div class="field"><div class="hint">Adaptive Card 卡片可在 Teams 直接呈現（非降級）。接收端點 <code>POST /teams/messages</code> 會以微軟公開金鑰驗證 Bearer JWT。</div></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="send">
@@ -1373,7 +1399,7 @@ function renderSettingsHtml() {
     const script = `
   ${HELPERS}
   ${SESSION_SCRIPT}
-  var CONFIG_SECTIONS = ["security", "line", "telegram", "whatsapp", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
+  var CONFIG_SECTIONS = ["security", "line", "telegram", "whatsapp", "teams", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
 
   function applySettingsPlatform(platform, jump) {
     Array.prototype.forEach.call(document.querySelectorAll("[data-im]"), function (el) {
@@ -1701,6 +1727,12 @@ function renderSettingsHtml() {
     $("wa-mode-cloud").checked = waMode === "cloud";
     $("wa-mode-web").checked = waMode === "web";
     $("wa-targets").value = Object.keys((s.whatsapp && s.whatsapp.targets) || {}).map(function (k) { return k + "=" + s.whatsapp.targets[k]; }).join("\\n");
+    $("teams-enabled").checked = !!(s.teams && s.teams.enabled);
+    $("teams-appId").value = (s.teams && s.teams.appId) || "";
+    $("teams-appPassword").value = (s.teams && s.teams.appPassword) || "";
+    $("teams-tenantId").value = (s.teams && s.teams.tenantId) || "";
+    $("teams-serviceUrl").value = (s.teams && s.teams.serviceUrl) || "https://smba.trafficmanager.net/teams";
+    $("teams-targets").value = Object.keys((s.teams && s.teams.targets) || {}).map(function (k) { return k + "=" + s.teams.targets[k]; }).join("\\n");
     $("send-maxRetries").value = s.send.maxRetries;
     $("send-retryBaseMs").value = s.send.retryBaseMs;
     $("send-minIntervalMs").value = s.send.minIntervalMs;
@@ -1768,6 +1800,14 @@ function renderSettingsHtml() {
       if (i <= 0) return;
       waTargets[t.slice(0, i).trim()] = t.slice(i + 1).trim();
     });
+    var teamsTargets = {};
+    $("teams-targets").value.split(/\\r?\\n/).forEach(function (line) {
+      var t = line.trim();
+      if (!t) return;
+      var i = t.indexOf("=");
+      if (i <= 0) return;
+      teamsTargets[t.slice(0, i).trim()] = t.slice(i + 1).trim();
+    });
     return {
       allowedIps: $("allowedIps").value.split(/[\\n,]/).map(function (x) { return x.trim(); }).filter(Boolean),
       hmacSecret: $("hmacSecret").value,
@@ -1821,6 +1861,14 @@ function renderSettingsHtml() {
         apiVersion: $("wa-apiVersion").value.trim() || "v21.0",
         webAuthPath: $("wa-webAuthPath").value.trim() || "./data/whatsapp-web",
         targets: waTargets
+      },
+      teams: {
+        enabled: $("teams-enabled").checked,
+        appId: $("teams-appId").value.trim(),
+        appPassword: $("teams-appPassword").value.trim(),
+        tenantId: $("teams-tenantId").value.trim(),
+        serviceUrl: $("teams-serviceUrl").value.trim() || "https://smba.trafficmanager.net/teams",
+        targets: teamsTargets
       },
       smtp: {
         host: $("smtp-host").value,
@@ -1945,6 +1993,7 @@ function renderSettingsHtml() {
   <button type="button" class="fn-card setting" data-fn="line" data-im="line">${tr(config.language, "card_line")}</button>
   <button type="button" class="fn-card setting" data-fn="telegram" data-im="telegram">${tr(config.language, "card_telegram")}</button>
   <button type="button" class="fn-card setting" data-fn="whatsapp" data-im="whatsapp">${tr(config.language, "card_whatsapp")}</button>
+  <button type="button" class="fn-card setting" data-fn="teams" data-im="teams">${tr(config.language, "card_teams")}</button>
   <button type="button" class="fn-card setting" data-fn="send">${tr(config.language, "card_send")}</button>
   <button type="button" class="fn-card setting" data-fn="monitor">${tr(config.language, "card_monitor")}</button>
   <button type="button" class="fn-card setting" data-fn="targets-config" data-im="line">${tr(config.language, "card_targets_config")}</button>
@@ -3178,6 +3227,8 @@ function renderMessagesHtml() {
 `;
     return page(tr(config.language, "title_messages"), "messages", body, script);
 }
+/** 全部支援的平台（含未啟用）；供前端顯示「未啟用」空白狀態。 */
+const ALL_PLATFORMS: Platform[] = ["line", "telegram", "whatsapp", "teams"];
 /** 某平台目前的登入 QR（若需人工掃描）。各服務自行提供 getQr()。 */
 function platformQr(platform: string): string {
     const svc = getService(platform as Platform);
@@ -3345,6 +3396,7 @@ export function createServer(line: IMessagingService): express.Express {
             queue: svc.getQueueStats(),
             scheduled: svc.listScheduled(),
             platforms: platformSummaries(),
+            knownPlatforms: ALL_PLATFORMS,
             stats: getStats(config.statsDays, svc.platform),
             statsByPlatform,
             messages: getMessages().slice(-50),
@@ -3353,14 +3405,18 @@ export function createServer(line: IMessagingService): express.Express {
     app.get("/status.json", statusAccess, requireSessionOrApi("read"), (req, res) => {
         res.set("Cache-Control", "no-store");
         const platform = typeof req.query.platform === "string" ? req.query.platform : "";
-        const service = platform && platform !== "line" ? getService(platform as Platform) : line;
+        const isNonLine = Boolean(platform) && platform !== "line";
+        const svc = isNonLine ? getService(platform as Platform) : line;
+        const disabled = isNonLine && !svc;
         res.json({
             state: getState(),
             logs: logger.getRecent(),
-            targets: (service ?? line).listTargets(),
-            queue: (service ?? line).getQueueStats(),
-            scheduled: (service ?? line).listScheduled(),
+            targets: disabled ? [] : (svc ?? line).listTargets(),
+            queue: disabled ? { pending: 0, running: false } : (svc ?? line).getQueueStats(),
+            scheduled: disabled ? [] : (svc ?? line).listScheduled(),
             platforms: platformSummaries(),
+            knownPlatforms: ALL_PLATFORMS,
+            disabled: disabled,
         });
     });
     app.get("/tokens/usage.json", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
@@ -3827,6 +3883,8 @@ export function createServer(line: IMessagingService): express.Express {
     app.post("/webhook/tg", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("telegram")));
     // WhatsApp 發送端點：語意與 /webhook 相同，走 WhatsApp 服務。
     app.post("/webhook/wa", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("whatsapp")));
+    // Teams 發送端點：語意與 /webhook 相同，走 Teams 服務。
+    app.post("/webhook/teams", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("teams")));
     // Telegram 接收端點：由 Telegram Bot API 推送 update 進來，驗 X-Telegram-Bot-Api-Secret-Token。
     app.post("/tg/update", rateLimit, (req, res) => {
         const service = getService("telegram");
@@ -3895,6 +3953,28 @@ export function createServer(line: IMessagingService): express.Express {
         res.json({ ok: true });
         void Promise.resolve(service.handleIncoming?.(req.body)).catch((error: unknown) => {
             logger.error("WhatsApp webhook 處理失敗", {
+                error: error instanceof Error ? error.message : String(error),
+            });
+        });
+    });
+    // Teams 接收端點：由 Bot Connector 推送 activity 進來，驗 Bearer JWT（公開金鑰驗簽＋audience＝App ID）。
+    app.post("/teams/messages", rateLimit, async (req, res) => {
+        const service = getService("teams");
+        if (!service || !config.teams.enabled || !config.teams.appId.trim() || !config.teams.appPassword.trim()) {
+            res.status(503).json({ ok: false, error: "Teams 未啟用" });
+            return;
+        }
+        const auth = req.header("authorization") ?? "";
+        const ok = await verifyTeamsJwt(auth, config.teams.appId.trim()).catch(() => false);
+        if (!ok) {
+            logger.warn("Teams activity 驗證失敗", { ip: clientIp(req) });
+            res.status(403).json({ ok: false });
+            return;
+        }
+        // 先回 200 避免重送；實際處理非同步進行。
+        res.json({ ok: true });
+        void Promise.resolve(service.handleIncoming?.(req.body)).catch((error: unknown) => {
+            logger.error("Teams activity 處理失敗", {
                 error: error instanceof Error ? error.message : String(error),
             });
         });

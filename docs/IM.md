@@ -87,7 +87,10 @@ interface IMessagingService {
 - **啟動**：有 public URL 則自動 `setWebhook`，否則 log 提示手動設定。
 - **測試**：adapter 正規化單元測試（mock fetch）＋沿用既有 141 測試＋真 bot 端到端（需測試用 token）。
 
-### 3.2 Teams（Phase 2，待帳號資源）
+### 3.2 Teams（Phase 2，本輪實作）
+
+> 進度：`src/teams/client.ts`（REST 直連，不引 SDK）、`POST /webhook/teams`、`POST /teams/messages`、
+> 設定頁卡片、平台切換、統計與正規化測試**已完成**。
 
 - **前置（使用者側）**：Azure 訂閱 → Azure Bot resource（Entra App ID＋client secret，**single-tenant**；
   multi-tenant 新建已停用）→ M365 tenant 開 sideloading → Teams app package。
@@ -123,9 +126,9 @@ interface IMessagingService {
 
 | 用途 | LINE（既有） | Telegram | Teams | WhatsApp | Discord |
 |---|---|---|---|---|---|
-| 發送 | `POST /webhook` | `POST /webhook/tg` | `POST /webhook/teams` | `POST /webhook/wa` ✅ | `POST /webhook/discord` |
-| 接收 | 長連接（自 bot） | `POST /tg/update` | `POST /teams/messages` | `GET+POST /wa/webhook` ✅ | Gateway |
-| 目標對照 | `targets` | `tgTargets` | `teamsTargets` | `whatsapp.targets` ✅ | `discordTargets` |
+| 發送 | `POST /webhook` | `POST /webhook/tg` | `POST /webhook/teams` ✅ | `POST /webhook/wa` ✅ | `POST /webhook/discord` |
+| 接收 | 長連接（自 bot） | `POST /tg/update` | `POST /teams/messages` ✅ | `GET+POST /wa/webhook` ✅ | Gateway |
+| 目標對照 | `targets` | `tgTargets` | `teams.targets` ✅ | `whatsapp.targets` ✅ | `discordTargets` |
 
 ## 5. 風險總覽
 

@@ -57,6 +57,7 @@ export const DICT: Record<string, Entry> = {
   card_line: { zh: "LINE 登入", en: "LINE login", ja: "LINE ログイン" },
   card_telegram: { zh: "Telegram", en: "Telegram", ja: "Telegram" },
   card_whatsapp: { zh: "WhatsApp", en: "WhatsApp", ja: "WhatsApp" },
+  card_teams: { zh: "Teams", en: "Teams", ja: "Teams" },
   card_send: { zh: "發送 / 重試", en: "Sending / Retry", ja: "送信 / 再試行" },
   card_monitor: { zh: "監控 / Log", en: "Monitor / Log", ja: "監視 / ログ" },
   card_targets_config: { zh: "目標對照", en: "Target mapping", ja: "送信先マッピング" },
@@ -73,6 +74,8 @@ export const DICT: Record<string, Entry> = {
   platform_line: { zh: "LINE", en: "LINE", ja: "LINE" },
   platform_telegram: { zh: "Telegram", en: "Telegram", ja: "Telegram" },
   platform_whatsapp: { zh: "WhatsApp", en: "WhatsApp", ja: "WhatsApp" },
+  platform_teams: { zh: "Teams", en: "Teams", ja: "Teams" },
+  platform_not_enabled: { zh: "此平台未啟用", en: "This platform is not enabled", ja: "このプラットフォームは有効化されていません" },
 
   relogin: { zh: "Line重新登入", en: "Relogin LINE", ja: "LINE 再ログイン" },
   refresh_contacts: { zh: "重新整理聯絡人", en: "Refresh contacts", ja: "連絡先を更新" },
@@ -157,6 +160,20 @@ export const DICT: Record<string, Entry> = {
   lbl_wa_targets: { zh: "目標對照（名稱=電話號碼）", en: "Target mapping (name=phone)", ja: "送信先（名称=電話番号）" },
   hint_wa_targets: { zh: "每行一筆，例如：小明=886912345678（E.164，不含 +）", en: "One per line, e.g. Bob=886912345678 (E.164, no +)", ja: "1 行に 1 件（例 Bob=886912345678、E.164）" },
   hint_wa_window: { zh: "注意：WhatsApp 有 24 小時視窗，主動推播（排程 / 到價通知）可能需改用預審模板", en: "Note: WhatsApp's 24-hour window means proactive pushes may need pre-approved templates", ja: "注意：24 時間ウィンドウのため能動的な配信はテンプレートが必要な場合があります" },
+
+  // teams
+  legend_teams: { zh: "Microsoft Teams", en: "Microsoft Teams", ja: "Microsoft Teams" },
+  lbl_teams_enabled: { zh: "啟用 Teams", en: "Enable Teams", ja: "Teams を有効化" },
+  lbl_teams_app_id: { zh: "Microsoft App ID", en: "Microsoft App ID", ja: "Microsoft App ID" },
+  hint_teams_app_id: { zh: "Azure Bot 的 Microsoft App ID（Entra 應用程式用戶端識別碼）", en: "Microsoft App ID of your Azure Bot (Entra app client ID)", ja: "Azure Bot の Microsoft App ID（Entra アプリのクライアント ID）" },
+  lbl_teams_app_password: { zh: "Client Secret", en: "Client secret", ja: "クライアントシークレット" },
+  hint_teams_app_password: { zh: "Entra 應用程式的用戶端密碼；遺失需重建。留空 = 停用 Teams", en: "Client secret of the Entra app; recreate if lost. Empty = disabled", ja: "Entra アプリのクライアントシークレット。紛失したら再作成。空欄 = 無効" },
+  lbl_teams_tenant_id: { zh: "Tenant ID", en: "Tenant ID", ja: "テナント ID" },
+  hint_teams_tenant_id: { zh: "Microsoft Entra 租用戶識別碼（single-tenant 就用這個）", en: "Microsoft Entra tenant ID (use this for single-tenant apps)", ja: "Microsoft Entra のテナント ID（single-tenant で使用）" },
+  lbl_teams_service_url: { zh: "Service URL", en: "Service URL", ja: "Service URL" },
+  hint_teams_service_url: { zh: "Bot Connector 服務端點，通常用預設即可；首次收訊後會自動記憶實際值，主動推播建議先讓 Bot 收到一次訊息", en: "Bot Connector endpoint; default usually works. The actual value is remembered after first inbound message; let the bot receive once before proactive pushes", ja: "Bot Connector のエンドポイント。通常は既定値。初回受信後に実際の値を記憶します" },
+  lbl_teams_targets: { zh: "目標對照（名稱=conversation id）", en: "Target mapping (name=conversation id)", ja: "送信先（名称=conversation id）" },
+  hint_teams_targets: { zh: "每行一筆，例如：客服頻道=19:abc@thread.v2。收到訊息後系統會自動記住對話，無需手填", en: "One per line, e.g. Support=19:abc@thread.v2. Conversations are remembered automatically after inbound messages", ja: "1 行に 1 件（例 Support=19:abc@thread.v2）。受信後に自動記憶されます" },
 
   // send
   legend_send: { zh: "發送 / 重試", en: "Sending / Retry", ja: "送信 / 再試行" },
