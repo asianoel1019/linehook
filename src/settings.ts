@@ -70,8 +70,8 @@ const settingsSchema = z.object({
   replyMaxChars: z.coerce.number().int().nonnegative().default(4000),
   line: z.object({
     device: z.enum(DEVICES).default("DESKTOPWIN"),
-    deviceName: z.string().default("LINE Webhook"),
-    modelName: z.string().default("LINE Webhook"),
+    deviceName: z.string().default("IM Webhook"),
+    modelName: z.string().default("IM Webhook"),
   }),
   smtp: z.object({
     host: z.string().default(""),

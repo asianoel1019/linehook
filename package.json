@@ -1,9 +1,9 @@
 {
-  "name": "line-webhook",
+  "name": "im-webhook",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Forward incoming webhook messages to LINE friends/groups via a logged-in LINE account",
+  "description": "Forward incoming webhook messages to multiple IM platforms (LINE, Telegram, ...)",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",

@@ -555,6 +555,8 @@ const SETTINGS_STYLE = `
   tbody tr:hover { background: rgba(34,211,238,.06); }
   table.kv th { width: 220px; }
   table.targets-table td:first-child { white-space: nowrap; }
+  table.logs-table th, table.logs-table td { white-space: nowrap; }
+  table.logs-table { table-layout: auto; }
   td.actions-cell { white-space: nowrap; }
   td.actions-cell button { padding: 6px 12px; }
   td.actions-cell button + button { margin-left: 6px; }
@@ -633,7 +635,7 @@ ${langSwitcher}
         : "";
     const sidebar = showNav
         ? `<aside class="sidebar">
-<div class="brand neon-text">LINE Webhook</div>
+<div class="brand neon-text">IM Webhook</div>
 <nav>${nav}</nav>
 ${options.sidebar ?? ""}
 ${userDock}
@@ -711,7 +713,7 @@ ${imOptions.map((p) => `<button type="button" data-platform="${p.id}">${esc(p.la
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LineHook</title>
+<title>IM Webhook</title>
 <style>${SETTINGS_STYLE}</style>
 </head>
 <body>
@@ -990,7 +992,7 @@ function renderDashboardHtml() {
 <div class="dash-grid">
   <div class="glass">
     <h2 style="margin-top:0" data-i18n="recent_title">最近發送 / 紀錄</h2>
-    <table><thead><tr><th>時間</th><th>等級</th><th>訊息</th></tr></thead><tbody id="logs"></tbody></table>
+    <table class="logs-table"><thead><tr><th>時間</th><th>等級</th><th>訊息</th></tr></thead><tbody id="logs"></tbody></table>
   </div>
 </div>
 `;
@@ -2905,7 +2907,7 @@ function renderLoginHtml(lang: Lang) {
 <div class="login-center">
   <div class="glass login-card">
     <div class="login-head">
-      <h2 class="neon-text">LINE Webhook</h2>
+      <h2 class="neon-text">IM Webhook</h2>
       <div class="login-lang" id="login-lang">
         <button type="button" class="login-lang-toggle" id="login-lang-toggle">${shortLabels[lang] || "中"} &#9662;</button>
         <div class="login-lang-menu" id="login-lang-menu" hidden>${langMenu}</div>

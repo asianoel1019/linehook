@@ -49,7 +49,7 @@ export function startHealthMonitor(line: IMessagingService): HealthMonitor {
         if (!notified) {
           notified = true;
           void sendMail(
-            "[LINE Webhook] 登入失效通知",
+            "[IM Webhook] 登入失效通知",
             [
               "LINE 帳號登入已失效，系統正嘗試自動重登。",
               "若需要人工重新驗證（QR / PIN），請開啟狀態頁查看。",

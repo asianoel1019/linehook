@@ -1,6 +1,7 @@
-# LINE Webhook 轉發器
+# IM Webhook
 
-接收外部端點傳來的訊息，透過一個已登入的 LINE 帳號（selfbot）轉發給指定的好友或群組。
+接收外部端點傳來的訊息，轉發到多個通訊軟體（目前支援 LINE 與 Telegram，架構可擴充）。
+LINE 透過已登入的個人帳號（selfbot），Telegram 透過 Bot API。
 附登入狀態頁（可互動）、Email 通知，登入失效時會自動嘗試重登。
 
 > ⚠️ 本專案使用非官方 LINE API（[`@evex/linejs`](https://github.com/evex/linejs)）模擬個人帳號，屬 selfbot，

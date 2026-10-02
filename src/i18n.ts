@@ -10,7 +10,7 @@ export const LANG_LABELS: Record<Lang, string> = {
 type Entry = Record<Lang, string>;
 
 export const DICT: Record<string, Entry> = {
-  brand: { zh: "LINE Webhook", en: "LINE Webhook", ja: "LINE Webhook" },
+  brand: { zh: "IM Webhook", en: "IM Webhook", ja: "IM Webhook" },
   nav_dashboard: { zh: "儀表板", en: "Dashboard", ja: "ダッシュボード" },
   nav_console: { zh: "功能", en: "Console", ja: "コンソール" },
   nav_skills: { zh: "技能", en: "Skills", ja: "スキル" },
@@ -21,7 +21,7 @@ export const DICT: Record<string, Entry> = {
   change_password: { zh: "變更密碼", en: "Change password", ja: "パスワード変更" },
   idle_logout: { zh: "閒置自動登出倒數", en: "Idle logout countdown", ja: "自動ログアウトまで" },
 
-  login_title: { zh: "LINE Webhook", en: "LINE Webhook", ja: "LINE Webhook" },
+  login_title: { zh: "IM Webhook", en: "IM Webhook", ja: "IM Webhook" },
   login_sub: { zh: "請登入以管理", en: "Sign in to manage", ja: "ログインして管理" },
   login_user: { zh: "帳號", en: "Username", ja: "ユーザー名" },
   login_pass: { zh: "密碼", en: "Password", ja: "パスワード" },
