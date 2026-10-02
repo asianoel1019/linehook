@@ -1110,7 +1110,7 @@ function renderSettingsHtml() {
     <legend data-i18n="legend_telegram">Telegram Bot</legend>
     <div class="field"><label data-i18n="lbl_tg_enabled">啟用 Telegram Bot</label><input id="tg-enabled" type="checkbox"><div class="hint">與 LINE 可同時上線；停用後 <code>/webhook/tg</code>、<code>/tg/update</code> 回 503</div></div>
     <div class="field"><label data-i18n="lbl_tg_bot_token">Bot Token</label><input id="tg-botToken" type="text" placeholder="123456:ABC-DEF..."><div class="hint" data-i18n="hint_tg_bot_token">向 @BotFather 申請；留空 = 停用 Telegram</div></div>
-    <div class="field"><label data-i18n="lbl_tg_secret">Webhook Secret Token</label><input id="tg-secretToken" type="text"><div class="hint" data-i18n="hint_tg_secret">設定後 Telegram 會以此密鑰傳送 update（X-Telegram-Bot-Api-Secret-Token），建議設定</div></div>
+    <div class="field"><label data-i18n="lbl_tg_secret">Webhook Secret Token</label><span style="display:flex;gap:8px"><input id="tg-secretToken" type="text" style="flex:1"><button type="button" id="tg-secret-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint" data-i18n="hint_tg_secret">設定後 Telegram 會以此密鑰傳送 update（X-Telegram-Bot-Api-Secret-Token），建議設定</div></div>
     <div class="field"><label data-i18n="lbl_tg_webhook">Webhook URL</label><input id="tg-webhookUrl" type="text" placeholder="https://example.com/tg/update"><div class="hint" data-i18n="hint_tg_webhook">對外可存取的網址，結尾固定為 /tg/update；設定後重啟會自動註冊</div></div>
     <div class="field"><label data-i18n="lbl_tg_targets">目標對照（名稱=chat_id）</label><textarea id="tg-targets" placeholder="每行一筆，例如：我的群組=-1001234567890"></textarea><div class="hint" data-i18n="hint_tg_targets">每行一筆；也可填 @username</div></div>
   </fieldset>
@@ -1637,6 +1637,11 @@ function renderSettingsHtml() {
   $("api-token-generate").addEventListener("click", function () {
     $("apiToken").value = randomHex(32);
     $("settings-msg").textContent = "已產生新 API Token，請按「儲存設定」";
+  });
+
+  $("tg-secret-generate").addEventListener("click", function () {
+    $("tg-secretToken").value = randomHex(32);
+    $("settings-msg").textContent = "已產生新 Telegram Secret Token，儲存並重啟後生效（會重新 setWebhook）";
   });
 
   $("template-add").addEventListener("click", function () {
