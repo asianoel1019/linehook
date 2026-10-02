@@ -291,6 +291,7 @@ export class TelegramService implements IMessagingService {
 
   private dispatchDeps(): DispatchDeps {
     return {
+      platform: "telegram",
       replyTo: (chat, text) => this.replyTo(chat, text),
       sendAdvanced: (inputs) => this.sendAdvanced(inputs),
       sendMedia: (chat, source, kind, filename) => this.sendMedia(chat, source, kind, filename),
@@ -355,7 +356,7 @@ export class TelegramService implements IMessagingService {
     const parts = chunkReplyText(text, Math.min(config.replyMaxChars, 4096));
     for (const part of parts) {
       await this.api("sendMessage", { chat_id: id, text: part });
-      recordSend({ time: new Date().toISOString(), to: chatId, type: "text", ok: true });
+      recordSend({ time: new Date().toISOString(), to: chatId, type: "text", ok: true, platform: "telegram" });
       if (parts.length > 1) await delay(config.send.minIntervalMs);
     }
     setState({ lastSendAt: new Date().toISOString(), lastSendTo: this.chatToName.get(id) ?? id });
@@ -370,7 +371,7 @@ export class TelegramService implements IMessagingService {
       } catch (error) {
         errors.push(error);
         messages.push(`${input.to}: ${error instanceof Error ? error.message : String(error)}`);
-        recordSend({ time: new Date().toISOString(), to: input.to, type: this.inputType(input), ok: false });
+        recordSend({ time: new Date().toISOString(), to: input.to, type: this.inputType(input), ok: false, platform: "telegram" });
       }
     }
     if (errors.length === 1 && errors[0] instanceof Error) throw errors[0];
@@ -402,7 +403,7 @@ export class TelegramService implements IMessagingService {
     if (input.flex) await this.sendFlex(id, input.flex);
     if (input.text) await this.rawSendText(id, input.text);
 
-    recordSend({ time: new Date().toISOString(), to: input.to, type: this.inputType(input), ok: true });
+    recordSend({ time: new Date().toISOString(), to: input.to, type: this.inputType(input), ok: true, platform: "telegram" });
     setState({ lastSendAt: new Date().toISOString(), lastSendTo: this.chatToName.get(id) ?? id });
   }
 
@@ -420,9 +421,9 @@ export class TelegramService implements IMessagingService {
     for (const part of parts) {
       try {
         await this.api("sendMessage", { chat_id: id, text: part });
-        recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: true });
+        recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: true, platform: "telegram" });
       } catch (error) {
-        recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: false });
+        recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: false, platform: "telegram" });
         throw error;
       }
       if (parts.length > 1) await delay(config.send.minIntervalMs);

@@ -402,6 +402,11 @@ const SETTINGS_STYLE = `
   .platform-switch button { flex: 1; padding: 7px 10px; font-size: 12px; font-weight: 700; border-radius: 999px; border: 1px solid rgba(34,211,238,.3); background: rgba(0,0,0,.3); color: #a5f3fc; cursor: pointer; transition: all .25s ease; }
   .platform-switch button:hover { box-shadow: 0 0 14px rgba(34,211,238,.4); }
   .platform-switch button.active { color: #fff; border-color: transparent; background: linear-gradient(90deg, rgba(34,211,238,.45), rgba(244,114,182,.35)); box-shadow: 0 0 16px rgba(34,211,238,.45); }
+  .platform-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .platform-chips button { padding: 6px 12px; font-size: 12px; font-weight: 600; border-radius: 999px; border: 1px solid rgba(34,211,238,.35); background: rgba(0,0,0,.3); color: #a5f3fc; cursor: pointer; }
+  .platform-chips button:hover { box-shadow: 0 0 12px rgba(34,211,238,.4); }
+  .platform-chips button.active { color: #fff; border-color: transparent; background: linear-gradient(90deg, rgba(34,211,238,.45), rgba(244,114,182,.3)); }
+  #platform-blocks [data-platform].active { border-left: 3px solid #22d3ee; box-shadow: 0 0 22px rgba(34,211,238,.28); }
   .user-dock { margin-top: auto; padding-top: 14px; position: relative; }
   .lang-dock { position: relative; margin-bottom: 8px; }
   .lang-toggle { padding: 4px 12px; font-size: 12px; border-radius: 999px; border: 1px solid rgba(34,211,238,.35); background: rgba(0,0,0,.3); color: #a5f3fc; cursor: pointer; }
@@ -973,31 +978,16 @@ const SESSION_SCRIPT = `
 function renderDashboardHtml() {
     const body = `
 <div><span id="badge" class="badge">-</span></div>
-<div id="platforms" class="msg" style="margin-top:6px"></div>
+<div id="platforms" class="platform-chips" style="margin-top:10px"></div>
 <div id="qrbox" style="display:none">
   <p><b>請用手機 LINE 的掃描功能掃描：</b></p>
   <img id="qrimg" alt="LINE QR" style="width:280px;height:280px;background:#fff;border:1px solid #ddd;padding:8px">
   <div id="qrlink" class="msg"></div>
 </div>
 <div id="verify"></div>
-
-<h2 data-i18n="stats_title">發送統計</h2>
-<div class="glass">
-  <div class="stat-cards">
-    <div class="stat-card"><div class="stat-num" id="stat-total">0</div><div class="stat-label" data-i18n="stat_total">總發送</div></div>
-    <div class="stat-card"><div class="stat-num" id="stat-ok">0</div><div class="stat-label" data-i18n="stat_ok">成功</div></div>
-    <div class="stat-card"><div class="stat-num" id="stat-fail">0</div><div class="stat-label" data-i18n="stat_fail">失敗</div></div>
-    <div class="stat-card"><div class="stat-num" id="stat-rate">0%</div><div class="stat-label" data-i18n="stat_rate">成功率</div></div>
-  </div>
-  <div class="chart" id="chart"></div>
-  <div class="msg" id="stat-types" style="margin-top:10px"></div>
-</div>
+<div id="platform-blocks"></div>
 
 <div class="dash-grid">
-  <div class="glass">
-    <h2 style="margin-top:0" data-i18n="summary_title">狀態摘要</h2>
-    <table class="kv"><tbody id="summary"></tbody></table>
-  </div>
   <div class="glass">
     <h2 style="margin-top:0" data-i18n="recent_title">最近發送 / 紀錄</h2>
     <table><thead><tr><th>時間</th><th>等級</th><th>訊息</th></tr></thead><tbody id="logs"></tbody></table>
@@ -1012,40 +1002,22 @@ function renderDashboardHtml() {
   var lastQr = "";
   var dashPlatform = window.LW_PLATFORM || "line";
 
-  window.onPlatformChange = function (platform) {
-    dashPlatform = platform;
-    refresh();
-  };
+  function platformLabel(p) { return T("platform_" + p) || p; }
 
-  function renderSummary(s, queue, data) {
-    var platforms = data.platforms || [];
-    var selected = platforms.filter(function (p) { return p.platform === dashPlatform; })[0];
-    var targetCount = selected ? selected.targets : (data.targets || []).length;
-    var summary = [
-      [T("sum_status"), s.status],
-      [T("sum_name"), s.profileName || "-"],
-      [T("sum_mid"), s.myMid || "-"],
-      [T("sum_friends"), String(s.friendCount == null ? 0 : s.friendCount)],
-      [T("sum_groups"), String(s.chatCount == null ? 0 : s.chatCount)],
-      ["平台目標", String(targetCount)],
+  function summaryRows(status, queue) {
+    return [
+      [T("sum_status"), status],
       [T("sum_queue"), String(queue.pending) + (queue.running ? "（" + T("sending") + "）" : "")],
-      [T("sum_last_login"), s.lastLoginAt || "-"],
-      [T("sum_last_send"), s.lastSendAt || "-"],
-      [T("sum_last_to"), s.lastSendTo || "-"],
-      [T("sum_last_error"), s.lastError || "-"],
-      [T("sum_started"), s.startedAt || "-"]
+      [T("sum_last_send"), status.lastSendAt || "-"],
+      [T("sum_last_to"), status.lastSendTo || "-"],
+      [T("sum_last_error"), status.lastError || "-"]
     ];
-    $("summary").replaceChildren.apply($("summary"), summary.map(function (pair) {
-      var th = document.createElement("th");
-      th.textContent = pair[0];
-      return tr(th, td(pair[1]));
-    }));
   }
 
-  function renderChart(days) {
+  function renderChart(host, days) {
     var max = 1;
     days.forEach(function (d) { if (d.total > max) max = d.total; });
-    $("chart").replaceChildren.apply($("chart"), days.map(function (d) {
+    host.replaceChildren.apply(host, days.map(function (d) {
       var col = document.createElement("div");
       col.className = "chart-col";
       col.title = d.date + "：成功 " + d.ok + " / 失敗 " + d.fail;
@@ -1063,6 +1035,79 @@ function renderDashboardHtml() {
       label.textContent = d.date.slice(5);
       col.append(stack, label);
       return col;
+    }));
+  }
+
+  function renderPlatformBlock(p, data) {
+    var wrap = document.createElement("div");
+    wrap.className = "glass";
+    wrap.style.marginTop = "14px";
+    wrap.setAttribute("data-platform", p.platform);
+
+    var h = document.createElement("h2");
+    h.style.marginTop = "0";
+    h.textContent = platformLabel(p.platform);
+    wrap.appendChild(h);
+
+    // 狀態摘要
+    var sumHost = document.createElement("table");
+    sumHost.className = "kv";
+    var tb = document.createElement("tbody");
+    var s = data.state;
+    summaryRows(s, p.queue).forEach(function (pair) {
+      var th = document.createElement("th");
+      th.textContent = pair[0];
+      tb.appendChild(tr(th, td(pair[1])));
+    });
+    sumHost.appendChild(tb);
+    wrap.appendChild(sumHost);
+
+    // 發送統計
+    var stats = (data.statsByPlatform && data.statsByPlatform[p.platform]) || { total: 0, ok: 0, fail: 0, successRate: 0, byType: {}, days: [] };
+    var cards = document.createElement("div");
+    cards.className = "stat-cards";
+    cards.style.marginTop = "12px";
+    [[T("stat_total"), stats.total], [T("stat_ok"), stats.ok], [T("stat_fail"), stats.fail], [T("stat_rate"), stats.successRate + "%"]].forEach(function (c) {
+      var card = document.createElement("div");
+      card.className = "stat-card";
+      var num = document.createElement("div");
+      num.className = "stat-num";
+      num.textContent = String(c[1]);
+      var lbl = document.createElement("div");
+      lbl.className = "stat-label";
+      lbl.textContent = c[0];
+      card.append(num, lbl);
+      cards.appendChild(card);
+    });
+    wrap.appendChild(cards);
+
+    var chart = document.createElement("div");
+    chart.className = "chart";
+    renderChart(chart, stats.days || []);
+    wrap.appendChild(chart);
+
+    var types = Object.keys(stats.byType || {}).map(function (k) { return k + "：" + stats.byType[k]; });
+    var typeLine = document.createElement("div");
+    typeLine.className = "msg";
+    typeLine.style.marginTop = "10px";
+    typeLine.textContent = types.length ? T("type_label") + " " + types.join("、") : T("no_send_records");
+    wrap.appendChild(typeLine);
+
+    return wrap;
+  }
+
+  function renderChips(platforms) {
+    var host = $("platforms");
+    host.replaceChildren.apply(host, platforms.map(function (p) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = platformLabel(p.platform) + "（目標 " + p.targets + "、佇列 " + p.queue.pending + (p.queue.running ? " 傳送中" : "") + "）";
+      if (p.platform === window.LW_PLATFORM) b.classList.add("active");
+      b.addEventListener("click", function () {
+        var el = document.querySelector('#platform-blocks [data-platform="' + p.platform + '"]');
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      return b;
     }));
   }
 
@@ -1096,22 +1141,11 @@ function renderDashboardHtml() {
       verify.appendChild(p);
     }
 
-    renderSummary(s, data.queue, data);
-
     var platforms = data.platforms || [];
-    $("platforms").textContent = platforms.map(function (p) {
-      var active = p.platform === dashPlatform ? "▶ " : "";
-      return active + p.platform + "（目標 " + p.targets + "、佇列 " + p.queue.pending + (p.queue.running ? " 傳送中" : "") + "）";
-    }).join("　·　");
+    renderChips(platforms);
 
-    var stats = data.stats || { total: 0, ok: 0, fail: 0, successRate: 0, byType: {}, days: [] };
-    $("stat-total").textContent = String(stats.total);
-    $("stat-ok").textContent = String(stats.ok);
-    $("stat-fail").textContent = String(stats.fail);
-    $("stat-rate").textContent = stats.successRate + "%";
-    renderChart(stats.days || []);
-    var types = Object.keys(stats.byType || {}).map(function (k) { return k + "：" + stats.byType[k]; });
-    $("stat-types").textContent = types.length ? T("type_label") + " " + types.join("、") : T("no_send_records");
+    var blocks = $("platform-blocks");
+    blocks.replaceChildren.apply(blocks, platforms.map(function (p) { return renderPlatformBlock(p, data); }));
 
     var logs = (data.logs || []).slice(-12).reverse();
     var logBody = $("logs");
@@ -1123,6 +1157,14 @@ function renderDashboardHtml() {
       }));
     }
   }
+
+  window.onPlatformChange = function (platform) {
+    dashPlatform = platform;
+    var chip = document.querySelector("#platforms [data-platform]");
+    void chip;
+    var blocks = document.querySelectorAll("#platform-blocks [data-platform]");
+    Array.prototype.forEach.call(blocks, function (el) { el.classList.toggle("active", el.getAttribute("data-platform") === platform); });
+  };
 
   function refresh() {
     fetch("/dashboard.json?platform=" + encodeURIComponent(dashPlatform), { cache: "no-store" })
@@ -3156,6 +3198,11 @@ export function createServer(line: IMessagingService): express.Express {
         const platform = typeof req.query.platform === "string" ? req.query.platform : "";
         const service = platform && platform !== "line" ? getService(platform as Platform) : line;
         const svc = service ?? line;
+        // 每個在線平台各自的發送統計（分開呈現）。
+        const statsByPlatform: Record<string, ReturnType<typeof getStats>> = {};
+        for (const p of listServices()) {
+            statsByPlatform[p.platform] = getStats(config.statsDays, p.platform);
+        }
         res.json({
             state: getState(),
             logs: logger.getRecent(),
@@ -3163,7 +3210,8 @@ export function createServer(line: IMessagingService): express.Express {
             queue: svc.getQueueStats(),
             scheduled: svc.listScheduled(),
             platforms: platformSummaries(),
-            stats: getStats(),
+            stats: getStats(config.statsDays, svc.platform),
+            statsByPlatform,
             messages: getMessages().slice(-50),
         });
     });

@@ -173,6 +173,7 @@ export class LineService implements IMessagingService {
   /** 共用分派管線所需的傳輸能力（指令・技能・轉發・技能任務邏輯見 messaging/dispatch）。 */
   private dispatchDeps(): DispatchDeps {
     return {
+      platform: "line",
       replyTo: (chat, text) => this.replyTo(chat, text),
       sendAdvanced: (inputs) => this.sendAdvanced(inputs),
       sendMedia: (chat, source, kind, filename) => this.sendMedia(chat, source, kind, filename),
@@ -402,7 +403,7 @@ export class LineService implements IMessagingService {
 
     await client.base.talk.sendMessage({ to: mid, text, e2ee: true });
 
-    recordSend({ time: new Date().toISOString(), to, type: "text", ok: true });
+    recordSend({ time: new Date().toISOString(), to, type: "text", ok: true, platform: "line" });
     setState({
       lastSendAt: new Date().toISOString(),
       lastSendTo: this.midToName.get(mid) ?? mid,
@@ -418,7 +419,7 @@ export class LineService implements IMessagingService {
       } catch (error) {
         errors.push(error);
         messages.push(`${input.to}: ${error instanceof Error ? error.message : String(error)}`);
-        recordSend({ time: new Date().toISOString(), to: input.to, type: inputType(input), ok: false });
+        recordSend({ time: new Date().toISOString(), to: input.to, type: inputType(input), ok: false, platform: "line" });
       }
     }
     if (errors.length === 1 && errors[0] instanceof Error) throw errors[0];
@@ -443,7 +444,7 @@ export class LineService implements IMessagingService {
       await client.base.talk.sendMessage({ to: mid, text: input.text, e2ee: true });
     }
 
-    recordSend({ time: new Date().toISOString(), to: input.to, type: inputType(input), ok: true });
+    recordSend({ time: new Date().toISOString(), to: input.to, type: inputType(input), ok: true, platform: "line" });
     setState({
       lastSendAt: new Date().toISOString(),
       lastSendTo: this.midToName.get(mid) ?? mid,
@@ -668,9 +669,9 @@ export class LineService implements IMessagingService {
       const isLast = i === parts.length - 1;
       try {
         await client.base.talk.sendMessage({ to: chat, text: parts[i], e2ee: true });
-        recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: true });
+        recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: true, platform: "line" });
       } catch (error) {
-        recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: false });
+        recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: false, platform: "line" });
         throw error;
       }
       if (!isLast) await delay(config.send.minIntervalMs);

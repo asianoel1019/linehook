@@ -10,6 +10,8 @@ export interface SendEvent {
   to: string;
   type: string;
   ok: boolean;
+  /** 平台（line / telegram…）；舊資料沒有則視為 line。 */
+  platform?: string;
 }
 
 export interface DailyStat {
@@ -73,7 +75,7 @@ function dayKey(date: Date): string {
   }
 }
 
-export function getStats(days = config.statsDays): StatsSummary {
+export function getStats(days = config.statsDays, platform?: string): StatsSummary {
   const byDay = new Map<string, { ok: number; fail: number }>();
   const byType: Record<string, number> = {};
   let total = 0;
@@ -81,6 +83,7 @@ export function getStats(days = config.statsDays): StatsSummary {
   let fail = 0;
 
   for (const event of buffer) {
+    if (platform && (event.platform ?? "line") !== platform) continue;
     total += 1;
     if (event.ok) ok += 1;
     else fail += 1;

@@ -20,6 +20,8 @@ export type MediaKind = "image" | "video" | "audio" | "file";
  * adapter 只需實作傳輸（發送/排程/媒體），指令・技能・轉發規則邏輯共用同一份。
  */
 export interface DispatchDeps {
+  /** 平台名稱，用於發送統計歸屬（line / telegram…）。 */
+  platform: string;
   replyTo(chat: string, text: string): Promise<void>;
   sendAdvanced(inputs: SendInput[]): Promise<void>;
   sendMedia(chat: string, source: string, kind: MediaKind, filename?: string): Promise<void>;
@@ -75,18 +77,18 @@ export async function dispatchSkillTask(job: ScheduledJob, deps: DispatchDeps): 
     sendImage: async (source, filename) => {
       try {
         await deps.sendMedia(chat, source, "image", filename);
-        recordSend({ time: new Date().toISOString(), to: chat, type: "image", ok: true });
+        recordSend({ time: new Date().toISOString(), to: chat, type: "image", ok: true, platform: deps.platform });
       } catch (error) {
-        recordSend({ time: new Date().toISOString(), to: chat, type: "image", ok: false });
+        recordSend({ time: new Date().toISOString(), to: chat, type: "image", ok: false, platform: deps.platform });
         throw error;
       }
     },
     sendFile: async (source, filename) => {
       try {
         await deps.sendMedia(chat, source, "file", filename);
-        recordSend({ time: new Date().toISOString(), to: chat, type: "file", ok: true });
+        recordSend({ time: new Date().toISOString(), to: chat, type: "file", ok: true, platform: deps.platform });
       } catch (error) {
-        recordSend({ time: new Date().toISOString(), to: chat, type: "file", ok: false });
+        recordSend({ time: new Date().toISOString(), to: chat, type: "file", ok: false, platform: deps.platform });
         throw error;
       }
     },
