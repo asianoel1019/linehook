@@ -1,7 +1,7 @@
 # IM Webhook
 
-接收外部端點傳來的訊息，轉發到多個通訊軟體（目前支援 LINE、Telegram、WhatsApp，架構可擴充）。
-LINE 透過已登入的個人帳號（selfbot），Telegram 走 Bot API，WhatsApp 可選官方 Cloud API 或個人帳號（WhatsApp Web）。
+接收外部端點傳來的訊息，轉發到多個通訊軟體（目前支援 LINE、Telegram、WhatsApp、Teams，架構可擴充）。
+LINE 透過已登入的個人帳號（selfbot），Telegram 走 Bot API，WhatsApp 可選官方 Cloud API 或個人帳號（WhatsApp Web），Teams 走企業 Bot（Entra + Bot Connector）。
 附登入狀態頁（可互動）、Email 通知，登入失效時會自動嘗試重登。
 
 > ⚠️ 本專案使用非官方 LINE API（[`@evex/linejs`](https://github.com/evex/linejs)）模擬個人帳號，屬 selfbot，
@@ -10,13 +10,15 @@ LINE 透過已登入的個人帳號（selfbot），Telegram 走 Bot API，WhatsA
 ## 功能
 
 - Webhook 接收 `{ to, text }` 並轉發到指定好友 / 群組；支援**多訊息類型**（`text` / `file` / `image` / `sticker` / `location` / `flex`）、**訊息模板 + 變數**（`template` / `vars`）、**排程 / 延遲發送**（`sendAt` / `delaySec`）與**多收件人**（`to` 陣列）
+- **多 IM**：LINE、Telegram、WhatsApp（Cloud API／個人帳號雙模式）、Teams，各有獨立發送端點（`POST /webhook`、`/webhook/tg`、`/webhook/wa`、`/webhook/teams`）與接收機制；共用驗證、技能、排程框架
+- **右上角全域 IM 切換**：所有管理頁共用同一個平台切換（LINE／Telegram／WhatsApp／Teams，附各平台 icon），切換後各頁只顯示該平台內容並記住選擇
 - **發送佇列**：序列化發送、最小間隔節流、失敗自動退避重試
 - 來源 IP 白名單 + HMAC-SHA256 簽章（含 timestamp / nonce 防重放）+ 速率限制 + **idempotency 去重**（`X-Idempotency-Key`）
 - **管理頁面一律需登入**（`/dashboard`、`/console`、`/skills`、`/settings`、`/messages`、`/readme`），閒置 5 分鐘自動登出並導回登入頁；側欄底部為使用者圓形按鈕（顯示帳號首字，上方顯示**閒置登出倒數**），點擊可**登出**或**變更密碼**；側欄可切換**語言（中文 / English / 日本語）**
-- **儀表板 `/dashboard`**（登入後首頁）：發送統計（總數 / 成功 / 失敗 / 成功率、近 N 日長條圖、類型分佈）、狀態摘要（登入狀態、QR/PIN、好友數、佇列、最後發送…）、最近紀錄
-- **功能頁 `/console`**：左側「功能」卡片（測試發送含媒體上傳、目標清單、最近紀錄、排程中的訊息可改變時間 / 取消）與「操作」（LINE 重新登入 / 重新整理聯絡人）
-- **技能頁 `/skills`**：啟用助理與名稱、每個技能（資料夾）一張卡片可 enable/disable 與設定參數
-- **設定頁 `/settings`**：左側設定卡片，**線上編輯設定**（存於 `settings.json`，立即生效）
+- **儀表板 `/dashboard`**（登入後首頁）：依右上角選擇的平台顯示該平台的狀態摘要與發送統計（總數 / 成功 / 失敗 / 成功率、近 N 日長條圖、類型分佈）；停用的平台顯示「未啟用」空白狀態。另有最近紀錄、登入 QR（LINE／WhatsApp 個人帳號模式依平台顯示不同掃描說明）
+- **功能頁 `/console`**：左側「功能」卡片（依平台過濾的測試發送含媒體上傳、目標清單、最近紀錄、排程中的訊息可改變時間 / 取消）與「操作」（LINE 重新登入 / 重新整理聯絡人，僅 LINE 可見；Flex 可視化編輯僅 LINE）
+- **技能頁 `/skills`**：啟用助理與名稱、每個技能（資料夾）一張卡片可 enable/disable 與設定參數；技能為可下載子專案（見下方「可下載技能」）
+- **設定頁 `/settings`**：左側設定卡片，**線上編輯設定**（存於 `settings.json`，立即生效）；共用設定永遠可見，平台專屬（LINE 登入／目標對照、Telegram Bot、WhatsApp、Teams）只在切到該平台時顯示
 - **訊息頁 `/messages`**：記錄收到的訊息（唯讀瀏覽；可選持久化到檔案）
 - **關鍵字自動回覆**：收到訊息且內容與關鍵字「完全相符」時，自動回覆文字與／或檔案，含**每聊天冷卻**（於 `/settings` 設定）
 - 登入失效自動重登；失敗時寄 Email 通知
@@ -87,7 +89,8 @@ npm run typecheck
 `LINE_DEVICE`、`LINE_DEVICE_NAME`、`LINE_MODEL_NAME`、
 `SEND_MAX_RETRIES`、`SEND_RETRY_BASE_MS`、`SEND_MIN_INTERVAL_MS`、
 `HEALTH_CHECK_INTERVAL_SEC`、`LOG_LIMIT`、`LOG_MAX_BYTES`、`LOG_MAX_FILES`、`TARGETS`、訊息模板、
-訊息持久化開關、自動回覆（含冷卻秒數）、`SMTP_*`、`MAIL_FROM`、`MAIL_TO`。
+訊息持久化開關、自動回覆（含冷卻秒數）、`SMTP_*`、`MAIL_FROM`、`MAIL_TO`、
+Telegram（`TELEGRAM_*`）、WhatsApp（`WHATSAPP_*`，含 Cloud／個人帳號模式切換）、Teams（`TEAMS_*`）。
 
 > `LINE_DEVICE_NAME` / `LINE_DEVICE` 需重新登入（刪除 `storage.json`）才會反映在 LINE 顯示的裝置名稱。
 > `.env.example` 仍保留這些項目的預設值，可作為啟動初始值。
@@ -104,7 +107,18 @@ npm run typecheck
 
 ## API
 
-### `POST /webhook`
+各 IM 發送端點語意相同（body 格式見下方），僅路徑與目標對照不同：
+
+| 平台 | 發送 | 接收 | 目標對照 |
+| --- | --- | --- | --- |
+| LINE | `POST /webhook` | 長連線（無 webhook） | 名稱=mid |
+| Telegram | `POST /webhook/tg` | `POST /tg/update`（驗 secret token） | 名稱=chat_id（或 @username） |
+| WhatsApp | `POST /webhook/wa` | Cloud 模式：`GET/POST /wa/webhook`（驗簽章）；個人帳號模式：長連線，無 webhook | 名稱=電話號碼（E.164 不含 +） |
+| Teams | `POST /webhook/teams` | `POST /teams/messages`（驗 Bearer JWT） | 名稱=conversation id（收訊後自動記住） |
+
+發送端點共用驗證（HMAC／URL Token／API Token）；未啟用的平台回 `503`。
+
+### `POST /webhook`（以 LINE 為例，其他平台同格式）
 
 ```http
 POST /webhook HTTP/1.1
@@ -165,8 +179,8 @@ X-Signature = HMAC-SHA256(HMAC_SECRET, `${X-Timestamp}.${原始 body}`).hex
 | 403 | 來源 IP 未授權、缺少 / 無效時間戳記、簽章失敗、nonce 重複 |
 | 404 | 找不到目標好友 / 群組 |
 | 429 | 超過速率限制 |
-| 503 | LINE 尚未登入 |
-| 500 | LINE 發送失敗（已重試） |
+| 503 | 平台尚未啟用／未登入（例如 LINE 尚未登入、IM 未啟用） |
+| 500 | 發送失敗（已重試） |
 
 產生簽章範例（Linux / bash + openssl）：
 
@@ -248,10 +262,10 @@ curl -sS -X POST "http://localhost:8090/webhook" \
 | 路由 | 說明 |
 | --- | --- |
 | `GET /` | 導向 `/dashboard` |
-| `GET /dashboard` | 儀表板（需登入）：發送統計、狀態摘要、最近紀錄 |
-| `GET /dashboard.json` | 儀表板 JSON（需登入或 read token） |
-| `GET /status.json` | 狀態 / log / 目標 / 佇列 / 排程 JSON（需登入或 read token） |
-| `GET /status/qr` | 目前登入 QR 的 PNG 圖（需登入） |
+| `GET /dashboard` | 儀表板（需登入）：依右上角 IM 顯示該平台發送統計、狀態摘要、最近紀錄；停用平台顯示「未啟用」 |
+| `GET /dashboard.json` | 儀表板 JSON（需登入或 read token），支援 `?platform=`；另回 `statsByPlatform`（各在線平台統計）與 `platforms`（含各平台狀態／QR 旗標） |
+| `GET /status.json` | 狀態 / log / 目標 / 佇列 / 排程 JSON（需登入或 read token），支援 `?platform=`；停用平台回空陣列並標 `disabled: true` |
+| `GET /status/qr` | 目前登入 QR 的 PNG 圖（需登入），支援 `?platform=`（WhatsApp 個人帳號模式吐 Baileys QR） |
 | `GET /console` | 功能頁（需登入）：測試發送、Flex 可視化編輯、目標清單、最近紀錄、排程中的訊息 |
 | `GET /skills` | 技能頁（需登入）：啟用助理、各技能設定 |
 | `POST /skills` | 儲存助理與技能設定（需登入），body `{ assistant, skills }` |
@@ -269,10 +283,10 @@ curl -sS -X POST "http://localhost:8090/webhook" \
 | `POST /settings/language` | 切換介面語言（需登入），body `{ lang }`（`zh` / `en` / `ja`） |
 | `POST /settings/relogin` | 手動觸發重新登入（需登入） |
 | `POST /settings/refresh` | 重新整理好友 / 群組清單（需登入） |
-| `POST /settings/test` | 測試發送（需登入），body `{ to, text, file, image, video, audio, filename, sticker?, location?, flex?, sendAt?, delaySec?, repeat? }` |
+| `POST /settings/test` | 測試發送（需登入），body `{ to, platform?, text, file, image, video, audio, filename, sticker?, location?, flex?, sendAt?, delaySec?, repeat? }`；`platform` 省略預設 LINE |
 | `POST /settings/upload` | 上傳媒體（需登入），raw body + `X-Filename`，回 `{ path, filename, bytes }` |
-| `POST /settings/scheduled/cancel` | 取消排程（需登入），body `{ id }` |
-| `POST /settings/scheduled/update` | 編輯排程（需登入），body `{ id, delaySec? \| sendAt?, repeat? }` |
+| `POST /settings/scheduled/cancel` | 取消排程（需登入），body `{ id, platform? }`（依平台解析，預設 LINE） |
+| `POST /settings/scheduled/update` | 編輯排程（需登入），body `{ id, platform?, delaySec? \| sendAt?, repeat? }` |
 | `GET /messages` | 收到的訊息頁（需登入）：關鍵字搜尋、JSON / CSV 匯出 |
 | `GET /messages.json` | 收到的訊息 JSON（需登入或 read token），支援 `?q=` 關鍵字、`?chat=` 對話過濾、`?limit=`（最多 1000） |
 | `GET /tokens/usage.json` | API Token 用量統計（需登入或 admin token） |
@@ -316,9 +330,9 @@ curl -sS -X POST "http://localhost:8090/webhook" \
 - **前綴**：轉發時加在訊息前的文字（選填）
 - **附上來源名稱**：開啟則在訊息前加上 `[來源]`
 
-## LINE 指令
+## 指令
 
-在 `/settings` 的「LINE 指令」啟用後，可對本帳號傳訊息下指令：
+在 `/settings` 的「指令」啟用後，可對本帳號傳訊息下指令（LINE 與 Telegram 皆適用）：
 
 - **前綴**：預設 `!`
 - **允許來源**：留空 = 所有人；每行一個 mid 或 chat mid（建議限制來源，可用 `!id` 取得自己的 mid）
@@ -345,7 +359,9 @@ curl -sS -X POST "http://localhost:8090/webhook" \
 觸發格式：`<助理名稱>請幫忙 <觸發詞> <參數>`（「請幫忙 / 請幫 / 幫忙 / 麻煩 / 幫我 / 幫」皆可省略）。
 技能可設定 `triggerMode`：`assistant`（預設，需前綴呼叫）或 `any`（每則訊息都呼叫，如關鍵字自動回覆）。
 技能可用 `fields` 宣告參數欄位（支援 `text`/`password`/`textarea`/`select`/`file`），或用 `ruleFields` + `ruleKey` 宣告可重複的規則編輯器。
-執行順序：`LINE 指令` → `技能` → `轉發規則`。
+執行順序：`指令` → `技能` → `轉發規則`。
+
+> 隨附的技能都可打包下載：執行 `node scripts/build-library.mjs` 會在 `library/` 產生技能庫靜態頁（含各技能 `.zip`），下載後到 `/skills` 上傳安裝即可使用。
 
 ### 新增一個技能
 
@@ -370,7 +386,7 @@ export default skill;
 
 2. 重啟服務即會自動載入（不需修改其他程式）。移除該資料夾即停用該技能。
 
-### 內建技能：關鍵字自動回覆
+### 可下載技能：關鍵字自動回覆
 
 收到訊息符合關鍵字時自動回覆（**每則訊息都會檢查，不需觸發詞**，`triggerMode: "any"`）。
 
@@ -384,7 +400,7 @@ export default skill;
 - **回覆冷卻（秒）**：同一個聊天於該時間內只回覆一次。
 - 規則以 JSON 儲存於該技能的 `config.rules`。
 
-### 內建技能：火車時刻表
+### 可下載技能：火車時刻表
 
 查詢台鐵時刻表，資料來源為交通部 **TDX 運輸資料流通服務**（官方）。
 
@@ -392,43 +408,43 @@ export default skill;
 - 用法：`阿寶請幫忙 火車 <起站> 到 <迄站> [日期] [時間]`（日期可用「今天 / 明天 / 後天」或 `2026-01-01`、`1/1`；時間為出發時間）。
 - 未設定 key 時會回覆提示訊息而不報錯。
 
-### 內建技能：匯率換算
+### 可下載技能：匯率換算
 
 即時匯率（來源 `open.er-api.com`，免 key）。
 
 - 用法：`匯率 1000 日幣 台幣`、`匯率 美金 100`（中／英文幣別皆可）。
 - 只填一種幣別時，會轉成「預設目標幣別」（技能設定 `defaultCurrency`，預設 `TWD`）。
 
-### 內建技能：高鐵時刻
+### 可下載技能：高鐵時刻
 
 查詢台灣高鐵時刻（沿用 TDX key）。
 
 - 用法：`高鐵 台北 到 左營 明天 08:00`（未指定時間時，從**現在**起算回覆 8 班）。
 
-### 內建技能：油價
+### 可下載技能：油價
 
 查詢中油汽柴油零售牌價（來源：中油開放資料，免 key，每週更新）。
 
 - 用法：`油價`。
 
-### 內建技能：統一發票 / 樂透
+### 可下載技能：統一發票 / 樂透
 
 - 統一發票：`發票`（預設最新一期）、`發票 上一期`。來源：財政部稅務入口網（抓「最近已開獎期別」）。
 - 樂透：`樂透`（大樂透）、`威力彩`；`上一期` 可查前一期。來源：台灣彩券官方 API。
 
-### 內建技能：郵遞區號
+### 可下載技能：郵遞區號
 
 內建台灣郵遞區號資料，免網路。
 
 - 用法：`郵遞區號 台北市大安區` → `106`。
 
-### 內建技能：空氣品質
+### 可下載技能：空氣品質
 
 查詢 AQI（多來源備援，免 key）。
 
 - 用法：`空品 高雄`（預設台北）。來源以 WAQI 為主；可在技能設定填入 WAQI token 提高額度。
 
-### 內建技能：漢堡王 / 摩斯優惠
+### 可下載技能：漢堡王 / 摩斯優惠
 
 查詢當期優惠（HTML 擷取 + 各品牌健康狀態）。
 
@@ -491,6 +507,7 @@ curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
 
 - 登入後首頁為 **`/dashboard`**：顯示總發送數、成功 / 失敗、成功率、近 `STATS_DAYS` 日長條圖與訊息類型分佈。
 - 每次發送（含 webhook、測試、排程、自動回覆）成功或失敗都會記錄於 `STATS_PATH`（JSONL，記憶體保留最近 5000 筆），並在啟動時載入。
+- 統計**依平台分別累計**（每筆記錄帶 `platform`；舊資料無標記視為 LINE），儀表板一次只顯示右上角所選平台的統計。
 - 狀態摘要（登入狀態、QR / PIN、好友數、佇列、最後發送…）也整合在同一頁。
 
 ## 媒體上傳
@@ -519,7 +536,7 @@ curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
 
 ## 各平台申請與設定
 
-LINE / Telegram / WhatsApp 的申請流程、如何產生本系統所需設定值（Bot Token、secret、chat_id / 電話號碼、驗證方式等），
+LINE / Telegram / WhatsApp / Teams 的申請流程、如何產生本系統所需設定值（Bot Token、secret、chat_id / 電話號碼、Entra App、驗證方式等），
 與各平台端點對照，詳見 [`docs/IM-setup.md`](docs/IM-setup.md)。
 
 ## 部署（更新程式、保留狀態）
@@ -584,6 +601,13 @@ src/
   line/queue.ts         發送佇列（重試 + 節流）
   line/scheduler.ts     排程 / 延遲 / 重複發送（持久化）
   line/cron.ts          cron 表達式解析與下次執行時間
+  messaging/            多 IM 傳輸抽象（types / services 註冊表 / dispatch 共用管線 / text / media）
+  telegram/client.ts    Telegram Bot API 轉接（發送 / 接收正規化 / 媒體上傳 / 貼圖與 Flex 降級）
+  whatsapp/client.ts    WhatsApp Cloud API 轉接（發送 / webhook 接收驗簽 / 24h 視窗感知）
+  whatsapp/web-client.ts WhatsApp 個人帳號轉接（Baileys 長連線，QR 登入；動態載入，缺依賴不影響啟動）
+  teams/client.ts       Teams 企業 Bot 轉接（Entra 取 token / Bot Connector REST / JWT 驗簽 / Adaptive Card 轉譯；無新依賴）
+  settings-crypto.ts    設定匯出加密（AES-256-GCM + scrypt）
+  icons/                各 IM 去背 icon（右上角切換鈕使用，以 base64 內嵌）
   skills/index.ts       技能對外匯出（loadSkills / getSkill）
   skills/loader.ts      掃描資料夾並動態載入技能
   skills/train/index.ts 火車時刻表技能（TDX API，一個技能一個資料夾）
@@ -597,14 +621,18 @@ src/
   notify/mailer.ts      Email 通知
   monitor/token.ts      健康檢查與重登
   webhook/server.ts     HTTP server（webhook + 狀態 / 設定 / 訊息 / ReadMe 頁）
-docs/architecture.md    架構圖
-docs/IM-setup.md        LINE / Telegram / WhatsApp 申請與設定說明
+docs/architecture.md    架構圖（含多平台歸屬對照表與新增 IM 檢查清單）
+docs/IM.md              多平台規劃（LINE / Telegram / Teams / WhatsApp / Discord 進度）
+docs/IM-setup.md        LINE / Telegram / WhatsApp / Teams 申請與設定說明
+tests/                  單元測試（`npm test`）
 ```
 
 ## 疑難排解
 
 - **一直顯示「待驗證」**：用 LINE 內建掃描器掃終端機或 `/dashboard` 上的 QR 圖，或點儀表板的驗證連結在手機開啟。
-- **找不到目標（404）**：名稱需與 LINE 顯示名稱完全相同；建議改用 mid，或設定 `TARGETS`。
+- **找不到目標（404）**：名稱需與顯示名稱完全相同；建議改用原生 ID（LINE 用 mid、Telegram 用 chat_id、WhatsApp 用電話號碼、Teams 用 conversation id），或在設定頁目標對照設定。
 - **收不到 Email**：確認 `SMTP_*` 與 `MAIL_FROM` / `MAIL_TO` 都已設定。
 - **對外接收 webhook**：本機需用 ngrok / Cloudflare Tunnel 打通道；記得設定 `HMAC_SECRET`。
 - **被擋 403 簽章錯誤**：確認簽章字串為 `${timestamp}.${body}`，且時間戳在誤差範圍內。
+- **某 IM 沒反應**：先看右上角是否切到該平台；停用的平台儀表板會顯示「未啟用」空白狀態。Teams 主動推播前需先讓 Bot 收到該對話一次訊息；WhatsApp Cloud 主動推播受 24 小時視窗限制。
+- **部署後 nginx 502**：服務沒起來，先看 `pm2 logs`；常見原因是忘了跑 `npm ci`（新依賴未安裝）。

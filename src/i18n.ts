@@ -231,7 +231,7 @@ export const DICT: Record<string, Entry> = {
   lbl_trigger: { zh: "觸發詞", en: "Trigger", ja: "トリガー" },
   lbl_expand: { zh: "展開 / 收起設定", en: "Expand / collapse", ja: "設定を展開 / 折りたたむ" },
   skill_trigger_any: { zh: "此技能會檢查每一則收到的訊息（不需觸發詞）", en: "This skill checks every incoming message (no trigger word)", ja: "このスキルは受信メッセージごとに確認します（トリガー不要）" },
-  hint_skills: { zh: "技能為可插拔的子專案；啟用後可用「<助理名稱>請幫忙 <觸發詞> …」呼叫。目前內建：火車時刻表。", en: "Skills are pluggable sub-projects. After enabling, call with \"<assistant> please <trigger> …\". Built-in: train timetable.", ja: "スキルはプラグイン可能なサブプロジェクトです。有効後「<名前> で <トリガー> …」で呼び出せます。内蔵：列車時刻表。" },
+  hint_skills: { zh: "技能為可插拔的子專案；啟用後可用「<助理名稱>請幫忙 <觸發詞> …」呼叫。目前可下載：火車時刻表。", en: "Skills are pluggable sub-projects. After enabling, call with \"<assistant> please <trigger> …\". Downloadable: train timetable.", ja: "スキルはプラグイン可能なサブプロジェクトです。有効後「<名前> で <トリガー> …」で呼び出せます。ダウンロード可能：列車時刻表。" },
   card_skills: { zh: "技能", en: "Skills", ja: "スキル" },
   no_skills: { zh: "尚未載入任何技能（請確認 src/skills 下的資料夾存在）", en: "No skills loaded (check folders under src/skills)", ja: "スキルが読み込まれていません（src/skills のフォルダを確認）" },
 
