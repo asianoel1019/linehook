@@ -98,6 +98,14 @@ export interface IMessagingService {
   getQueueStats(): QueueStats;
 
   /**
+   * 該平台目前的登入狀態字串（給儀表板分平台顯示用）。
+   * 未實作時前端回退顯示全域狀態。
+   */
+  loginStatus?(): string;
+  /** 需要人工掃描的登入 QR（原始字串）；無則空字串。 */
+  getQr?(): string;
+
+  /**
    * 接收型平台（webhook / polling）用：處理一筆原始進站事件。
    * LINE 走 linejs 事件監聽，不實作此方法。
    */

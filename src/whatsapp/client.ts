@@ -565,6 +565,11 @@ export class WhatsAppService implements IMessagingService {
     return this.queue.stats();
   }
 
+  /** Cloud API：設定 token / phoneNumberId 後視為已連線。 */
+  loginStatus(): string {
+    return this.token && this.phoneId ? "已登入" : "未設定";
+  }
+
   getDisplayNumber(): string {
     return this.displayNumber;
   }

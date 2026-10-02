@@ -110,6 +110,7 @@ export class WhatsAppWebService implements IMessagingService {
   private loggedIn = false;
   private qrDataUrl = "";
   private meId = "";
+  private loginState = "未登入";
 
   constructor() {
     this.queue = new SendQueue(() => ({
@@ -160,6 +161,7 @@ export class WhatsAppWebService implements IMessagingService {
   }
 
   private async connect(): Promise<void> {
+    this.loginState = "登入中";
     const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } = await loadBaileys();
     const { state, saveCreds } = await useMultiFileAuthState(config.whatsapp.webAuthPath);
     let version: [number, number, number] | undefined;
@@ -181,6 +183,7 @@ export class WhatsAppWebService implements IMessagingService {
       const { connection, lastDisconnect, qr } = update;
       if (qr) {
         this.qrDataUrl = qr;
+        this.loginState = "待驗證";
         setState({ qrUrl: qr, status: "待驗證", lastError: undefined });
         logger.info("WhatsApp(Web) 需要掃描 QR 登入");
       }
@@ -188,6 +191,7 @@ export class WhatsAppWebService implements IMessagingService {
         this.loggedIn = true;
         this.meId = sock.user?.id ?? "";
         this.qrDataUrl = "";
+        this.loginState = "已登入";
         setState({
           status: "已登入",
           qrUrl: undefined,
@@ -203,9 +207,11 @@ export class WhatsAppWebService implements IMessagingService {
         const code = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
         if (loggedOut) {
+          this.loginState = "需人工";
           setState({ status: "需人工", qrUrl: undefined, lastError: "WhatsApp 已登出，請刪除 session 後重新掃描" });
           logger.warn("WhatsApp(Web) 已登出，需重新登入（刪除 webAuthPath）");
         } else {
+          this.loginState = "登入中";
           setState({ status: "登入中" });
           logger.warn("WhatsApp(Web) 連線中斷，5 秒後重連", { code });
           setTimeout(() => { void this.connect().catch((e) => logger.error("WhatsApp(Web) 重連失敗", { error: String(e) })); }, 5000);
@@ -294,6 +300,10 @@ export class WhatsAppWebService implements IMessagingService {
   /** 目前 QR（Baileys 給的是原始字串，前端用 QR 產生器渲染）。 */
   getQr(): string {
     return this.qrDataUrl;
+  }
+
+  loginStatus(): string {
+    return this.loginState;
   }
 
   private dispatchDeps(): DispatchDeps {

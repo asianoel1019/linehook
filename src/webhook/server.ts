@@ -1058,7 +1058,7 @@ function renderDashboardHtml() {
     sumHost.className = "kv";
     var tb = document.createElement("tbody");
     var s = data.state;
-    summaryRows(s, p.queue).forEach(function (pair) {
+    summaryRows(Object.assign({}, s, { status: p.status || s.status }), p.queue).forEach(function (pair) {
       var th = document.createElement("th");
       th.textContent = pair[0];
       tb.appendChild(tr(th, td(pair[1])));
@@ -1123,8 +1123,9 @@ function renderDashboardHtml() {
     var sel = selected[0] || { platform: dashPlatform };
 
     var badge = $("badge");
-    badge.textContent = s.status;
-    badge.className = "badge " + (s.status === "已登入" ? "ok" : (s.status === "待驗證" || s.status === "需人工" ? "bad" : "warn"));
+    var selStatus = sel.status || s.status;
+    badge.textContent = selStatus;
+    badge.className = "badge " + (selStatus === "已登入" ? "ok" : (selStatus === "待驗證" || selStatus === "需人工" ? "bad" : "warn"));
 
     // QR：依選取平台顯示（LINE 用 global qrUrl；WhatsApp Web 由服務提供）。
     var verify = $("verify");
@@ -3165,14 +3166,10 @@ function renderMessagesHtml() {
 `;
     return page(tr(config.language, "title_messages"), "messages", body, script);
 }
-/** 某平台目前的登入 QR（若需人工掃描）。LINE 的 QR 在 global state；WhatsApp Web 在服務內。 */
+/** 某平台目前的登入 QR（若需人工掃描）。各服務自行提供 getQr()。 */
 function platformQr(platform: string): string {
-    if (platform === "whatsapp") {
-        const wa = getService("whatsapp") as { getQr?: () => string } | undefined;
-        return wa?.getQr?.() || "";
-    }
-    if (platform === "line") return getState().qrUrl || "";
-    return "";
+    const svc = getService(platform as Platform);
+    return svc?.getQr?.() ?? "";
 }
 /** 各平台服務摘要（給 dashboard / status 用）。 */
 function platformSummaries() {
@@ -3181,7 +3178,7 @@ function platformSummaries() {
         targets: service.listTargets().length,
         queue: service.getQueueStats(),
         qr: platformQr(service.platform) ? true : false,
-        status: service.platform === "line" ? getState().status : undefined,
+        status: service.loginStatus?.() ?? getState().status,
     }));
 }
 /** 固定時間比較字串（避免以回應時間洩漏密鑰）。 */

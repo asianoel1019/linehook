@@ -8,7 +8,7 @@ import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { recordMessage } from "../messages.js";
 import { recordSend } from "../stats.js";
-import { setState } from "../state.js";
+import { getState, setState } from "../state.js";
 import { SendQueue } from "./queue.js";
 import { SendScheduler, type ScheduledJobView } from "./scheduler.js";
 import { parseCron, nextRun } from "./cron.js";
@@ -560,6 +560,14 @@ export class LineService implements IMessagingService {
 
   getQueueStats(): { pending: number; running: boolean } {
     return this.queue.stats();
+  }
+
+  loginStatus(): string {
+    return getState().status;
+  }
+
+  getQr(): string {
+    return getState().qrUrl ?? "";
   }
 
   schedule(inputs: SendInput[], runAt: number, repeat?: string): ScheduledJobView {

@@ -534,6 +534,11 @@ export class TelegramService implements IMessagingService {
     return this.queue.stats();
   }
 
+  /** Telegram 為 webhook Bot，設定 token 後視為已啟用。 */
+  loginStatus(): string {
+    return this.token ? "已登入" : "未設定";
+  }
+
   stopListening(): void {
     logger.info("Telegram 使用 webhook 接收，無需停止監聽");
   }
