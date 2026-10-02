@@ -436,6 +436,10 @@ const SETTINGS_STYLE = `
   .im-switch-menu button { text-align: left; padding: 8px 10px; font-size: 13px; border-radius: 8px; border: none; background: transparent; color: #cbd5e1; cursor: pointer; }
   .im-switch-menu button:hover { background: linear-gradient(90deg, rgba(34,211,238,.28), rgba(244,114,182,.28)); }
   .im-switch-menu button.active { font-weight: 700; color: #fff; background: linear-gradient(90deg, rgba(34,211,238,.4), rgba(244,114,182,.3)); }
+  .im-switch-btn { gap: 9px; padding: 7px 15px 7px 9px; font-size: 13px; }
+  .im-switch-icon { width: 28px; height: 28px; border-radius: 8px; display: block; }
+  .im-switch-menu button { display: flex; align-items: center; gap: 10px; }
+  .im-menu-icon { width: 22px; height: 22px; border-radius: 6px; display: block; }
   .modal-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.62); backdrop-filter: blur(3px); }
   .modal-backdrop[hidden] { display: none; }
   .modal { width: min(430px, 92vw); margin: 0; }
@@ -592,6 +596,20 @@ const SETTINGS_STYLE = `
   .md img { max-width: 100%; }
   .md a { color: #67e8f9; }
 `;
+// IM 平台 icon（icons/<id>.png，去背透明 PNG）→ base64 data URI，讀一次後快取；缺檔回空字串。
+const imIconCache = new Map<string, string>();
+function imIcon(id: string): string {
+    const cached = imIconCache.get(id);
+    if (cached !== undefined) return cached;
+    try {
+        const uri = `data:image/png;base64,${readFileSync(resolve(`./icons/${id}.png`)).toString("base64")}`;
+        imIconCache.set(id, uri);
+        return uri;
+    } catch {
+        imIconCache.set(id, "");
+        return "";
+    }
+}
 function page(
     title: string,
     active: string,
@@ -646,16 +664,16 @@ ${userDock}
         : "";
     // 右上角全域 IM 切換：所有管理頁共用（localStorage: lw_platform）。
     const imOptions = [
-        { id: "line", label: tr(lang, "platform_line") },
-        { id: "telegram", label: tr(lang, "platform_telegram") },
-        { id: "whatsapp", label: tr(lang, "platform_whatsapp") },
-        { id: "teams", label: tr(lang, "platform_teams") },
+        { id: "line", label: tr(lang, "platform_line"), icon: imIcon("line") },
+        { id: "telegram", label: tr(lang, "platform_telegram"), icon: imIcon("telegram") },
+        { id: "whatsapp", label: tr(lang, "platform_whatsapp"), icon: imIcon("whatsapp") },
+        { id: "teams", label: tr(lang, "platform_teams"), icon: imIcon("teams") },
     ];
     const imSwitch = showNav
         ? `<div class="im-switch" id="im-switch">
-<button type="button" class="im-switch-btn" id="im-switch-btn"><span class="im-switch-dot"></span><span id="im-switch-label">${esc(imOptions[0].label)}</span></button>
+<button type="button" class="im-switch-btn" id="im-switch-btn">${imOptions[0].icon ? `<img id="im-switch-icon" class="im-switch-icon" src="${imOptions[0].icon}" alt="">` : `<span class="im-switch-dot"></span>`}<span id="im-switch-label">${esc(imOptions[0].label)}</span></button>
 <div class="im-switch-menu" id="im-switch-menu" hidden>
-${imOptions.map((p) => `<button type="button" data-platform="${p.id}">${esc(p.label)}</button>`).join("")}
+${imOptions.map((p) => `<button type="button" data-platform="${p.id}">${p.icon ? `<img class="im-menu-icon" src="${p.icon}" alt="">` : ""}<span>${esc(p.label)}</span></button>`).join("")}
 </div>
 </div>`
         : "";
@@ -663,7 +681,7 @@ ${imOptions.map((p) => `<button type="button" data-platform="${p.id}">${esc(p.la
         ? `
 (function () {
   var KEY = "lw_platform";
-  var options = ${JSON.stringify(imOptions)};
+  var options = ${JSON.stringify(imOptions.map((p) => ({ id: p.id, label: p.label })))};
   var ids = options.map(function (o) { return o.id; });
   var labelOf = {};
   options.forEach(function (o) { labelOf[o.id] = o.label; });
@@ -674,6 +692,9 @@ ${imOptions.map((p) => `<button type="button" data-platform="${p.id}">${esc(p.la
   function paint() {
     var label = document.getElementById("im-switch-label");
     if (label) label.textContent = labelOf[current] || current;
+    var btnIcon = document.getElementById("im-switch-icon");
+    var activeImg = document.querySelector('#im-switch-menu button[data-platform="' + current + '"] img');
+    if (btnIcon && activeImg) btnIcon.src = activeImg.src;
     document.querySelectorAll("#im-switch-menu button").forEach(function (b) {
       b.classList.toggle("active", b.getAttribute("data-platform") === current);
     });
