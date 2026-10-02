@@ -418,6 +418,16 @@ const SETTINGS_STYLE = `
   .user-menu[hidden] { display: none; }
   .user-menu button { text-align: left; width: 100%; padding: 9px 12px; border: none; border-radius: 9px; background: transparent; color: #e2e8f0; font-weight: 600; }
   .user-menu button:hover { background: linear-gradient(90deg, rgba(34,211,238,.25), rgba(244,114,182,.25)); box-shadow: none; transform: none; }
+  .content { position: relative; }
+  .im-switch { position: absolute; top: 0; right: 0; z-index: 25; }
+  .im-switch-btn { display: flex; align-items: center; gap: 7px; padding: 7px 13px; font-size: 12px; font-weight: 700; border-radius: 999px; border: 1px solid rgba(34,211,238,.35); background: rgba(0,0,0,.35); color: #a5f3fc; cursor: pointer; }
+  .im-switch-btn:hover { box-shadow: 0 0 14px rgba(34,211,238,.45); }
+  .im-switch-dot { width: 8px; height: 8px; border-radius: 50%; background: #22d3ee; box-shadow: 0 0 8px #22d3ee; }
+  .im-switch-menu { position: absolute; top: 38px; right: 0; z-index: 30; display: flex; flex-direction: column; gap: 2px; min-width: 150px; padding: 6px; background: rgba(15,10,40,.97); border: 1px solid rgba(34,211,238,.35); border-radius: 12px; box-shadow: 0 12px 28px rgba(0,0,0,.5), 0 0 18px rgba(34,211,238,.25); backdrop-filter: blur(10px); }
+  .im-switch-menu[hidden] { display: none; }
+  .im-switch-menu button { text-align: left; padding: 8px 10px; font-size: 13px; border-radius: 8px; border: none; background: transparent; color: #cbd5e1; cursor: pointer; }
+  .im-switch-menu button:hover { background: linear-gradient(90deg, rgba(34,211,238,.28), rgba(244,114,182,.28)); }
+  .im-switch-menu button.active { font-weight: 700; color: #fff; background: linear-gradient(90deg, rgba(34,211,238,.4), rgba(244,114,182,.3)); }
   .modal-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.62); backdrop-filter: blur(3px); }
   .modal-backdrop[hidden] { display: none; }
   .modal { width: min(430px, 92vw); margin: 0; }
@@ -624,6 +634,60 @@ ${options.sidebar ?? ""}
 ${userDock}
 </aside>`
         : "";
+    // 右上角全域 IM 切換：所有管理頁共用（localStorage: lw_platform）。
+    const imOptions = [
+        { id: "line", label: tr(lang, "platform_line") },
+        { id: "telegram", label: tr(lang, "platform_telegram") },
+    ];
+    const imSwitch = showNav
+        ? `<div class="im-switch" id="im-switch">
+<button type="button" class="im-switch-btn" id="im-switch-btn"><span class="im-switch-dot"></span><span id="im-switch-label">${esc(imOptions[0].label)}</span></button>
+<div class="im-switch-menu" id="im-switch-menu" hidden>
+${imOptions.map((p) => `<button type="button" data-platform="${p.id}">${esc(p.label)}</button>`).join("")}
+</div>
+</div>`
+        : "";
+    const imSwitchScript = showNav
+        ? `
+(function () {
+  var KEY = "lw_platform";
+  var options = ${JSON.stringify(imOptions)};
+  var ids = options.map(function (o) { return o.id; });
+  var labelOf = {};
+  options.forEach(function (o) { labelOf[o.id] = o.label; });
+  var current = null;
+  try { current = localStorage.getItem(KEY); } catch (e) {}
+  if (ids.indexOf(current) === -1) current = ids[0];
+  window.LW_PLATFORM = current;
+  function paint() {
+    var label = document.getElementById("im-switch-label");
+    if (label) label.textContent = labelOf[current] || current;
+    document.querySelectorAll("#im-switch-menu button").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-platform") === current);
+    });
+  }
+  paint();
+  if (typeof window.onPlatformChange === "function") window.onPlatformChange(current);
+  var btn = document.getElementById("im-switch-btn");
+  var menu = document.getElementById("im-switch-menu");
+  if (btn && menu) {
+    btn.addEventListener("click", function (e) { e.stopPropagation(); menu.hidden = !menu.hidden; });
+    menu.addEventListener("click", function (e) { e.stopPropagation(); });
+    document.addEventListener("click", function () { menu.hidden = true; });
+    menu.querySelectorAll("button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        current = b.getAttribute("data-platform");
+        try { localStorage.setItem(KEY, current); } catch (e) {}
+        window.LW_PLATFORM = current;
+        paint();
+        menu.hidden = true;
+        if (typeof window.onPlatformChange === "function") window.onPlatformChange(current);
+      });
+    });
+  }
+})();
+`
+        : "";
     const modal = showNav
         ? `<div class="modal-backdrop" id="password-modal" hidden>
 <div class="glass modal">
@@ -652,6 +716,7 @@ ${userDock}
 <div class="shell${showNav ? "" : " solo"}">
 ${sidebar}
 <main class="content">
+${imSwitch}
 ${showTitle ? `<h1 class="neon-text">${title}</h1>` : ""}
 ${body}
 </main>
@@ -672,6 +737,7 @@ function applyI18n() {
   });
 }
 ${script}${showNav ? USER_SCRIPT : ""}
+${imSwitchScript}
 applyI18n();
 </script>
 </body>
@@ -905,18 +971,8 @@ const SESSION_SCRIPT = `
   }
 `;
 function renderDashboardHtml() {
-    const dashPanels = [
-        { id: "line", label: tr(config.language, "platform_line") },
-        { id: "telegram", label: tr(config.language, "platform_telegram") },
-    ];
-    const dashPlatformSwitch = dashPanels
-        .map((p, index) => `<button type="button" data-platform="${p.id}"${index === 0 ? ' class="active"' : ""}>${p.label}</button>`)
-        .join("");
     const body = `
 <div><span id="badge" class="badge">-</span></div>
-<div class="platform-switch" id="dash-platform-switch" style="max-width:360px;margin:10px 0">
-  ${dashPlatformSwitch}
-</div>
 <div id="platforms" class="msg" style="margin-top:6px"></div>
 <div id="qrbox" style="display:none">
   <p><b>請用手機 LINE 的掃描功能掃描：</b></p>
@@ -954,25 +1010,12 @@ function renderDashboardHtml() {
   var qrImg = $("qrimg");
   var qrLink = $("qrlink");
   var lastQr = "";
-  var DASH_PLATFORMS = ${JSON.stringify(dashPanels.map((p) => p.id))};
-  var dashPlatform = DASH_PLATFORMS[0];
+  var dashPlatform = window.LW_PLATFORM || "line";
 
-  function initDashPlatform() {
-    var saved = null;
-    try { saved = window.localStorage.getItem("lw_dashboard_platform"); } catch (e) {}
-    dashPlatform = DASH_PLATFORMS.indexOf(saved) !== -1 ? saved : DASH_PLATFORMS[0];
-    Array.prototype.forEach.call(document.querySelectorAll("#dash-platform-switch button"), function (b) {
-      b.classList.toggle("active", b.getAttribute("data-platform") === dashPlatform);
-      b.addEventListener("click", function () {
-        dashPlatform = b.getAttribute("data-platform");
-        try { window.localStorage.setItem("lw_dashboard_platform", dashPlatform); } catch (e) {}
-        Array.prototype.forEach.call(document.querySelectorAll("#dash-platform-switch button"), function (x) {
-          x.classList.toggle("active", x.getAttribute("data-platform") === dashPlatform);
-        });
-        refresh();
-      });
-    });
-  }
+  window.onPlatformChange = function (platform) {
+    dashPlatform = platform;
+    refresh();
+  };
 
   function renderSummary(s, queue, data) {
     var platforms = data.platforms || [];
@@ -1091,7 +1134,6 @@ function renderDashboardHtml() {
       .catch(function () {});
   }
 
-  initDashPlatform();
   refresh();
   setInterval(refresh, 5000);
 `;
@@ -1110,14 +1152,11 @@ function renderSettingsHtml() {
     ]
         .map((d) => `<option value="${d}">${d}</option>`)
         .join("");
-    // 新增 IM 時：這裡加一筆、做一個 platform 專屬 fieldset（data-im）與側欄卡片即可。
+    // 平台專屬設定以資料屬性標記；全域 IM 切換（右上角）改變時由 onPlatformChange 過濾。
     const platforms = [
         { id: "line", label: tr(config.language, "platform_line") },
         { id: "telegram", label: tr(config.language, "platform_telegram") },
     ];
-    const platformSwitch = platforms
-        .map((p, index) => `<button type="button" data-platform="${p.id}"${index === 0 ? ' class="active"' : ""}>${p.label}</button>`)
-        .join("");
     const body = `
 <p class="msg" data-i18n="settings_note">設定儲存於 <code>settings.json</code>，修改後立即生效（LINE 裝置名稱需重新登入才生效）；點左側卡片切換設定項目。</p>
 
@@ -1242,30 +1281,18 @@ function renderSettingsHtml() {
   ${HELPERS}
   ${SESSION_SCRIPT}
   var CONFIG_SECTIONS = ["security", "line", "telegram", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
-  var SETTINGS_PLATFORMS = ${JSON.stringify(platforms.map((p) => p.id))};
 
   function applySettingsPlatform(platform, jump) {
-    try { window.localStorage.setItem("lw_settings_platform", platform); } catch (e) {}
-    Array.prototype.forEach.call(document.querySelectorAll("#platform-switch button"), function (b) {
-      b.classList.toggle("active", b.getAttribute("data-platform") === platform);
-    });
     Array.prototype.forEach.call(document.querySelectorAll("[data-im]"), function (el) {
       el.classList.toggle("plat-off", el.getAttribute("data-im") !== platform);
     });
     if (jump) showSection(platform, CONFIG_SECTIONS);
   }
 
-  function initSettingsPlatform() {
-    var saved = null;
-    try { saved = window.localStorage.getItem("lw_settings_platform"); } catch (e) {}
-    var start = SETTINGS_PLATFORMS.indexOf(saved) !== -1 ? saved : SETTINGS_PLATFORMS[0];
-    Array.prototype.forEach.call(document.querySelectorAll("#platform-switch button"), function (b) {
-      b.addEventListener("click", function () {
-        applySettingsPlatform(b.getAttribute("data-platform"), true);
-      });
-    });
-    applySettingsPlatform(start, false);
-  }
+  window.onPlatformChange = function (platform) {
+    applySettingsPlatform(platform, true);
+  };
+  applySettingsPlatform(window.LW_PLATFORM || "line", false);
 
   function addForwardRow(rule) {
     rule = rule || {};
@@ -1764,14 +1791,9 @@ function renderSettingsHtml() {
   });
 
   setupCards(CONFIG_SECTIONS, "security");
-  initSettingsPlatform();
   loadForm();
 `;
     const sidebar = `
-<div class="side-section">${tr(config.language, "section_platform")}</div>
-<div class="platform-switch" id="platform-switch">
-  ${platformSwitch}
-</div>
 <div class="side-section">${tr(config.language, "section_settings")}</div>
 <div class="fn-list">
   <button type="button" class="fn-card setting active" data-fn="security">${tr(config.language, "card_security")}</button>
@@ -1789,13 +1811,6 @@ function renderSettingsHtml() {
     return page(tr(config.language, "title_settings"), "settings", body, script, { sidebar });
 }
 function renderConsoleHtml() {
-    const panels = [
-        { id: "line", label: tr(config.language, "platform_line") },
-        { id: "telegram", label: tr(config.language, "platform_telegram") },
-    ];
-    const consolePlatformSwitch = panels
-        .map((p, index) => `<button type="button" data-platform="${p.id}"${index === 0 ? ' class="active"' : ""}>${p.label}</button>`)
-        .join("");
     const body = `
 <div class="fn-panel active" data-fn="test">
 <h2 style="margin-top:0" data-i18n="panel_test">測試發送</h2>
@@ -1887,27 +1902,12 @@ function renderConsoleHtml() {
   ${HELPERS}
   ${SESSION_SCRIPT}
   var allTargets = [];
-  var CONSOLE_PLATFORMS = ${JSON.stringify(panels.map((p) => p.id))};
-  var currentPlatform = CONSOLE_PLATFORMS[0];
+  var currentPlatform = window.LW_PLATFORM || "line";
 
-  function applyConsolePlatform(platform) {
+  window.onPlatformChange = function (platform) {
     currentPlatform = platform;
-    try { window.localStorage.setItem("lw_console_platform", platform); } catch (e) {}
-    Array.prototype.forEach.call(document.querySelectorAll("#console-platform-switch button"), function (b) {
-      b.classList.toggle("active", b.getAttribute("data-platform") === platform);
-    });
     refreshData();
-  }
-
-  function initConsolePlatform() {
-    var saved = null;
-    try { saved = window.localStorage.getItem("lw_console_platform"); } catch (e) {}
-    var start = CONSOLE_PLATFORMS.indexOf(saved) !== -1 ? saved : CONSOLE_PLATFORMS[0];
-    Array.prototype.forEach.call(document.querySelectorAll("#console-platform-switch button"), function (b) {
-      b.addEventListener("click", function () { applyConsolePlatform(b.getAttribute("data-platform")); });
-    });
-    applyConsolePlatform(start);
-  }
+  };
 
   function renderTargets() {
     var query = $("target-search").value.trim().toLowerCase();
@@ -2334,14 +2334,9 @@ function renderConsoleHtml() {
   syncFlexEditor(false);
 
   setupCards([], "test");
-  initConsolePlatform();
   setInterval(refreshData, 10000);
 `;
     const sidebar = `
-<div class="side-section">${tr(config.language, "section_platform")}</div>
-<div class="platform-switch" id="console-platform-switch">
-  ${consolePlatformSwitch}
-</div>
 <div class="side-section">${tr(config.language, "section_functions")}</div>
 <div class="fn-list">
   <button type="button" class="fn-card active" data-fn="test">${tr(config.language, "card_test")}</button>
