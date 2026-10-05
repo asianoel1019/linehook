@@ -625,7 +625,10 @@ src/
   middleware/rateLimit.ts 接收端速率限制
   notify/mailer.ts      Email 通知
   monitor/token.ts      健康檢查與重登
-  webhook/server.ts     HTTP server（webhook + 狀態 / 設定 / 訊息 / ReadMe 頁）
+  webhook/server.ts     HTTP server（路由 + 中介層 + webhook 處理；頁面見 pages/）
+  webhook/shell.ts      管理頁外殼（page()、導覽、IM 切換器、i18n 橋接）
+  webhook/pages/        各頁渲染（dashboard / console / settings / skills / messages / login / readme）
+public/                 靜態資源（app.css、js/helpers.js、js/user.js、js/session.js；經 /static 提供）
 docs/architecture.md    架構圖（含多平台歸屬對照表與新增 IM 檢查清單）
 docs/IM.md              多平台規劃（LINE / Telegram / Teams / WhatsApp / Discord 進度）
 docs/IM-setup.md        LINE / Telegram / WhatsApp / Teams 申請與設定說明
