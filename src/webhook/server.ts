@@ -2988,7 +2988,7 @@ function renderSkillsHtml() {
     var allowUsers = document.createElement("textarea");
     allowUsers.className = "sk-allow-users";
     allowUsers.style.minHeight = "44px";
-    allowUsers.value = ((skill.allowedUsers || []).join("\n"));
+    allowUsers.value = ((skill.allowedUsers || []).join("\\n"));
     var allowWrap = fieldWrap(T("lbl_allow_users"), allowUsers);
     var allowHint = document.createElement("div");
     allowHint.className = "msg";
@@ -3133,7 +3133,7 @@ function renderSkillsHtml() {
         enabled: card.querySelector(".sk-enabled").checked,
         trigger: card.querySelector(".sk-trigger") ? card.querySelector(".sk-trigger").value.trim() : "",
         allowedUsers: card.querySelector(".sk-allow-users")
-          ? card.querySelector(".sk-allow-users").value.split(/[\r\n,]+/).map(function (x) { return x.trim(); }).filter(Boolean)
+          ? card.querySelector(".sk-allow-users").value.split(/[\\\\r\\\\n,]+/).map(function (x) { return x.trim(); }).filter(Boolean)
           : [],
         config: config
       });
