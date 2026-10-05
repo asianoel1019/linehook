@@ -195,7 +195,7 @@
     4 個 IM 平台、50 條 HTTP 路由、23 個測試檔與全部部署設定。共整理 <strong>95 項建議</strong>：80 項既有功能增強、15 項新功能提案。
   </p>
   <div class="stamp">
-    實作更新 2026-10-05（commit <code>ba44f89</code>）：57 項已處理（33 完整＋24 部分），38 項未排期，各卡均已標記。<br>
+    實作更新 2026-10-05（commit <code>ba44f89</code>）：58 項已處理（34 完整＋24 部分），37 項未排期，各卡均已標記。<br>
     掃描日期 2026-10-02 ・ 基準 commit <code>88381ab</code> ・ 掃描範圍：<code>src/</code> <code>tests/</code> <code>docs/</code> <code>scripts/</code> <code>library/</code> <code>.github/</code> <code>Dockerfile</code> <code>docker-compose.yml</code>
   </div>
 
@@ -208,8 +208,8 @@
     <div class="stat"><b>1,579</b><span>測試行數</span><i>23 檔，僅單元測試</i></div>
     <div class="stat"><b>0</b><span>lint / 覆蓋率</span><i>CI 只跑 tsc+test</i></div>
     <div class="stat"><b>95</b><span>項建議</span><i>15 P0 / 36 P1 / 42 P2 / 2 P3</i></div>
-    <div class="stat"><b>57</b><span>已處理</span><i>33 完整＋24 部分</i></div>
-    <div class="stat"><b>38</b><span>未排期</span><i>見各卡原因</i></div>
+    <div class="stat"><b>58</b><span>已處理</span><i>34 完整＋24 部分</i></div>
+    <div class="stat"><b>37</b><span>未排期</span><i>見各卡原因</i></div>
   </div>
 </header>
 
@@ -475,8 +475,8 @@
     <div class="gain">真正達到 idempotency 該有的行為。</div>
     </div>
 
-    <div class="card" data-s="no" data-p="P1">
-      <div class="head"><span class="id">A6</span><h4>四套各自為政的儲存（JSONL × 3 + 行程內 Map × 8）</h4><span class="p P1">P1</span><span class="st no">未實作</span><span class="p E">L</span></div>
+    <div class="card" data-s="done" data-p="P1">
+      <div class="head"><span class="id">A6</span><h4>四套各自為政的儲存（JSONL × 3 + 行程內 Map × 8）</h4><span class="p P1">P1</span><span class="st done">已實作</span><span class="p E">L</span></div>
       <p class="body">持久層是散落的：<code>stats.jsonl</code>、<code>messages.jsonl</code>、<code>schedules-*.json</code>、<code>token-usage.json</code> 各有一套讀寫與輪替；另有 8 個行程內 Map 當狀態（見 D5）。冷資料寫進檔案後無法查詢。</p>
       <div class="ev"><b>證據</b>
         四個模組各自實作讀檔／append／輪替；<code>rotate.ts</code> 共用但只有大小輪替；<br>
@@ -489,7 +489,7 @@
         <li>JSONL 保留為 append-only 流水用途</li>
         <li>注意：採 <code>node:sqlite</code> 會把 Node 下限從 20 拉到 22（見 D11），需一併決策</li>
       </ul>
-      <div class="why"><b>未實作（2026-10-05）：</b>需設計 Store 介面並遷移 4 種儲存，屬資料層大主題，未排期。</div>
+      <div class="impl"><b>已實作（2026-10-05 · NEXT3）：</b>新增 <code>src/store/</code>（Store 介面 + <code>JsonlStore</code> 相容備援 + <code>SqliteStore</code>（<code>node:sqlite</code>，零新依賴，Node ≥22.13））；<code>messages</code>／<code>sends</code>／<code>deadletter</code> 三表統一，開機自動從既有 JSONL 遷移（原檔存 <code>.migrated</code>）；全期可查詢（歷史不再被 5000 筆上限截斷）、以 <code>DELETE</code> 實作保留政策與清除、sqlite 走 WAL＋索引；<code>STORAGE_KIND=jsonl</code> 可隨時切回。schedules 保留檔案方案（原子 rename 與 arm() 語意需要）；token-usage 維持整檔讀寫（量小）。engines 升至 ≥22.13 並由 CI 檢查。</div>
     <div class="gain">一次改動，同時解掉五個問題：可查詢的失敗紀錄、TTL 清掃、保留政策、受控匯出、跨平台收件匣。</div>
     </div>
 
@@ -2022,7 +2022,7 @@
     <h4>資料層統一 + 平台對齊</h4>
     <div class="when">建議 4–8 週 · 這是上層功能（K1/K2/K13/K14）的共同前提</div>
     <ul>
-      <li><strong>A6</strong> 統一儲存層：先定義 <code>Store</code> 介面並讓 JSONL 實作，再考慮 <code>node:sqlite</code>（注意會把 Node 下限拉到 22，與 D11 一併決策）</li>
+      <li><s><strong>A6</strong></s> <strong>已完成</strong>：Store 介面 + JSONL 實作 + node:sqlite 切換（engines 升至 ≥22.13，CI 有版本檢查）——若日後要多行程，再評估 Redis</li>
       <li><strong>A8</strong> 快取 TTL sweep、<strong>D9</strong> schema 版本與遷移機制、<strong>J5</strong> 升級流程文件化</li>
       <li><strong>B5</strong> 密鑰欄位加密（重用 <code>settings-crypto.ts</code>）＋ 回傳遮罩；<strong>B7</strong> <code>/readme</code> 消毒；<strong>B8</strong> CSP + HSTS（此時 D2 已完成，CSP 才可行）</li>
       <li><strong>B6</strong> scrypt async + 帳號鎖定；<strong>B9</strong> 稽核軌跡；<strong>B10 / B12</strong> scope 與收件端限流</li>
@@ -2059,13 +2059,13 @@
 
 <section id="done">
   <h2 class="sec">本次實作結果 <span class="bn">2026-10-05 · commit ba44f89</span></h2>
-  <p class="muted">95 項中 <strong>57 項已處理（33 完整＋24 部分）</strong>，38 項未排期。驗證：typecheck ✅、build ✅、lint 0 errors ✅、<strong>207 tests 全過</strong>（新增 16 個）。以下按原報告章節彙整，細節見各卡片標記。</p>
+  <p class="muted">95 項中 <strong>58 項已處理（34 完整＋24 部分）</strong>，37 項未排期。驗證：typecheck ✅、build ✅、lint 0 errors ✅、<strong>207 tests 全過</strong>（新增 16 個）。以下按原報告章節彙整，細節見各卡片標記。</p>
 
   <div class="tbl-wrap">
     <table>
       <thead><tr><th>章節</th><th>已處理</th><th>未排期</th></tr></thead>
       <tbody>
-        <tr><td>A 可靠性</td><td>A1 A2 A3 A4 A5 A7 A8（7/8）</td><td>A6（儲存統一，大主題）</td></tr>
+        <tr><td>A 可靠性</td><td>A1 A2 A3 A4 A5 A6 A7 A8（8/8）</td><td>—（A 全數至少部分處理）</td></tr>
         <tr><td>B 安全</td><td>B1 B3 B4 B6 B7 B11＋B5 B9 部分（8/12）</td><td>B2（沙箱 XL）、B8（待 D1）、B10（breaking）、B12（效益低）</td></tr>
         <tr><td>C 可觀測</td><td>C1 C7＋C2 C3 C4 C5 C6 部分（7/8）</td><td>—（C 全數至少部分處理）</td></tr>
         <tr><td>D 架構</td><td>D3 D8 D10 D11＋D5 D6 D7 D9 部分（8/11）</td><td>D1 D2（大重構）、D4（需基建）</td></tr>

@@ -28,7 +28,7 @@ LINE 透過已登入的個人帳號（selfbot），Telegram 走 Bot API，WhatsA
 
 ## 環境需求
 
-- Node.js 20+（開發用 24）
+- Node.js 22.13+（開發用 24；統一儲存層 `node:sqlite` 自 22.13 起免實驗 flag）
 - 一支 LINE 帳號與可收驗證的手機
 
 ## 安裝
@@ -71,10 +71,12 @@ npm run typecheck
 | `SETTINGS_PATH` | `./settings.json` | 執行期設定儲存檔 |
 | `STORAGE_PATH` | `./storage.json` | 登入 token 儲存位置 |
 | `LOG_FILE` | `./logs/app.log` | log 檔路徑 |
-| `MESSAGES_PATH` | `./data/messages.jsonl` | 收到的訊息持久化檔（JSONL）；是否寫入由 `/settings` 開關控制 |
+| `MESSAGES_PATH` | `./data/messages.jsonl` | 收到的訊息持久化檔（jsonl 模式為主檔；sqlite 模式開機遷移後封存 `.migrated`）；是否寫入由 `/settings` 開關控制 |
 | `SCHEDULES_PATH` | `./data/schedules.json` | 排程訊息持久化檔；重啟後恢復未到期排程 |
-| `STATS_PATH` | `./data/stats.jsonl` | 發送統計（JSONL，供儀表板） |
+| `STATS_PATH` | `./data/stats.jsonl` | 發送統計流水檔（同上，jsonl 模式為主檔） |
 | `STATS_DAYS` | `14` | 儀表板統計顯示天數 |
+| `STORAGE_KIND` | `sqlite` | 統一儲存層：`sqlite`（可查詢／保留政策，需 Node ≥22.13）或 `jsonl`（純檔案掃描，備援） |
+| `DB_PATH` | `./data/imweb.db` | SQLite 資料庫路徑；開機會自動把既有 JSONL 遷移進來 |
 | `UPLOADS_PATH` | `./data/uploads` | 網頁上傳檔案儲存目錄 |
 | `MAX_BODY_MB` | `25` | 請求 body 大小上限（MB） |
 | `STATUS_USER` / `STATUS_PASS` | 空 | 設定頁登入帳密（一律需要登入；留空會自動產生臨時密碼並顯示於 console） |
@@ -511,7 +513,7 @@ curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
 ## 統計 / 儀表板
 
 - 登入後首頁為 **`/dashboard`**：顯示總發送數、成功 / 失敗、成功率、近 `STATS_DAYS` 日長條圖與訊息類型分佈。
-- 每次發送（含 webhook、測試、排程、自動回覆）成功或失敗都會記錄於 `STATS_PATH`（JSONL，記憶體保留最近 5000 筆），並在啟動時載入。
+- 每次發送（含 webhook、測試、排程、自動回覆）成功或失敗都會寫入統一儲存層（`STORAGE_KIND=sqlite` 時查詢走 `DB_PATH`，不再受記憶體上限影響）。
 - 統計**依平台分別累計**（每筆記錄帶 `platform`；舊資料無標記視為 LINE），儀表板一次只顯示右上角所選平台的統計。
 - 狀態摘要（登入狀態、QR / PIN、好友數、佇列、最後發送…）也整合在同一頁。
 
@@ -524,8 +526,8 @@ curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
 
 - 記錄**別人傳給本帳號**的訊息（自己送出的不記），涵蓋 1:1 與群組。
 - 預設只存在記憶體（最多 300 筆），**重啟即清空**。
-- 於 `/settings` 勾選「**持久化收到的訊息**」後，訊息會以 JSONL 追加寫入 `MESSAGES_PATH`
-  （預設 `./data/messages.jsonl`，於 `.env` 設定）；重啟時會載入最近 300 筆。
+- 設定頁勾選「**持久化收到的訊息**」後，訊息寫入統一儲存層（`STORAGE_KIND=sqlite`）；此時 `/messages` 的搜尋涵蓋**全量歷史**（不再只是最近 300 筆）。頁面清單仍顯示最近 300 筆（記憶體視窗）。
+- 依 `MESSAGES_RETENTION_DAYS` 開機與每日自動修剪；「清除全部」按鈕可立即刪除儲存層與檔案（`POST /messages/purge`）。
 - 檔案超過 5MB 會自動輪替（保留 3 個舊檔）。
 - 只記錄文字；圖片 / 檔案訊息的內容不記錄。
 
@@ -559,6 +561,9 @@ pm2 restart line-webhook
 ```
 
 > 切勿在伺服器上執行 `git clean -fdx` 或重新 clone，否則會刪掉未追蹤的 runtime 檔案。
+>
+> **伺服器 Node 必須 ≥ 22.13**（`package.json` engines 與 CI 皆有檢查）；統一儲存層 `node:sqlite` 需要它。
+> 首次以 sqlite 啟動時會自動把既有的 `messages/stats/deadletter` JSONL 遷移進 `DB_PATH`，原檔改名 `.migrated` 保留。
 >
 > **每次部署都要跑 `npm ci`**：若新版本新增了依賴（例如 WhatsApp 個人帳號模式需要 `@whiskeysockets/baileys`），沒安裝會導致該功能載入失敗（嚴重時服務起不來 → nginx 502）。
 
@@ -606,6 +611,7 @@ src/
   line/queue.ts         發送佇列（重試 + 節流）
   line/scheduler.ts     排程 / 延遲 / 重複發送（持久化）
   line/cron.ts          cron 表達式解析與下次執行時間
+  store/                統一儲存層（Store 介面；JsonlStore 相容備援、SqliteStore 需 Node ≥22.13，開機遷移 JSONL）
   messaging/            多 IM 傳輸抽象（types / services 註冊表 / dispatch 共用管線 / text / media）
   telegram/client.ts    Telegram Bot API 轉接（發送 / 接收正規化 / 媒體上傳 / 貼圖與 Flex 降級）
   whatsapp/client.ts    WhatsApp Cloud API 轉接（發送 / webhook 接收驗簽 / 24h 視窗感知）

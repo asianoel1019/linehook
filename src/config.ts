@@ -81,6 +81,9 @@ const schema = z.object({
   SCHEDULES_PATH: z.string().default("./data/schedules.json"),
   STATS_PATH: z.string().default("./data/stats.jsonl"),
   STATS_DAYS: z.coerce.number().int().min(1).default(14),
+  // A6 / NEXT3：統一儲存層。sqlite（Node ≥22.13 內建）可查詢、可保留政策；jsonl 為相容/測試模式。
+  STORAGE_KIND: z.enum(["sqlite", "jsonl"]).default("sqlite"),
+  DB_PATH: z.string().default("./data/imweb.db"),
   DEADLETTER_PATH: z.string().default("./data/deadletter.jsonl"),
   UPLOADS_PATH: z.string().default("./data/uploads"),
   SKILLS_PATH: z.string().default("./data/skills"),
@@ -254,6 +257,8 @@ export interface Config {
   inboundQueuePath: string;
   schedulesPath: string;
   statsPath: string;
+  storageKind: "sqlite" | "jsonl";
+  dbPath: string;
   deadletterPath: string;
   statsDays: number;
   uploadsPath: string;
@@ -370,6 +375,8 @@ export const config: Config = {
   inboundQueuePath: env.INBOUND_QUEUE_PATH,
   schedulesPath: env.SCHEDULES_PATH,
   statsPath: env.STATS_PATH,
+  storageKind: env.STORAGE_KIND,
+  dbPath: env.DB_PATH,
   deadletterPath: env.DEADLETTER_PATH,
   statsDays: env.STATS_DAYS,
   uploadsPath: env.UPLOADS_PATH,

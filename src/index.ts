@@ -2,6 +2,7 @@ import type { Server } from "node:http";
 import { config } from "./config.js";
 import { initLogger, logger } from "./logger.js";
 import { loadSettings } from "./settings.js";
+import { initStore, closeStore } from "./store/index.js";
 import { webhookAuthEnabled } from "./middleware/hmac.js";
 import { initAuth } from "./middleware/session.js";
 import { initMessages } from "./messages.js";
@@ -59,6 +60,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   initAuth();
+  // A6/NEXT3：統一儲存層先開（sqlite 首次開機會把既有 JSONL 遷移）。
+  initStore();
   initMessages();
   initStats();
   initTokenStats();
@@ -164,6 +167,7 @@ async function main(): Promise<void> {
     telegram?.stopQueue();
     whatsapp?.stopQueue();
     teams?.stopQueue();
+    closeStore();
 
     const force = setTimeout(() => {
       logger.warn("關閉逾時，強制結束");

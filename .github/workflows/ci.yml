@@ -19,6 +19,9 @@ jobs:
       - name: Versions
         run: node --version && npm --version
 
+      - name: Node runtime requirements (engines + node:sqlite)
+        run: node -e "const [maj,min]=process.versions.node.split('.').map(Number); if(maj<22||(maj===22&&min<13)){console.error('需要 Node >= 22.13');process.exit(1)}; console.log('node:sqlite', typeof require('node:sqlite').DatabaseSync)"
+
       - name: Install dependencies
         run: npm ci
 
