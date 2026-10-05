@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { recordMessage } from "../messages.js";
 import { recordSend } from "../stats.js";
+import { writeDeadLetter } from "../deadletter.js";
 import { setState } from "../state.js";
 import { SendQueue } from "../line/queue.js";
 import { SendScheduler, type ScheduledJobView } from "../line/scheduler.js";
@@ -24,7 +25,6 @@ import {
   type SendInput,
   type StickerInput,
 } from "../messaging/types.js";
-import { fetchJson as netFetchJson } from "../net.js";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -94,7 +94,7 @@ export function normalizeTelegramUpdate(update: TgUpdate): IncomingMessage | nul
   const chatName = msg.chat.title
     || (msg.chat.username ? `@${msg.chat.username}` : "")
     || `${msg.chat.first_name ?? ""} ${msg.chat.last_name ?? ""}`.trim();
-  return { chat, fromId, fromName, chatName, text };
+  return { chat, fromId, fromName, chatName, text, messageId: String(update.update_id) };
 }
 
 export class TelegramService implements IMessagingService {
@@ -372,6 +372,13 @@ export class TelegramService implements IMessagingService {
         errors.push(error);
         messages.push(`${input.to}: ${error instanceof Error ? error.message : String(error)}`);
         recordSend({ time: new Date().toISOString(), to: input.to, type: this.inputType(input), ok: false, platform: "telegram" });
+        writeDeadLetter({
+          platform: "telegram",
+          kind: "send",
+          to: [input.to],
+          summary: this.inputType(input),
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
     if (errors.length === 1 && errors[0] instanceof Error) throw errors[0];

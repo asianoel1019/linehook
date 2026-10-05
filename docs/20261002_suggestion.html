@@ -1,0 +1,2028 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IM Webhook · 功能增強與新功能建議（2026-10-02）</title>
+<meta name="description" content="IM Webhook 全專案掃描報告：98 項功能增強與新功能建議，涵蓋可靠性、安全、可觀測性、架構、多 IM、技能框架、LLM、使用者體驗、資料隱私與維運。">
+<style>
+  :root {
+    --paper-1:#f7f5f0; --paper-2:#fffef8; --paper-3:#f0ecdf;
+    --ink-1:#2a2a28; --ink-2:#0d0c0a; --ink-soft:#6b6557; --ink-faint:#938c7c;
+    --border-1:#d7d1c2; --border-2:#6b6557;
+    --shadow:rgba(60,50,30,.14);
+    --p0:#a3401f; --p0-bg:rgba(163,64,31,.10);
+    --p1:#8a6412; --p1-bg:rgba(138,100,18,.11);
+    --p2:#4f6236; --p2-bg:rgba(79,98,54,.11);
+    --p3:#5c6470; --p3-bg:rgba(92,100,112,.11);
+    --ok:#3f6b4a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper-1:#1a1917; --paper-2:#22201d; --paper-3:#141210;
+      --ink-1:#e8e4da; --ink-2:#f5f2ea; --ink-soft:#9a9182; --ink-faint:#7d7568;
+      --border-1:#3a3630; --border-2:#5a5449; --shadow:rgba(0,0,0,.5);
+      --p0:#e08a63; --p0-bg:rgba(224,138,99,.14);
+      --p1:#d8b45c; --p1-bg:rgba(216,180,92,.14);
+      --p2:#9dbc7e; --p2-bg:rgba(157,188,126,.13);
+      --p3:#9aa4b2; --p3-bg:rgba(154,164,178,.13);
+      --ok:#7dbb90;
+    }
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth; scroll-padding-top:24px}
+  body{
+    margin:0; color:var(--ink-1); line-height:1.85;
+    font-family:"Georgia","Noto Serif TC","Songti TC",serif;
+    background:
+      radial-gradient(1200px 620px at 8% -10%, var(--paper-2), transparent 62%),
+      radial-gradient(900px 520px at 100% 0%, var(--paper-3), transparent 58%),
+      linear-gradient(180deg, var(--paper-1), var(--paper-3));
+    background-attachment:fixed;
+    min-height:100vh; -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit}
+  code{font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;font-size:.86em;
+    background:var(--paper-3); border:1px solid var(--border-1); border-radius:3px; padding:1px 5px; word-break:break-word}
+  .wrap{max-width:1240px;margin:0 auto;padding:0 24px}
+  .rule{height:1px;background:linear-gradient(90deg,var(--border-1),transparent)}
+
+  header{padding:76px 0 30px}
+  .eyebrow{font-size:11.5px;letter-spacing:.42em;color:var(--ink-faint);text-transform:uppercase}
+  h1{font-size:clamp(28px,5vw,50px);font-weight:400;letter-spacing:.05em;margin:16px 0 8px;color:var(--ink-2);line-height:1.35}
+  .lead{max-width:780px;color:var(--ink-soft);font-size:15.5px;margin:0 0 6px}
+  .stamp{font-size:12.5px;color:var(--ink-faint);letter-spacing:.08em;margin-top:18px}
+
+  .stats{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));margin:34px 0 6px}
+  .stat{background:linear-gradient(160deg,var(--paper-2),var(--paper-1));border:1px solid var(--border-1);
+    border-radius:3px 18px 3px 18px;padding:16px 16px 13px}
+  .stat b{display:block;font-size:25px;font-weight:400;color:var(--ink-2);line-height:1.25}
+  .stat span{font-size:10.5px;letter-spacing:.14em;color:var(--ink-faint);text-transform:uppercase}
+  .stat i{display:block;font-style:normal;font-size:12px;color:var(--ink-soft);margin-top:3px}
+
+  .toolbar{position:sticky;top:0;z-index:40;background:var(--paper-1);
+    border-bottom:1px solid var(--border-1);margin:40px 0 0;padding:12px 0}
+  .toolbar-in{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center}
+  .chip{font:inherit;font-size:12px;letter-spacing:.09em;color:var(--ink-soft);background:transparent;
+    border:1px solid var(--border-1);border-radius:999px;padding:5px 15px;cursor:pointer;
+    transition:background-color .3s,color .3s,border-color .3s}
+  .chip:hover{border-color:var(--border-2);color:var(--ink-2)}
+  .chip.on{background:var(--ink-2);border-color:var(--ink-2);color:var(--paper-2)}
+  .chip.p0.on{background:var(--p0);border-color:var(--p0);color:var(--paper-2)}
+  .chip.p1.on{background:var(--p1);border-color:var(--p1);color:var(--paper-2)}
+  .chip.p2.on{background:var(--p2);border-color:var(--p2);color:var(--paper-2)}
+  .chip.p3.on{background:var(--p3);border-color:var(--p3);color:var(--paper-2)}
+  .sep{width:1px;height:20px;background:var(--border-1);margin:0 4px}
+  .search{font:inherit;font-size:13px;background:var(--paper-2);color:var(--ink-1);
+    border:1px solid var(--border-1);border-radius:999px;padding:6px 16px;min-width:180px;flex:1 1 180px;max-width:320px}
+  .search:focus{outline:none;border-color:var(--border-2)}
+  .count{font-size:12px;color:var(--ink-faint);letter-spacing:.1em;margin-left:auto}
+
+  .cols{display:grid;grid-template-columns:1fr;gap:0 46px;padding-top:44px}
+  @media (min-width:1080px){ .cols{grid-template-columns:236px 1fr} }
+  nav.toc{position:sticky;top:70px;align-self:start;max-height:calc(100vh - 92px);overflow:auto;
+    padding:4px 0 24px;font-size:12.5px;line-height:1.5}
+  @media (max-width:1079px){ nav.toc{position:static;max-height:none;columns:2;column-gap:26px;padding-bottom:10px} }
+  @media (max-width:560px){ nav.toc{columns:1} }
+  nav.toc h4{font-size:10px;letter-spacing:.24em;color:var(--ink-faint);text-transform:uppercase;margin:0 0 10px;font-weight:400}
+  nav.toc ol{list-style:none;margin:0;padding:0}
+  nav.toc li{margin:0 0 3px;break-inside:avoid}
+  nav.toc a{display:block;padding:4px 10px 4px 12px;border-left:2px solid transparent;
+    text-decoration:none;color:var(--ink-soft);transition:color .25s,border-color .25s}
+  nav.toc a:hover{color:var(--ink-2);border-left-color:var(--border-2)}
+  nav.toc .n{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--ink-faint);margin-right:6px}
+  main{min-width:0;padding-bottom:70px}
+
+  section{margin-bottom:52px;scroll-margin-top:76px}
+  h2.sec{font-size:14px;letter-spacing:.3em;text-transform:uppercase;color:var(--border-2);font-weight:400;
+    margin:0 0 6px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h2.sec .bn{font-size:11px;letter-spacing:.12em;color:var(--ink-faint);text-transform:none}
+  h3.sub{font-size:17px;font-weight:500;color:var(--ink-2);letter-spacing:.04em;margin:32px 0 12px;
+    padding-bottom:8px;border-bottom:1px solid var(--border-1)}
+  p{margin:0 0 14px}
+  .muted{color:var(--ink-soft);font-size:14px}
+
+  .tbl-wrap{overflow-x:auto;margin:0 0 20px;border:1px solid var(--border-1);border-radius:3px 14px 3px 14px;background:var(--paper-2)}
+  table{width:100%;border-collapse:collapse;font-size:13.2px;min-width:520px}
+  th,td{text-align:left;padding:9px 14px;border-bottom:1px solid var(--border-1);vertical-align:top}
+  th{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);font-weight:400;background:var(--paper-3);white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:var(--paper-3)}
+
+  .grid{display:grid;gap:18px;grid-template-columns:1fr;margin-bottom:8px}
+  @media (min-width:760px){ .grid{grid-template-columns:repeat(auto-fill,minmax(400px,1fr))} }
+  .card{position:relative;padding:20px 22px 18px;background:linear-gradient(160deg,var(--paper-2),var(--paper-1));
+    border:1px solid var(--border-1);border-radius:3px 20px 3px 20px;
+    box-shadow:0 2px 3px var(--shadow),0 14px 30px -22px var(--shadow);
+    transition:transform .4s ease,box-shadow .4s ease}
+  .card:nth-child(3n){border-radius:20px 3px 20px 3px}
+  .card:hover{transform:translateY(-3px);box-shadow:0 5px 8px var(--shadow),0 24px 42px -24px var(--shadow)}
+  .card.hidden{display:none}
+  .head{display:flex;gap:9px;align-items:flex-start;margin-bottom:9px;flex-wrap:wrap}
+  .id{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--ink-faint);padding-top:3px}
+  .card h4{font-size:15.5px;font-weight:500;color:var(--ink-2);letter-spacing:.03em;margin:0;flex:1 1 200px;line-height:1.5}
+  .p{display:inline-block;font-size:10.5px;letter-spacing:.13em;padding:2px 9px;border-radius:2px 9px 2px 9px;
+    border:1px solid currentColor;white-space:nowrap;flex:0 0 auto}
+  .p.P0{color:var(--p0);background:var(--p0-bg)}
+  .p.P1{color:var(--p1);background:var(--p1-bg)}
+  .p.P2{color:var(--p2);background:var(--p2-bg)}
+  .p.P3{color:var(--p3);background:var(--p3-bg)}
+  .p.E{color:var(--ink-faint);background:var(--paper-3)}
+  .card p.body{font-size:13.4px;color:var(--ink-1);margin:0 0 10px}
+  .ev{font-size:12.2px;color:var(--ink-soft);background:var(--paper-3);border:1px dashed var(--border-1);
+    border-radius:2px 10px 2px 10px;padding:9px 12px;margin:0 0 10px;line-height:1.7}
+  .ev b{font-weight:400;color:var(--ink-faint);letter-spacing:.1em;font-size:10px;text-transform:uppercase;display:block;margin-bottom:3px}
+  .card ul{margin:0;padding-left:19px;font-size:13.2px}
+  .card ul li{margin-bottom:5px}
+  .card ul li::marker{color:var(--border-2)}
+  .gain{margin-top:11px;padding-top:9px;border-top:1px solid var(--border-1);font-size:12.4px;color:var(--ok)}
+
+  .phase{border:1px solid var(--border-1);border-radius:3px 20px 3px 20px;background:var(--paper-2);
+    padding:22px 24px;margin-bottom:18px;box-shadow:0 2px 3px var(--shadow)}
+  .phase:nth-child(even){border-radius:20px 3px 20px 3px}
+  .phase .lbl{font-size:10.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--ink-faint)}
+  .phase h4{font-size:18px;font-weight:500;color:var(--ink-2);margin:6px 0 4px;letter-spacing:.04em}
+  .phase .when{font-size:12.5px;color:var(--ink-faint);letter-spacing:.08em;margin-bottom:12px}
+  .phase ul{margin:0;padding-left:20px;font-size:13.4px}
+  .phase ul li{margin-bottom:6px}
+  .phase ul li::marker{color:var(--border-2)}
+
+  .note{border-left:3px solid var(--border-2);background:var(--paper-3);padding:14px 18px;margin:0 0 20px;
+    font-size:13.4px;border-radius:0 12px 12px 0}
+  .note b{font-weight:500;color:var(--ink-2)}
+  .note.risk{border-left-color:var(--p0)}
+  .note.good{border-left-color:var(--ok)}
+  .foot{margin-top:60px;padding:40px 0 70px;border-top:1px solid var(--border-1);
+    color:var(--ink-faint);font-size:12px;letter-spacing:.12em;text-align:center}
+  .totop{position:fixed;right:20px;bottom:20px;z-index:50;width:42px;height:42px;border-radius:50%;
+    border:1px solid var(--border-2);background:var(--paper-2);color:var(--ink-2);cursor:pointer;
+    font-size:16px;line-height:1;display:none;box-shadow:0 6px 18px -8px var(--shadow)}
+  .totop.show{display:block}
+  .empty{display:none;text-align:center;color:var(--ink-faint);font-size:13.5px;padding:40px 0}
+  .empty.on{display:block}
+
+  @media print{
+    body{background:#fff}
+    .toolbar, nav.toc, .totop{display:none !important}
+    .cols{display:block;padding-top:0}
+    .card, .phase{break-inside:avoid;box-shadow:none}
+    .card.hidden{display:block !important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">IM Webhook · Full-Project Audit</div>
+  <h1>功能增強與新功能建議</h1>
+  <p class="lead">
+    對 <strong>IM Webhook</strong>（原 Line_webhook）全專案的靜態掃描與人工稽核結果。涵蓋 80 個 TypeScript 原始檔、38 個內建技能、
+    4 個 IM 平台、50 條 HTTP 路由、23 個測試檔與全部部署設定。共整理 <strong>95 項建議</strong>：80 項既有功能增強、15 項新功能提案。
+  </p>
+  <div class="stamp">
+    掃描日期 2026-10-02 ・ 基準 commit <code>88381ab</code> ・ 掃描範圍：<code>src/</code> <code>tests/</code> <code>docs/</code> <code>scripts/</code> <code>library/</code> <code>.github/</code> <code>Dockerfile</code> <code>docker-compose.yml</code>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b>17,153</b><span>src 行數</span><i>80 個 .ts</i></div>
+    <div class="stat"><b>4,030</b><span>server.ts</span><i>63.7% 為模板字串</i></div>
+    <div class="stat"><b>4</b><span>IM 平台</span><i>LINE / TG / WA / Teams</i></div>
+    <div class="stat"><b>38</b><span>內建技能</span><i>+ zip 熱安裝</i></div>
+    <div class="stat"><b>50</b><span>HTTP 路由</span><i>單一 Express 行程</i></div>
+    <div class="stat"><b>1,579</b><span>測試行數</span><i>23 檔，僅單元測試</i></div>
+    <div class="stat"><b>0</b><span>lint / 覆蓋率</span><i>CI 只跑 tsc+test</i></div>
+    <div class="stat"><b>95</b><span>項建議</span><i>15 P0 / 36 P1 / 42 P2 / 2 P3</i></div>
+  </div>
+</header>
+
+<div class="rule"></div>
+
+<div class="toolbar">
+  <div class="toolbar-in">
+    <button type="button" class="chip on" data-p="all">全部</button>
+    <button type="button" class="chip p0" data-p="P0">P0 阻斷級</button>
+    <button type="button" class="chip p1" data-p="P1">P1 重要</button>
+    <button type="button" class="chip p2" data-p="P2">P2 改善</button>
+    <button type="button" class="chip p3" data-p="P3">P3 optional</button>
+    <span class="sep"></span>
+    <input type="search" class="q" id="q" placeholder="搜尋關鍵字、路徑或代碼…" aria-label="搜尋建議">
+    <span class="count" id="count">95 項</span>
+  </div>
+</div>
+
+<div class="cols">
+
+<nav class="toc">
+  <h4>目錄</h4>
+  <ol>
+    <li><a href="#summary"><span class="n">00</span>結論摘要</a></li>
+    <li><a href="#now"><span class="n">01</span>現況快照</a></li>
+    <li><a href="#strength"><span class="n">02</span>已做得好</a></li>
+    <li><a href="#A"><span class="n">A</span>可靠性與資料完整性</a></li>
+    <li><a href="#B"><span class="n">B</span>安全</a></li>
+    <li><a href="#C"><span class="n">C</span>可觀測性與告警</a></li>
+    <li><a href="#D"><span class="n">D</span>架構與可維護性</a></li>
+    <li><a href="#E"><span class="n">E</span>多 IM 平台</a></li>
+    <li><a href="#F"><span class="n">F</span>技能框架</a></li>
+    <li><a href="#G"><span class="n">G</span>AI / LLM</a></li>
+    <li><a href="#H"><span class="n">H</span>使用者體驗與在地化</a></li>
+    <li><a href="#I"><span class="n">I</span>資料與隱私</a></li>
+    <li><a href="#J"><span class="n">J</span>部署與維運</a></li>
+    <li><a href="#K"><span class="n">K</span>新功能提案</a></li>
+    <li><a href="#roadmap"><span class="n">R</span>建議執行順序</a></li>
+    <li><a href="#quickwin"><span class="n">W</span>低成本立即可做</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<section id="summary">
+  <h2 class="sec">結論摘要 <span class="bn">Executive Summary</span></h2>
+
+  <p>
+    這個專案的架構判斷是正確的：<code>IMessagingService</code> 抽象層、<code>messaging/dispatch.ts</code> 的共用收訊管線，
+    以及把技能／排程／佇列從 LINE 完全抽離，是多 IM 轉型最關鍵也最難回頭的一步，做得很紮實。
+    38 個技能、zip 熱安裝、三種並存的 webhook 驗證機制、per-platform 切換 UI，都是相當有厚度的功能。
+  </p>
+  <p>
+    但目前專案處於<strong>「功能已跑得很遠，工程防護還停在 MVP」</strong>的狀態。本次掃描確認了幾個結構性問題，
+    它們不是零星 bug，而是會隨著平台數、技能的成長而放大：
+  </p>
+
+  <div class="note risk">
+    <b>最關鍵的一點：所有安全邊界都建立在「只有一位管理員會好好操作」這個假設上，而這個假設沒有被任何機制強制。</b>
+    安裝一個 zip 技能＝在主進程取得任意程式碼執行（可讀 <code>process.env</code> 內所有密鑰）；
+    LLM 技能對任何能傳訊息的人開放、無白名單，且 <code>summarize</code> 可被用來做 SSRF；
+    <code>settings.json</code> 明文存所有密鑰、檔案權限 0644，並且整份回傳給瀏覽器。
+    這些都是「架構已就位、但缺一道閘門」的情況，補起來成本不高，但順序不能晚。
+  </div>
+
+  <div class="note">
+    <b>第二點：資料流的「末端」是空的。</b>
+    進資料有持久化、統計有 JSONL，但去路沒有——永久性失敗的訊息只寫一行 log 就消失（<code>queue.ts:85-86</code>），
+    失敗的排程訊息會被<em>刪除</em>（<code>scheduler.ts:349</code>），收訊重送完全沒有去重（<code>update_id</code>／<code>wamid</code> 都已解析出來卻丟棄），
+    訊息紀錄模組在結構上<em>沒有任何刪除函式</em>。也就是說，出問題時你會看到「成功率 97%」，但不知道是哪 3%。
+  </div>
+
+  <div class="note">
+    <b>第三點：可維護性即將成為瓶頸。</b>
+    <code>server.ts</code> 已達 4,030 行，其中 63.7% 是 inline HTML/CSS/JS 字串；
+    單一 <code>renderSettingsHtml()</code> 就 790 行，是整個路由層（670 行）的 1.2 倍。
+    這同時卡住三件事：無法做 CSP、沒有測試覆蓋率、沒有 lint。
+  </div>
+
+  <h3 class="sub">建議的切入順序</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>階段</th><th>主題</th><th>為什麼是這個順序</th><th>主要項目</th></tr></thead>
+      <tbody>
+        <tr><td><strong>第 0 階段</strong></td><td>止血：安全閘門 + 資料不遺失</td><td>這些是「正在發生」的風險（開放 webhook、LLM 無白名單、失敗訊息蒸發），且彼此獨立、可平行做</td><td>A1 A2 A3 B1 B2 B3 B4 C1 C2 G1</td></tr>
+        <tr><td><strong>第 1 階段</strong></td><td>補齊可觀測性與失敗處理</td><td>有了死信佇列與告警，後續所有變更才有安全網；同時是拆分 server.ts 的好時機</td><td>A4 A5 A7 C3 C4 C5 D1 D2 D3 D4 F3 F4 F5</td></tr>
+        <tr><td><strong>第 2 階段</strong></td><td>資料層與平台對齊</td><td>統一儲存後，才能做跨平台收件匣、成本統計、多使用者等上層功能</td><td>A6 A8 B5 B6 B7 B8 B10 D5 D6 E3 E4 E6 I1 I2 I3 J1 J2 J3 J4 J5</td></tr>
+        <tr><td><strong>第 3 階段</strong></td><td>產品擴張</td><td>技術債清完、資料層穩定後，新平台與新 UI 才是加法而不是重寫</td><td>E1 E2 E5 E7 F1 F6 F7 F8 G2 G3 G4 G5 G6 H1–H7 D7–D11 I4 I5 J6 J7 J8 B9 B11 B12 + K 全部</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="now">
+  <h2 class="sec">現況快照 <span class="bn">Current State</span></h2>
+  <p class="muted">以下數字皆為本次實測值，而非估計；後續建議均引用此處的結構。</p>
+
+  <h3 class="sub">1.1 執行模型</h3>
+  <p class="muted">
+    單一 Node 行程、單一事件迴圈、單一 port（<code>src/index.ts</code> 為唯一進入點，無 worker、無叢集）。
+    長駐計時器皆 <code>.unref()</code>；每個平台各有一個 <code>SendQueue</code>（序列化 + 節流 + 指數退避 + jitter）
+    與一個 <code>SendScheduler</code>（單一 <code>setTimeout</code> 對齊最近任務，寫檔採 temp + rename）。
+    開機順序：process guards → logger → settings → auth → messages → stats → skills → 註冊服務 → 監聽 HTTP → 啟動健康監控 →  fire-and-forget 登入。
+  </p>
+
+  <h3 class="sub">1.2 平台抽象</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>層</th><th>檔案</th><th>職責</th><th>評價</th></tr></thead>
+      <tbody>
+        <tr><td>介面</td><td><code>src/messaging/types.ts</code></td><td><code>IMessagingService</code>、<code>SendInput</code>（8 種型別）、<code>IncomingMessage</code>、錯誤型別</td><td>設計良好；<code>discord</code> 已在 union 但未實作</td></tr>
+        <tr><td>註冊表</td><td><code>src/messaging/services.ts</code></td><td><code>Map&lt;Platform, IMessagingService&gt;</code></td><td><code>Map.set</code> 無重複偵測 → 見 D6</td></tr>
+        <tr><td>共用管線</td><td><code>src/messaging/dispatch.ts</code></td><td>指令 → 技能 → 轉發規則；助理前綴解析</td><td>架構最佳的一段；錯誤隔離有缺口 → F4</td></tr>
+        <tr><td>Adapter</td><td><code>line/</code> <code>telegram/</code> <code>whatsapp/</code> <code>teams/</code></td><td>只負責傳輸與正規化</td><td>4 個各 550–692 行，職責分離乾淨</td></tr>
+        <tr><td>技能框架</td><td><code>src/skills/</code>（8 框架 + 38 技能）</td><td><code>SkillContext</code>、watch、cache、llm、install</td><td>功能最厚的一層；缺權限模型 → F1</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub">1.3 功能盤點（已存在）</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>領域</th><th>已具備</th></tr></thead>
+      <tbody>
+        <tr><td>發送</td><td>4 平台 × 獨立端點、8 種訊息型別、模板 + 變數、多收件人、排程（<code>sendAt</code>／<code>delaySec</code>／cron 遞迴，重啟後恢復）、序列佇列、永久／暫時錯誤分類</td></tr>
+        <tr><td>收發管線</td><td>關鍵字／正規式自動回覆、轉發規則、slash 指令、助理前綴與禮貌詞剥离、週期任務 <code>watch</code>／<code>unwatch</code>、跨 chat 記憶</td></tr>
+        <tr><td>技能</td><td>38 個內建（交通／天氣／金融／生活／內容訂閱／中職…）、zip 安裝與卸載、per-skill 欄位與重複規則編輯器、<code>health()</code> 探測、多語描述（zh/en/ja）</td></tr>
+        <tr><td>管理 UI</td><td><code>/dashboard</code>（分平台狀態 + 14 天統計長條圖 + QR）、<code>/console</code>（測試送 + 媒體上傳 + 排程管理 + Flex 編輯器）、<code>/skills</code>、<code>/settings</code>、<code>/messages</code>、<code>/readme</code>；右上角 IM 切換、側欄語言、使用者選單含閒置倒數</td></tr>
+        <tr><td>安全</td><td>IP 白名單 + 私網限定、HMAC-SHA256（timestamp + nonce）、URL token、Bearer token（read/send/admin scope）、idempotency、per-IP 限流、cookie session + scrypt、CSRF same-origin、媒體路徑沙箱、zip 防穿越／防炸、outbound 15s + 5MB 上限、設定匯出 AES-256-GCM</td></tr>
+        <tr><td>維運</td><td>登入健康巡檢 + 自動重登 + 一次 Email、<code>/health</code>、log 輪替、graceful shutdown（10s 上限）、GitHub Actions（typecheck / build / test / audit gate）、PM2 與 Docker 部署</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub">1.4 決策時要記得的三個數字</h3>
+  <div class="note">
+    <b>CI 覆蓋面</b>：<code>npm ci → typecheck → build → test → audit-gate</code>。<b>沒有</b> lint、<b>沒有</b>覆蓋率、<b>沒有</b> e2e、<b>不建 Docker image</b>。<br>
+    <b>測試分佈</b>：23 檔 1,579 行，幾乎全是純函式單元測試（cron／time／text／skill parser／adapter normaliser）。
+    <code>queue.ts</code>、<code>scheduler.ts</code>、<code>dispatch.ts</code>、<code>settings.ts</code> 幾乎無測試；4,030 行的管理 UI 完全無測試。<br>
+    <b>建置產物</b>：<code>npm run build</code> 會產生 <code>dist/</code>，但沒有任何東西 import 它——純 build-only 的執行期斷裂抓不到。
+  </div>
+</section>
+
+<section id="strength">
+  <h2 class="sec">已做得好 <span class="bn">建議在重構中保留</span></h2>
+  <div class="grid">
+    <div class="card">
+      <h4>抽象層選對了位置</h4>
+      <p class="body">把邏輯（技能／指令／轉發）與傳輸（adapter）分開，而不是把 LINE 抽象成一個胖介面。新的 adapter 平均只有 550–600 行。</p>
+      <div class="gain">後續加平台是「加一個檔案」，不是「改 N 個檔案」。</div>
+    </div>
+    <div class="card">
+      <h4>安全預設值偏保守且一致</h4>
+      <p class="body">安全標頭、<code>trust proxy: loopback</code>、<code>timingSafeEqual</code>、CSRF same-origin、媒體路徑沙箱、zip 防穿越、outbound 逾時與大小上限、nonce 只在簽章通過後才記錄。</p>
+      <div class="gain">代表「安全是有人想過的」，後續擴充只需沿用同一標準。</div>
+    </div>
+    <div class="card">
+      <h4>先回 200 再非同步處理</h4>
+      <p class="body">Telegram／Meta／Bot Connector 收到 200 就不會重送，避免平台重試風暴。設計意圖正確。</p>
+      <div class="gain">唯一的問題是它把失敗變成靜默——見 A2。</div>
+    </div>
+    <div class="card">
+      <h4>per-platform 切換已全面貫穿 UI</h4>
+      <p class="body">設定頁以 <code>data-im</code> 過濾、console 隱藏 LINE 專屬操作、dashboard 分平台統計與 QR、icon 整合到右上角切換器。</p>
+      <div class="gain">多 IM 的 UI 成本已付清，第 5 個平台的邊際成本很低。</div>
+    </div>
+    <div class="card">
+      <h4>依賴極精簡</h4>
+      <p class="body">10 個正式依賴，Telegram／Cloud API／Teams 全部以原生 <code>fetch</code> 直連 REST，不引 SDK。Baileys 與 fflate 皆 lazy import。</p>
+      <div class="gain">供應鏈與稽核面小，維護成本低。</div>
+    </div>
+    <div class="card">
+      <h4>文件密度高於同級專案</h4>
+      <p class="body">README 638 行含完整 API 表，另有 <code>docs/architecture.md</code>、<code>docs/IM-setup.md</code>（逐平台申請／設定）、<code>docs/IM.md</code>（多 IM 規劃含風險總覽）。</p>
+      <div class="gain">缺的是「現況的觀測」而非「意圖的記錄」——正是 C 類要補的。</div>
+    </div>
+  </div>
+</section>
+
+<section id="A">
+  <h2 class="sec">A ・ 可靠性與資料完整性 <span class="bn">Reliability &amp; Data Integrity</span></h2>
+  <p class="muted">共 8 項：3 項 P0、3 項 P1、2 項 P2。本類是全報告中<strong>最直接造成資料遺失</strong>的部分。</p>
+
+  <div class="grid">
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">A1</span><h4>收訊完全沒有去重 — 平台重送會重複觸發</h4><span class="p P0">P0</span><span class="p E">M</span></div>
+      <p class="body">Telegram、Meta、Bot Connector 在未收到 2xx 或逾時時都會重投同一則訊息。三個接收端的識別碼都被解析出來了，卻沒有人用。</p>
+      <div class="ev"><b>證據</b>
+        <code>telegram/client.ts:288</code> 只做 <code>typeof update.update_id !== "number"</code> 型別檢查即丟棄；
+        <code>whatsapp/client.ts:59-67</code> 宣告了 <code>msg.id</code>（wamid）但 <code>normalizeWhatsAppWebhook</code>（:79-103）只讀 from／text；
+        <code>teams/client.ts:36</code> 的 <code>Activity.id</code> 同樣未讀。LINE 端（<code>line/client.ts:641-670</code>）與 Baileys 端（<code>web-client.ts:221-257</code>）同樣未用 <code>message.id</code>／<code>msg.key.id</code>。
+      </div>
+      <ul>
+        <li>重複觸發 <code>auto-reply</code>（<code>triggerMode:"any"</code>，<code>auto-reply/index.ts:65</code>）→ 回覆兩次</li>
+        <li><code>!send</code> 會真的<strong>再送一次訊息</strong>給收件人（<code>dispatch.ts:326-335</code>）</li>
+        <li>轉發規則重複轉發（<code>dispatch.ts:271-273</code>）、訊息紀錄重複、統計雙計</li>
+        <li>現有 <code>auto-reply</code> 的冷卻（10 秒、<strong>以 chat 為 key</strong>）不是去重：會連合法訊息一起吞掉，且 <code>cooldownSec=0</code> 時完全失效</li>
+        <li>全專案唯一的去重是<strong>出站</strong>的 <code>X-Idempotency-Key</code>，且屬 opt-in</li>
+      </ul>
+      <div class="gain">建立平台無關的 <code>InboundDeduper</code>：以 <code>update_id</code>／<code>wamid</code>／<code>activity.id</code>／<code>message.id</code> 為 key，TTL 建議 24h。可沿用 <code>middleware/hmac.ts:10-26</code> 現有的 ring + 定期 GC 寫法，無需新設計。</div>
+    </div>
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">A2</span><h4>先回 200 再處理 → 崩潰時靜默丟失收訊</h4><span class="p P0">P0</span><span class="p E">M</span></div>
+      <p class="body">三個接收端都是 <code>res.json({ok:true})</code> 之後才 <code>void …handleIncoming()</code>。這段視窗內若行程崩潰，平台已收到 200 <strong>不會重送</strong>，訊息就沒了。</p>
+      <div class="ev"><b>證據</b>
+        <code>webhook/server.ts:3926-3927</code>（Telegram）、<code>:3974-3975</code>（WhatsApp）、<code>:3996-3997</code>（Teams）；
+        <code>index.ts:20-35</code> 的 <code>installProcessGuards()</code> 對任何 unhandledRejection 直接 <code>process.exit(1)</code>，使這個視窗不是理論值。
+      </div>
+      <ul>
+        <li>與 A1 是同一機制的兩面：<strong>該收的不收、不該收的收</strong></li>
+        <li>最低成本修法：落地一份 <code>data/inbound-queue.jsonl</code>，先寫盤再回 200，背景 worker 消化後才刪</li>
+        <li>完整版本：待 A6 統一儲存層後改為 inbox pattern，並在 <code>/dashboard</code> 顯示待處理數</li>
+      </ul>
+      <div class="gain">訊息可靠度從「盡力」提升到「至少一次」，與 A1 一起構成正確的 exactly-once 語意。</div>
+    </div>
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">A3</span><h4>永久性失敗只寫一行 log 就消失；失敗的排程訊息會被刪除</h4><span class="p P0">P0</span><span class="p E">M</span></div>
+      <p class="body">這是本專案最實際的資料遺失來源。佇列遇到 <code>isPermanent(error)</code> 就往外丟，沒有任何持久化紀錄；排程的一次性任務更是<strong>無論成敗都從 jobs 移除並存檔</strong>。</p>
+      <div class="ev"><b>證據</b>
+        <code>line/queue.ts:85-86</code> 永久失敗 → <code>throw</code> → <code>queue.ts:61</code> <code>task.reject()</code>；Task 結構（<code>queue.ts:8-12</code>）只含 <code>{run, resolve, reject}</code>，<strong>不含 payload 也無錯誤紀錄</strong>；<br>
+        <code>line/scheduler.ts:349</code> <code>this.jobs = this.jobs.filter(item =&gt; item.id !== job.id)</code> 後 <code>this.save()</code> → <strong>失敗內容永久消失</strong>；<br>
+        <code>stats.ts:8-15</code> 的 <code>SendEvent</code> <strong>沒有</strong> error 欄位與訊息內文，<code>getStats</code>（:78-118）只做計數，沒有任何 endpoint 能列出「哪幾則失敗、為什麼」；<br>
+        Console 排程列表只有「改時間／取消」兩個動作（<code>server.ts:2183-2210</code>），<strong>沒有重送</strong>。
+      </div>
+      <div class="gain"><strong>死信佇列（dead-letter）</strong>：失敗時把 payload + 錯誤 + 平台 + 時間寫入 <code>data/deadletter.jsonl</code>；在 <code>/console</code> 加一個分頁可「重送／檢視／清除」；排程失敗時保留 job 並標記 <code>lastError</code>，不要刪。產品面詳見 K4。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">A4</span><h4>排程缺 misfire（錯過補發）策略</h4><span class="p P1">P1</span><span class="p E">S</span></div>
+      <p class="body">行程重啟時若排程時間已過（例如伺服器中斷 6 小時），該次推送會被<strong>靜默跳過</strong>，使用者不會知道漏了一筆。</p>
+      <div class="ev"><b>證據</b><code>line/scheduler.ts:316-353</code> 只處理 <code>runAt &lt;= now</code> 者，恢復時不檢查落後多遠，也無任何紀錄。</div>
+      <ul>
+        <li>三選一策略：<code>skip</code>（現況）／<code>fire-once</code>（補一次）／<code>catch-up</code>（補全部，上限 N 次）</li>
+        <li>存成 per-job 欄位，預設 <code>skip</code> 以維持行為相容，並在 <code>/console</code> 顯示「已跳過 N 次」</li>
+      </ul>
+      <div class="gain">到價通知、晨報這類「錯過即失去意義」的技能不會因維運動作而漏發。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">A5</span><h4>Idempotency 視窗硬編，且標記時機在送出之後</h4><span class="p P1">P1</span><span class="p E">S</span></div>
+      <p class="body">出站去重做對了方向，但有兩個細節讓它擋不住併發重送。</p>
+      <div class="ev"><b>證據</b>
+        <code>middleware/hmac.ts:189</code> 10 分鐘視窗<strong>硬編</strong>（不像 <code>hmacMaxSkewSec</code> 可設）；容量 5000（<code>:186</code>）FIFO 驅逐；<br>
+        <code>isDuplicateIdempotency</code> 在送之前檢查（<code>server.ts:3316</code>），但 <code>markIdempotency</code> 在送<strong>成功後</strong>才寫（<code>server.ts:3324</code>、<code>:3344</code>）→ 同一視窗內的併發雙送不會被擋；<br>
+        <code>markIdempotency</code> 有 256 字長度上限（<code>hmac.ts:201</code>）但 <code>isDuplicateIdempotency</code> 沒有。
+      </div>
+      <ul>
+        <li>改成「檢查即寫入」（先佔位再送），失敗時釋放；或改 pending／succeeded 兩段狀態</li>
+        <li>視窗長度搬進 <code>config</code>，並補上長度檢查</li>
+      </ul>
+      <div class="gain">真正達到 idempotency 該有的行為。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">A6</span><h4>四套各自為政的儲存（JSONL × 3 + 行程內 Map × 8）</h4><span class="p P1">P1</span><span class="p E">L</span></div>
+      <p class="body">持久層是散落的：<code>stats.jsonl</code>、<code>messages.jsonl</code>、<code>schedules-*.json</code>、<code>token-usage.json</code> 各有一套讀寫與輪替；另有 8 個行程內 Map 當狀態（見 D5）。冷資料寫進檔案後無法查詢。</p>
+      <div class="ev"><b>證據</b>
+        四個模組各自實作讀檔／append／輪替；<code>rotate.ts</code> 共用但只有大小輪替；<br>
+        <code>stats.ts:33</code> 只讀最後 5000 行、<code>messages.ts:27</code> 只讀最後 300 行 → 檔案裡的舊資料沒有任何 API 讀得到；<br>
+        <code>/messages.json</code> 上限 1000 筆（<code>messages.ts:80</code> clamp），也就是說<strong>「可以搜尋」其實只涵蓋最近 300 則</strong>。
+      </div>
+      <ul>
+        <li>短期（不換依賴）：定義一層 <code>Store</code> 介面（<code>append</code>／<code>query</code>／<code>prune</code>），讓現有 JSONL 實作同一組 API，之後換 SQLite 不動呼叫端</li>
+        <li>中期：<code>node:sqlite</code>（Node 22+ 內建，<strong>零新依賴</strong>）處理 <code>messages</code>／<code>stats</code>／<code>deadletter</code>，一次解決 A3、A8、I1、I3、H6</li>
+        <li>JSONL 保留為 append-only 流水用途</li>
+        <li>注意：採 <code>node:sqlite</code> 會把 Node 下限從 20 拉到 22（見 D11），需一併決策</li>
+      </ul>
+      <div class="gain">一次改動，同時解掉五個問題：可查詢的失敗紀錄、TTL 清掃、保留政策、受控匯出、跨平台收件匣。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">A7</span><h4>技能健康探測無逾時、無快取，且不構成執行閘門</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body"><code>/skills/health</code> 用 <code>Promise.all</code> 併行呼叫所有技能的 <code>health()</code>，沒有逾時；其中多個技能會實際打外部 API。</p>
+      <div class="ev"><b>證據</b>
+        <code>server.ts:3532-3545</code> 無逾時、無快取，且每開一次 <code>/skills</code> 頁就重跑一次（<code>server.ts:3024</code> → <code>:3029-3045</code>）；<br>
+        實際外呼範例：<code>reservoir/index.ts:126-133</code>、<code>movie/index.ts:123-130</code>、<code>translate/index.ts:85-92</code>；<br>
+        <code>dispatch.ts:139-171</code> 的 <code>runSkills</code> <strong>從不呼叫</strong> <code>health()</code>——技能報 <code>ok:false</code> 仍照跑。
+      </div>
+      <ul>
+        <li>加 5 秒逾時 + 60 秒結果快取</li>
+        <li>對連續失敗的資料源，<code>runSkills</code> 應短路並回「資料源暫時不可用，10 分鐘後再試」，而非把例外往上丟（見 F4）</li>
+      </ul>
+      <div class="gain">避免單一技能拖垮整個健康頁，也避免外部 API 被無謂地反覆打。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">A8</span><h4>快取檔無 TTL 清掃、名稱消毒會碰撞</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body">技能快取存在 <code>data/cache/*.json</code>，TTL 只在<strong>讀取時</strong>檢查，從不刪檔；且檔名消毒規則會讓不同名稱落到同一個檔案。</p>
+      <div class="ev"><b>證據</b>
+        <code>skills/cache.ts:12</code> <code>name.replace(/[^\w.-]+/g,"_")</code>；<code>cache.ts:19-33</code> 僅讀取時比對 <code>savedAt</code>，<strong>無任何 sweep</strong>；<br>
+        <code>data/cache/</code> 目前 16 檔、僅 6 個技能在用；<code>ttlMs=0</code> 實為 60 分鐘（<code>cache.ts:25</code>），無法表達「永不過期」；<br>
+        部分 TTL 硬編不可設定：<code>movie/index.ts:136</code>（1440）、<code>reservoir/index.ts:65</code>（7 天）。
+      </div>
+      <div class="gain">加開機與每日週期的 sweep（刪除超過 <code>cacheTtl</code> 數倍的檔案），並在消毒後加短雜湊前綴避免碰撞；<code>ttlMs=0</code> 改為代表「不過期」。</div>
+    </div>
+
+  </div>
+</section>
+
+<section id="B">
+  <h2 class="sec">B ・ 安全 <span class="bn">Security</span></h2>
+  <p class="muted">共 12 項：4 項 P0、3 項 P1、5 項 P2。現有安全機制做得比同級專案好（見「已做得好」）；本類問題<strong>不是缺功能，而是已有功能沒有閘門</strong>。</p>
+
+  <div class="grid">
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">B1</span><h4>三種驗證同時關閉時，webhook 變成完全開放端點</h4><span class="p P0">P0</span><span class="p E">S</span></div>
+      <p class="body">當 HMAC、URL token、API token 三者都未設定密鑰時，<code>verifyWebhookAuth</code> 直接 <code>next()</code>，四個發送端點全部無認證——而應用仍照常監聽。</p>
+      <div class="ev"><b>證據</b>
+        <code>middleware/hmac.ts:140-145</code>：<code>hasHmac</code>／<code>hasToken</code>／<code>hasApi</code> 全 false → <code>next()</code>；<br>
+        僅在 <code>server.ts:3386-3388</code> 記一行 warn 就繼續啟動；<code>index.ts</code> 的 <code>app.listen</code> 未指定 host → 綁 0.0.0.0；<br>
+        剩下唯一防線是 <code>ipGuard</code>（<code>allowedIps</code> 預設空 = 全放行，<code>middleware/ip.ts:44</code>）與 per-IP 限流。
+      </div>
+      <ul>
+        <li>開機時若三者全關：<strong>fail-fast 直接結束</strong>，或強制降到僅 listen 127.0.0.1 並要求 <code>ADMIN_PRIVATE_ONLY=true</code></li>
+        <li>設定頁加「安全狀態」警示條（紅／黃／綠三色），一眼看出目前驗證狀態</li>
+        <li>順帶：<code>hmac.ts:149-160</code> 目前是 any-of 語意（HMAC 失敗會靜默落到 token 驗證），建議支援 <code>requireAll</code> 模式，避免誤以為已完成雙重驗證</li>
+      </ul>
+      <div class="gain">成本極低（數行），消除「靜默降級成公開端點」這類最難在事後發現的風險。</div>
+    </div>
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">B2</span><h4>安裝 zip 技能 = 在主進程取得任意程式碼執行</h4><span class="p P0">P0</span><span class="p E">XL</span></div>
+      <p class="body">技能是直接 <code>import()</code> 進同一個 Node 行程的普通 ES module。zip 只驗了<strong>路徑</strong>，完全沒有驗<strong>程式碼</strong>。</p>
+      <div class="ev"><b>證據</b>
+        <code>skills/loader.ts:34</code> 與 <code>:69</code> <code>await import(pathToFileURL(target).href + "?t=" + Date.now())</code>；<br>
+        <code>skills/install.ts:91-167</code> 僅檢查檔案數 ≤200、單檔 ≤5MB、總量 ≤50MB、<code>safeName</code> 與前綴比對防穿越。
+      </div>
+      <ul>
+        <li>惡意／被入侵的技能可：<code>import("node:fs")</code> 讀寫任意檔（繞過 <code>messaging/media.ts:7-19</code> 的媒體沙箱）、任意對外連線、讀取 <code>process.env</code> 內的 <code>TELEGRAM_BOT_TOKEN</code>／<code>WHATSAPP_ACCESS_TOKEN</code>／<code>TEAMS_APP_PASSWORD</code>／<code>SMTP_PASS</code>／<code>STATUS_PASS</code>、甚至 <code>child_process</code></li>
+        <li>現有閘門只有「<code>admin</code> scope + same-origin」——這是「認證管理員即可 RCE」的設計</li>
+        <li>選項（成本由低到高）：① 簽章 + 允許清單　② 宣告式權限 manifest + 靜態掃描　③ <code>node:vm</code>／<code>worker_threads</code> 沙箱　④ 獨立子行程 + namespace 隔離</li>
+      </ul>
+      <div class="gain">即使只做 ①②，對「下載來路不明的技能 zip」這個真實使用情境就已是數量級的提升。框架面拆解見 F1。</div>
+    </div>
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">B3</span><h4>LLM 技能對任何傳訊息者開放、無白名單</h4><span class="p P0">P0</span><span class="p E">S</span></div>
+      <p class="body">指令層有 <code>commands.allowFrom</code> 白名單，<strong>技能層沒有</strong>。任何能對 bot 傳訊息的人（任何 Telegram 陌生人、任何 WhatsApp 號碼、任何 Teams 使用者）都能呼叫模型。</p>
+      <div class="ev"><b>證據</b>
+        對比：<code>messaging/dispatch.ts:290-294</code>（指令有白名單）vs <code>dispatch.ts:139-171</code>（技能無任何授權閘門）；<br>
+        <code>skills/ai/index.ts:68,77</code> 把 IM 原文直接放進 <code>user</code> turn；<br>
+        <code>ai/index.ts:19-26</code> 允許設成 <code>triggerMode:"any"</code> → 每則訊息都打模型，只受 per-IP 60/min 限制，而平台來源 IP 高度集中、限流效果有限；<br>
+        記憶可被攻擊者寫入並<strong>黏著</strong>（<code>skills/llm.ts:190</code> 寫入後，<code>ai/index.ts:76</code> 每輪重播）。
+      </div>
+      <ul>
+        <li>把 <code>allowFrom</code> 下放到技能層：新增 <code>SkillDefinition.allowedUsers?: string[]</code>，或提供 <code>ctx.denied()</code></li>
+        <li><code>ai</code>／<code>summarize</code> 這類會花錢、會上網的技能，<strong>預設啟用</strong>白名單</li>
+        <li>額外加每使用者／每會話的每日額度（見 C6／G2）</li>
+      </ul>
+      <div class="gain">阻止陌生人把你的 bot 當成免費 LLM 與資訊外洩管道。</div>
+    </div>
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">B4</span><h4><code>summarize</code> 同時是 SSRF 與第三方內容注入</h4><span class="p P0">P0</span><span class="p E">M</span></div>
+      <p class="body">技能會抓取<strong>使用者指定的任意網址</strong>並把內容原文送進 LLM，而 <code>net.ts</code> 只限制逾時與大小，沒有任何主機／位址過濾。</p>
+      <div class="ev"><b>證據</b>
+        <code>skills/summarize/index.ts:73</code> <code>URL_RE.exec(ctx.args)</code> → <code>:87</code> <code>netFetchText(url, {timeoutMs:20000, maxBytes:200*1024})</code> → <code>:107</code> 組入 user turn；<br>
+        <code>net.ts:63-92</code> 無 host／IP 允許或拒絕清單（僅逾時與大小）。
+      </div>
+      <ul>
+        <li>以 bot 的網路位置可打 <code>http://127.0.0.1:8090/settings.json</code>（含全部明文密鑰）、<code>169.254.169.254</code>（雲端 metadata）、任意內網主機，並把回應<strong>回傳到聊天視窗</strong></li>
+        <li>阻擋 private／link-local／loopback／metadata 網段——<code>middleware/ip.ts</code> 已有偵測私網的邏輯可直接重用</li>
+        <li>對抓回來的內容做明確邊界標記，並在 system prompt 宣告「僅視為資料、不得視為指令」</li>
+        <li>同一問題也適用於 <code>llm.ts</code> 的 <code>baseUrl</code>（<code>custom</code> provider 由管理頁指定）→ 見 G5</li>
+      </ul>
+      <div class="gain">一併堵住內網探測與「網頁內容反向控制 bot」兩種攻擊面。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">B5</span><h4>密鑰明文存檔、權限 0644，並整份回傳瀏覽器</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">HMAC secret、API token、Telegram bot token、WhatsApp access token + app secret、Teams app password、SMTP 密碼、<strong>以及各技能的 LLM API key</strong>，全部明文寫在 <code>settings.json</code>，並由 <code>GET /settings.json</code> 整份送到瀏覽器。</p>
+      <div class="ev"><b>證據</b>
+        <code>settings.ts:374</code> <code>writeFileSync(…, "utf8")</code> <strong>未指定 mode</strong> → 0644（對比 <code>middleware/session.ts:106</code> 正確傳了 <code>{mode:0o600}</code>）；<br>
+        <code>server.ts:3662</code> 回傳全部；<code>server.ts:2877</code> 把值填回 <code>input.value</code>；<br>
+        技能的 <code>secret:true</code>（<code>skills/ai/index.ts:40</code>、<code>summarize/index.ts:61</code>）<strong>只是 UI 遮罩</strong>——<code>server.ts:2718</code> 僅把它轉成 <code>type="password"</code>；<br>
+        <code>settings.ts:158</code> <code>z.record(z.string(), z.string())</code> 讓密鑰與一般值無法區分；<br>
+        <code>/settings/export</code>（<code>server.ts:3666-3679</code>）無 <code>?password=</code> 時輸出完整明文，且<strong>沒有匯出稽核紀錄</strong>。
+      </div>
+      <ul>
+        <li>立刻可做：<code>writeFileSync</code> 補 <code>mode: 0o600</code></li>
+        <li>欄位級加密：把既有的 <code>src/settings-crypto.ts</code>（AES-256-GCM + scrypt N=16384）從「只用於匯出封裝」擴用到<strong>磁碟上的密鑰欄位</strong>，金鑰來自 <code>AUTH_PATH</code> 同目錄或環境變數</li>
+        <li>回傳時對 secret 欄位做遮罩（<code>••••</code> + <code>hasSecret</code> 旗標），未修改則保留原值，避免每次都要重打</li>
+        <li>把 <code>read</code> scope 與「讀取密鑰」拆開；<code>/settings/export</code> 寫入稽軌（見 B9）</li>
+      </ul>
+      <div class="gain">讓單一檔案被備份、誤傳、誤 commit 時的爆炸半徑大幅縮小。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">B6</span><h4>登入雜湊阻塞事件迴圈，且暴力破解防護只按 IP</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">兩件事疊在一起：密碼驗證是同步的 scrypt（約 100ms 全程阻塞），而登入限流只有「每 IP 20 次／5 分鐘」，沒有帳號層級的計數或鎖定。</p>
+      <div class="ev"><b>證據</b>
+        <code>middleware/session.ts:21</code> <code>crypto.scryptSync(pass, salt, 64)</code>，未設 <code>maxmem</code>，用 Node 預設 N=16384／r=8／p=1；<br>
+        <code>middleware/rateLimit.ts:39-53</code> 只以 <code>req.ip</code> 為 key；<code>loginHits</code>（<code>rateLimit.ts:6</code>）<strong>沒有 reaper</strong>（一般 <code>hits</code> 在 <code>:11-18</code> 有 GC），會無限定成長；<br>
+        失敗只寫 <code>logger.warn</code>（<code>server.ts:3495</code>），<strong>無任何告警</strong>；<br>
+        <code>session.ts:84-89</code> 走 <code>.env</code> <strong>明文比對</strong>分支（僅在有 <code>auth.json</code> 覆寫時才走 scrypt）——目前部署正是此情況。
+      </div>
+      <ul>
+        <li>改用 <code>crypto.scrypt</code> async（或 worker thread），顯式設定 <code>maxmem</code></li>
+        <li>加帳號層級鎖定：同一 username 連續 N 次失敗 → 指數退避；觸及門檻時寄送通知（見 C2）</li>
+        <li>補 <code>loginHits</code> 的 GC</li>
+        <li>調高 scrypt 參數（例如 N=2<sup>16</sup>）；目前的預設值在 2026 年偏低</li>
+      </ul>
+      <div class="gain">同時解決「可被 slow-down DoS」與「分散式 credential stuffing 無阻」兩個問題。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">B7</span><h4><code>/readme</code> 的 marked 輸出未消毒 → 儲存型 XSS</h4><span class="p P1">P1</span><span class="p E">S</span></div>
+      <p class="body">README 經 <code>marked</code> 轉 HTML 後，只用一條 regex 移除 <code>&lt;script&gt;</code> 就直接注入 DOM；<code>marked</code> v18 完全不做消毒。</p>
+      <div class="ev"><b>證據</b>
+        <code>server.ts:3140-3153</code>，其中 <code>:3147</code> <code>replace(/&lt;script[\s\S]*?&lt;\/script\s*&gt;/gi, "")</code>；<br>
+        現有依賴中 <code>dompurify</code>／<code>sanitize-html</code>／<code>xss</code> 皆無；<br>
+        <code>&lt;img src=x onerror=…&gt;</code>、<code>&lt;a href="javascript:…"&gt;</code>、<code>&lt;svg onload=…&gt;</code>、<code>&lt;iframe src="//evil"&gt;</code> <strong>全部通過</strong>；<br>
+        另註：<code>readmeCache</code>（<code>:3139-3141</code>）永不快取失效，內容更新後仍顯示舊版。
+      </div>
+      <ul>
+        <li>目前觸發條件是「管理員 session 或 admin token」＋ README 檔案被竄改，所以嚴重度是 medium 而非 high——但後果很重：XSS 在管理員 origin 執行，而同 origin 就有 <code>/settings.json</code> 與 <code>/settings/export</code></li>
+        <li>解法：加 <code>sanitize-html</code>（允許清單過濾），或用 <code>marked</code> 的 renderer override 逐標籤／屬性白名單</li>
+      </ul>
+      <div class="gain">把「管理 origin 被注入」的可能性關掉；也讓未來若開放自訂 README 不會變成漏洞。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">B8</span><h4>缺 CSP、HSTS；cookie 缺 <code>__Host-</code> 前綴</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">沒有任何 <code>Content-Security-Policy</code>，也沒有 <code>Strict-Transport-Security</code>。目前無法加 CSP，因為 CSS 與 JS 全部 inline。</p>
+      <div class="ev"><b>證據</b>
+        已有的只有 <code>server.ts:3376-3382</code>：<code>nosniff</code>、<code>Referrer-Policy</code>、<code>X-Frame-Options: DENY</code>、<code>Permissions-Policy</code>；<br>
+        inline 阻擋點：<code>page()</code> 的 <code>&lt;style&gt;</code>（<code>server.ts:743</code>，254 行 CSS）與單一 <code>&lt;script&gt;</code>（<code>:758-775</code>，含 <code>__DICT</code>、頁面 script、<code>USER_SCRIPT</code>、icon switcher）；<br>
+        <code>session.ts:116-127</code> 的 cookie 僅在偵測到 https 時加 <code>Secure</code>，且以 <code>res.setHeader</code> 寫入（任何 <code>res.append</code> 都會靜默蓋掉）；<code>Path=/</code> 未收斂。
+      </div>
+      <ul>
+        <li>先做 D2（CSS/JS 抽成靜態檔），CSP 才有可能：<code>default-src 'self'</code> 即可成立</li>
+        <li>cookie 改用 <code>__Host-lw_sid</code> 前綴（需 <code>Secure</code>，正式環境走 HTTPS 後生效）</li>
+        <li>加 HSTS（僅在確認走 HTTPS 後）</li>
+      </ul>
+      <div class="gain">CSP 是對 B7 類問題的縱深防禦，也是未來開放更多 HTML 產出來源的保險。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">B9</span><h4>沒有 2FA，也沒有「誰做了什麼」的稽核軌跡</h4><span class="p P2">P2</span><span class="p E">L</span></div>
+      <p class="body">認證面只有「帳號 + 密碼」。所有敏感操作（改設定、匯出含密鑰的設定、安裝／卸載技能、改密碼、上傳檔案）都沒有留下可查的紀錄。</p>
+      <div class="ev"><b>證據</b>全專案無 <code>totp|otp|webauthn|2fa|mfa</code>；稽核相關寫入為零。帳號模型也只有單一 <code>STATUS_USER</code>／<code>AUTH_PATH</code>，無法區分「看-only」與「管理」角色。</div>
+      <ul>
+        <li>短期：新增 <code>data/audit.jsonl</code>，記錄 <code>{time, actor, action, target, ip, result}</code>，並在 <code>/dashboard</code> 提供檢視與篩選</li>
+        <li>中期：支援多使用者 + 角色（見 K1）</li>
+        <li>2FA：TOTP 最省事（僅多一個 <code>otpauth</code> 依賴）；注意 scrypt 已是同步阻塞，OTP 驗證也應走 async</li>
+      </ul>
+      <div class="gain">「誰在什麼時候把 webhook token 換掉」是事故回溯的第一個問題。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">B10</span><h4>驗證權限不對稱；nonce 可省略</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body">兩個細節讓「開了驗證」的實際強度低於預期。</p>
+      <div class="ev"><b>證據</b>
+        ① URL token（<code>hmac.ts:162</code>）只比對單一 token，<strong>沒有 scope 概念</strong>，拿到即等同完整 <code>send</code> 權限——比 <code>send</code> scope 的 Bearer（<code>hmac.ts:170</code>）<strong>還高</strong>；<br>
+        ② <code>nonce</code> 是選填（<code>hmac.ts:47</code>、<code>:58</code>），不帶 nonce 時重播視窗就是完整的 ±skew（預設 ±300 秒）；<br>
+        ③ <code>hmac.ts:185</code> 的 nonce 桶是全域、非同步、行程記憶體，重啟即清空；5000 筆／60 秒的驅逐機制在高流量下可能擠掉未過期的 nonce。
+      </div>
+      <div class="gain">URL token 也支援 scope；<code>X-Nonce</code> 改為必填（文件標示為 breaking，給遷移期）；文件明確寫出重啟會清空 nonce／idempotency 的影響。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">B11</span><h4>維運腳本內含明文 SSH 密碼與硬編碼主機</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body">部署腳本裡有明文密碼。雖因 <code>scripts/</code> 在 <code>.gitignore</code> 中而未進入版控，但檔案就在磁碟上，且是唯一的自動部署路徑。</p>
+      <div class="ev"><b>證據</b>
+        <code>scripts/scp-update.ps1:19</code> <code>$Password = "lvuitton"</code>；<code>:14</code> <code>$Remote = "root@192.168.0.110"</code>；<code>:77</code>、<code>:92</code> 以 <code>-pw</code> 傳入 plink／pscp；<br>
+        <code>.gitignore</code> 同時忽略 <code>scripts/</code> <strong>與</strong> <code>tests/</code>，但 23 個測試檔早已被 <code>git ls-files</code> 追蹤 → 規則語意矛盾（見 J7）。
+      </div>
+      <div class="gain">改用 SSH agent／金鑰，或從環境變數／<code>.env</code> 讀取密碼；把 <code>scp-update.sh/.ps1</code> 的<strong>樣板</strong>（不含機密）移入版控，機密值改由環境變數注入；同時移除 <code>.gitignore</code> 的 <code>tests/</code>。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">B12</span><h4>webhook 收件端點僅靠 per-IP 限流</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body">三個收件端點都有驗證（secret token／簽章／JWT），但掛的是同一組 per-IP 限流。平台來源 IP 高度集中，這道防護對「驗證被繞過後」的情境效果有限。</p>
+      <div class="ev"><b>證據</b><code>server.ts:3910</code>、<code>:3953</code>、<code>:3982</code> 皆為 <code>rateLimit</code>；<code>middleware/rateLimit.ts:20-36</code> 預設 60 次／60 秒／IP，且是<strong>單一全域值</strong>，未區分收件端點。</div>
+      <ul>
+        <li>為收件端點設獨立且更嚴的額度（可在 <code>/settings</code> 調整）</li>
+        <li>驗證失敗連續 N 次 → 暫時封鎖並告警（接上 C2 與 C4 的 <code>webhook_auth_failures_total</code>）</li>
+      </ul>
+      <div class="gain">讓「驗證失敗」這個訊號變成可行動的告警，而不只是 log 一行。</div>
+    </div>
+
+  </div>
+</section>
+
+<section id="C">
+  <h2 class="sec">C ・ 可觀測性與告警 <span class="bn">Observability</span></h2>
+  <p class="muted">共 7 項：2 項 P0、3 項 P1、2 項 P2。現況有 dashboard 的<strong>活動統計</strong>，但沒有<strong>系統可觀測性</strong>。差別是：統計回答「我發了多少」，可觀測性回答「現在壞了嗎、壞在哪」。</p>
+
+  <div class="grid">
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">C1</span><h4><code>/health</code> 永遠回 HTTP 200，且只看 LINE</h4><span class="p P0">P0</span><span class="p E">S</span></div>
+      <p class="body">狀態不良時仍回 200，因此負載平衡、容器健康檢查、監控探針<strong>永遠看不到故障</strong>；而且它只讀 LINE 的全域狀態單例。</p>
+      <div class="ev"><b>證據</b>
+        <code>server.ts:3396-3399</code> <code>res.json({status: ok ? "ok" : "bad"})</code> —— <strong>沒有 <code>res.status()</code></strong>，bad 也是 200；<br>
+        判斷依據 <code>src/state.ts:3-6</code> 的單例只由 <code>LineService</code> 寫入（其餘平台各自維護 <code>loginState</code>）；<br>
+        <code>Dockerfile</code> 無 <code>HEALTHCHECK</code>、<code>docker-compose.yml</code> 無 <code>healthcheck</code>；<br>
+        啟動時先 listen（<code>index.ts:86-94</code>）後才 <code>line.init()</code>（<code>index.ts:98</code>）→ 開機到登入完成前一律報 bad；<br>
+        回應不含 uptime、版本、平台明細。
+      </div>
+      <ul>
+        <li>bad 時回 503；並拆成 <code>/healthz</code>（存活：行程在跑就好）與 <code>/readyz</code>（就緒：各已啟用平台的 <code>loginStatus()</code> 正常、排程器存活、佇列未爆）</li>
+        <li>用既有的 <code>platformSummaries()</code>（<code>server.ts:3259-3267</code>）彙總所有平台，而非只看 LINE</li>
+        <li>回應加上 uptime、版本、各平台狀態明細與 startedAt（<code>state.ts:5</code> 已有但從未回傳）</li>
+        <li>Dockerfile 加 <code>HEALTHCHECK</code>、compose 加 <code>healthcheck</code>（見 J2）</li>
+      </ul>
+      <div class="gain">這是「故障能不能被自動發現」的分水嶺，成本只有數行。</div>
+    </div>
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">C2</span><h4>告警只覆蓋 LINE、只寄一次，且目前 SMTP 未設定 → 等於沒有告警</h4><span class="p P0">P0</span><span class="p E">M</span></div>
+      <p class="body">全專案唯一的通知機制是登入失效時寄一封 Email。其他三個平台完全沒有監控；而「登入中／待驗證」這些狀態還會<strong>抑制</strong>告警。</p>
+      <div class="ev"><b>證據</b>
+        <code>monitor/token.ts:13</code> 簽章只接受 LINE 服務，<code>index.ts:96</code> 只傳 line；<br>
+        <code>monitor/token.ts:7</code> <code>PENDING_STATUSES</code> 含「登入中」「待驗證」→ <code>:40-42</code> 直接略過，<strong>而這正是需要人工處理的狀態</strong>；<br>
+        <code>:30-38</code> 恢復時把 <code>notified</code> 重設為 false → 連線抖動會反覆寄信，<strong>無去抖</strong>；<br>
+        <code>notify/mailer.ts:19</code> SMTP 未設定時回傳 null，<code>:36-38</code> 只記一行 log；目前 <code>settings.json</code> 的 <code>smtp</code> 區塊<strong>全為空字串</strong> → 告警實際上是關閉的。
+      </div>
+      <ul>
+        <li>監控迴圈改吃 <code>listServices()</code>，逐平台檢查（各平台已實作 <code>healthCheck()</code>／<code>recover()</code>，成本很低，見 E4）</li>
+        <li>把「需人工」狀態也納入告警條件，並在通知中標示需人工處理</li>
+        <li>加去抖與重發：首次 + N 分鐘後重發 + 恢復通知</li>
+        <li>通知通道改為<strong>多通道 + 至少一個必得</strong>：Email（既有）、ntfy／Telegram 推播自己（見 K15）、webhook 到 Slack／Discord</li>
+        <li>加 <strong>dead-man's switch</strong>：定時對外報活，逾時未報即告警——解決「SMTP 壞了所以沒人知道 SMTP 壞了」</li>
+      </ul>
+      <div class="gain">從「壞了要自己去看 dashboard」變成「壞了會被通知」，這是運維成熟度最大的一步跳。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">C3</span><h4>沒有日誌層級、沒有結構化輸出、沒有請求關聯 ID</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">日誌是人寫的格式，無法被機器查詢；所有資訊量永遠全開；一次 webhook 從進來到送完，沒有任何識別碼可以串起來。</p>
+      <div class="ev"><b>證據</b>
+        <code>logger.ts:23-28</code> 格式為 <code>[ISO] LEVEL 訊息 {json meta}</code>——外層是字串、只有 meta 是 JSON；<br>
+        全專案無 <code>LOG_LEVEL</code>／<code>DEBUG</code>，<code>logger.info</code> 無條件寫入（<code>logger.ts:32</code>），每則技能訊息都落盤；<br>
+        沒有 HTTP access log（無 morgan 或自製 middleware），也沒有 request／correlation id；<br>
+        <code>logger.ts:28</code> <code>appendFile(…, () =&gt; {})</code> <strong>吞掉所有寫入錯誤</strong>；<code>rotate.ts:18-20</code> 輪替失敗靜默。
+      </div>
+      <ul>
+        <li>加 <code>LOG_LEVEL</code>（debug／info／warn／error）與 <code>LOG_FORMAT=text|json</code>；JSON 模式直接對接 Loki／CloudWatch／ELK</li>
+        <li>每個請求產生 <code>reqId</code>（用 <code>AsyncLocalStorage</code> 傳遞以跨越非同步邊界），寫入相關日誌並回傳 <code>X-Request-Id</code> 標頭</li>
+        <li>補 access log（method／path／status／duration／reqId）</li>
+        <li>寫入失敗要記錄（至少寫 stderr），不要空 callback</li>
+      </ul>
+      <div class="gain">從「可以用肉眼看」升級到「可以被查詢、可以被圖表化、可以被 alert on」。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">C4</span><h4>沒有 Prometheus /metrics 與 RED 指標</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">沒有任何可被抓取的指標。佇列堆積深度、排程器存活、webhook 認證失敗率、收訊處理延遲——這些目前都看不到。</p>
+      <div class="ev"><b>證據</b>無 <code>prom-client</code>／<code>opentelemetry</code>，路由表中無 <code>/metrics</code>，全專案無任何 counter／histogram／gauge。現有的 <code>stats.ts</code> 與 <code>token-stats.ts</code> 是「應用活動紀錄」而非系統指標（無 histogram／gauge、無分位數），且 <code>stats.ts</code> 只在啟動時讀最後 5000 行。</div>
+      <ul>
+        <li>可用零依賴方式先做：定時把既有 ring buffer 彙總成 JSON 輸出於 <code>/metrics</code>（自製文字格式亦可）</li>
+        <li>建議指標：<code>im_send_total{platform,type,result}</code>、<code>im_queue_depth{platform}</code>、<code>im_inbound_total{platform,dedup}</code>、<code>webhook_auth_failures_total{method,reason}</code>、<code>scheduler_jobs{state}</code>、<code>skill_exec_total{skill,result}</code>、<code>llm_tokens_total{provider,skill}</code>、<code>http_request_duration_seconds{route,status}</code></li>
+        <li>附一份 Grafana dashboard 範本放 <code>docs/</code></li>
+      </ul>
+      <div class="gain">有了這些，C2 的告警才能從「登入失效」擴張到「任何異常」。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">C5</span><h4>技能失敗只有中文訊息，無分類、無降級</h4><span class="p P1">P1</span><span class="p E">S</span></div>
+      <p class="body">技能拋錯時會回一句「技能「X」執行失敗：…」給聊天對話方，沒有錯誤分類，因此無法區分「使用者輸入錯」「外部 API 掛了」「程式有 bug」——三者的處理方式完全不同。</p>
+      <div class="ev"><b>證據</b>
+        <code>messaging/dispatch.ts:229-232</code>；<br>
+        而這行的 <code>deps.replyTo</code> 本身<strong>沒有被 try/catch 包住</strong> → 一旦回覆失敗（未登入、目標不存在、WhatsApp 24 小時視窗拒絕），例外會逸出 <code>runSkills</code>，被 <code>dispatch.ts:46-48</code> 的外層接住，導致<strong>後續所有技能與轉發規則全部被跳過</strong>（<code>runForwardRules</code> 位於 <code>dispatch.ts:45</code>）。
+      </div>
+      <ul>
+        <li>先修 F4：把錯誤回覆包進自己的 try/catch</li>
+        <li>定義 <code>SkillError</code> 類別（<code>kind: "user-input" | "upstream" | "internal" | "config"</code>），對應不同訊息與是否重試</li>
+        <li>同一技能連續失敗 N 次後自動暫停並在 dashboard 標紅（接上 C4 的 <code>skill_exec_total</code>）</li>
+        <li>錯誤訊息應走 i18n（見 H2），因為它會直接顯示給 IM 使用者</li>
+      </ul>
+      <div class="gain">把「技能偶爾壞掉」從使用者可見的尷尬，變成可自動偵測與自我修復的事件。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">C6</span><h4>LLM 用量與成本完全沒有統計</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">發出了模型請求，但從不回讀用量；因此無法知道花了多少錢、哪個技能花最多、誰在花。</p>
+      <div class="ev"><b>證據</b>
+        <code>skills/llm.ts:80-101</code> 只讀 <code>data.choices?.[0]</code>，<strong>不讀 <code>usage</code></strong>；<br>
+        <code>llm.ts:127-132</code> 完全忽略 Gemini 的 <code>usageMetadata</code>；<br>
+        <code>llm.ts:197-202</code> <code>logLlmError</code> 只記錯誤；<br>
+        <code>src/token-stats.ts</code> 統計的是 <strong>webhook API token 的呼叫次數</strong>（由 <code>hmac.ts:175</code> 觸發），與 LLM 無關——兩者名字相近但用途完全不同，容易混淆。
+      </div>
+      <div class="gain">記錄 <code>{provider, model, skill, chat, promptTokens, completionTokens, latencyMs, ok}</code> 到既有 stats 管道；每技能／每會話的每日額度，超限則回覆「今日額度已用完」——同時是 B3 的配套防線；dashboard 加成本卡（見 K5）。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">C7</span><h4>日誌輪替只有大小、沒有時間；append 吞錯</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body">低流量時舊 log 可以留數月，高流量時幾小時內就整批被丟棄。兩種都不利於事後回溯。</p>
+      <div class="ev"><b>證據</b>
+        <code>rotate.ts:6-21</code> 僅依 <code>statSync().size</code> 觸發，無時間輪替；<br>
+        <code>messages.ts:60</code> 與 <code>stats.ts</code> 在<strong>每一筆 append 都同步 stat 一次</strong>（每次收訊都做一次 <code>statSync</code>）；<br>
+        輪替非原子（無 temp + rename），中途中斷可能遺失；<code>rotate.ts:18-20</code> 失敗靜默；<br>
+        <code>logger.ts:28</code> append 失敗無任何回報。
+      </div>
+      <div class="gain">加上按日輪替（<code>app.log.2026-10-02</code>）與保留天數上限；append 改為批次或非同步；輪替改用 temp + rename；寫入失敗記錄到 stderr。</div>
+    </div>
+
+  </div>
+</section>
+
+<section id="D">
+  <h2 class="sec">D ・ 架構與可維護性 <span class="bn">Architecture &amp; Maintainability</span></h2>
+  <p class="muted">共 11 項：1 項 P0、5 項 P1、5 項 P2。本類決定專案能否在規模成長後仍可修改。</p>
+
+  <div class="grid">
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">D1</span><h4><code>server.ts</code> 4,030 行單體，63.7% 是模板字串</h4><span class="p P0">P0</span><span class="p E">L</span></div>
+      <p class="body">整個 Web 應用（Express 設定 + 50 條路由 + 7 個頁面的 HTML/CSS/JS）都在一個檔案。邏輯與視圖已可清楚二分：<strong>2,569 行是模板字串，1,459 才是 TypeScript</strong>。</p>
+      <div class="ev"><b>實測</b>
+        <code>SETTINGS_STYLE</code>（單一 CSS blob）<code>server.ts:345-598</code> = 254 行；<br>
+        13 個 client script 區塊合計 <strong>1,908 行</strong>；HTML body + 側欄 293 行；<br>
+        <code>renderSettingsHtml()</code> <code>1239-2028</code> = <strong>790 行</strong>（其中 script 541 行）；<br>
+        <code>renderConsoleHtml()</code> 556 行、<code>renderSkillsHtml()</code> 489 行、<code>renderDashboardHtml()</code> 233 行；<br>
+        <code>createServer()</code> 路由層 <code>3360-4029</code> = 670 行。<br>
+        字串 : 邏輯 ≈ <strong>15.7 : 1</strong>；50 個路由註冊、34 個頂層 function。
+      </div>
+      <ul>
+        <li><strong>先做 D2</strong>（抽靜態資源），再切模組——順序反過來會更痛</li>
+        <li>切法（符合專案現有慣例 <code>src/middleware/*</code>／<code>src/messaging/*</code>／<code>src/skills/*</code> 一檔一職責）：<code>src/webhook/views/{shell,dashboard,console,settings,skills,login,messages}.ts</code>，由 <code>shell.ts</code> 擁有 <code>page()</code>、共用 script 與 CSS</li>
+        <li>不建議引入 EJS／Handlebars：專案刻意維持零 view 依賴，收益不比成本高</li>
+        <li>拆完 <code>server.ts</code> 應降到約 1,100 行的純路由</li>
+        <li>順帶把 <code>server.ts:601-612</code> 的 <code>imIcon()</code> 改為 <code>&lt;img src="/icons/x.png"&gt;</code>：目前每個頁面載入都重複塞入約 29KB base64，且其 <code>catch { return "" }</code> 讓 J1 變成無聲降級</li>
+      </ul>
+      <div class="gain">同時解鎖 CSP（B8）、前端可測（D4），以及新增第 5 個平台的邊際成本。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">D2</span><h4>CSS / JS 抽成靜態資源</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">這是 D1 的前置步驟，也是最划算的一次改動：那 1,908 行 client script 是<strong>幾乎不用改寫</strong>的原生 DOM 程式碼。</p>
+      <div class="ev"><b>證據</b>四個大 script（settings <code>1421-2008</code>、console <code>2118-2566</code>、skills <code>2621-3070</code>、dashboard <code>1026-1237</code>）合計約 1,565 行，只以 <code>${HELPERS}</code> 做少量內插，語法是可直接搬移的 ES5 相容程式碼。CSS blob（<code>345-598</code>）完全無內插，可整段搬移。</div>
+      <ul>
+        <li><code>src/webhook/assets/admin.css</code> + <code>{dashboard,console,settings,skills,messages,login}.js</code>，以 <code>app.use("/assets", express.static(…))</code> 提供</li>
+        <li>得到 gzip／brotli 與瀏覽器快取；HTML 從每頁約 29KB base64 降到數 KB</li>
+        <li>得到 CSP 可行性（<code>style-src 'self'</code>）→ B8</li>
+      </ul>
+      <div class="gain">約 1,500 行從 server.ts 移出，並讓 CSP 從「不可能」變成「一行設定」。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">D3</span><h4>沒有 lint、沒有 formatter</h4><span class="p P1">P1</span><span class="p E">S</span></div>
+      <p class="body">全專案只有 <code>tsc --strict</code>。沒有 eslint／biome／prettier，也沒有 <code>lint</code> script，CI 與本機皆無風格與反模式防護。</p>
+      <div class="ev"><b>證據</b><code>package.json:6-13</code> 只有 dev／build／start／typecheck／test；無 <code>.eslintrc*</code>、<code>biome.json</code>、<code>.prettierrc</code>、<code>.editorconfig</code>；<code>.github/workflows/ci.yml</code> 五個步驟全無 lint。</div>
+      <ul>
+        <li>選 <strong>Biome</strong>（單一工具同時做 lint + format，速度快、設定少）最貼近這個專案的精簡哲學；或 eslint + typescript-eslint</li>
+        <li>先只開低噪音規則（<code>no-floating-promises</code>、<code>no-explicit-any</code>、<code>no-unused-vars</code>、<code>eqeqeq</code>），不動格式</li>
+        <li>CI 加一步；先以 warning 模式導入一個 PR 再轉 error</li>
+        <li>順手加 <code>.gitattributes</code>（D10）與 <code>.editorconfig</code>，一次把編碼／行尾／縮排規範定死</li>
+      </ul>
+      <div class="gain">成本極低、回收很高：這類專案的 bug 密度與檔案大小成正比。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">D4</span><h4>沒有覆蓋率；高風險模組無測試；無 e2e</h4><span class="p P1">P1</span><span class="p E">L</span></div>
+      <p class="body">目前不知道覆蓋率是多少，也無法得知。風險最高的四個模組幾乎沒有測試，而佔全專案約 23% 行數的管理 UI 完全沒有測試。</p>
+      <div class="ev"><b>證據</b>
+        23 檔 / 1,579 行，幾乎全是純函式單元測試（cron、time、text、lunar、skill parser、adapter normaliser、crypto）；<br>
+        <b>無測試</b>：<code>line/queue.ts</code>、<code>line/scheduler.ts</code>（僅 skillTask 子集）、<code>messaging/dispatch.ts</code>、<code>settings.ts</code>、<code>middleware/session.ts</code>、<code>middleware/rateLimit.ts</code>、<code>notify/mailer.ts</code>，以及 4,030 行的 UI；<br>
+        無 <code>c8</code>／<code>nyc</code>，<code>npm test</code>（<code>package.json:12</code>）也沒開 <code>--experimental-test-coverage</code>；<br>
+        已有很好的範例可複製：<code>tests/api-auth.test.ts</code>（15 個 <code>it</code>）與 <code>tests/server-telegram.test.ts</code> 用 <code>app.listen(0, "127.0.0.1")</code> + <code>fetch</code> 起真實 app。
+      </div>
+      <ul>
+        <li>先加 <code>--experimental-test-coverage</code> 取得基線（零成本）</li>
+        <li>優先補 <code>dispatch.ts</code>（訊息管線核心）、<code>queue.ts</code>（退避與永久錯誤分類）、<code>scheduler.ts</code>（cron 邊界）三者的測試</li>
+        <li>D2 完成後可用 headless browser 做關鍵頁面煙霧測試；或退一步只做「HTML 產出包含關鍵元素」的斷言測試</li>
+        <li>CI 產出覆蓋率報告（不一定要設門檻，先有可見性）</li>
+      </ul>
+      <div class="gain">A1–A3 這類可靠性改動若無測試，回歸風險會抵銷掉大部分收益。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">D5</span><h4>單一行程是硬性架構限制，但沒有任何防護或說明</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">所有狀態都在行程記憶體，因此<strong>不能水平擴展</strong>。但這個約束只存在於開發者腦中：設定檔沒有警告，程式也沒有防呆。</p>
+      <div class="ev"><b>證據</b>
+        行程內 Map：sessions（<code>middleware/session.ts:10</code>）、rate-limit（<code>rateLimit.ts:5-6</code>）、nonce（<code>hmac.ts:10</code>）、idempotency（<code>hmac.ts:185</code>）、token usage（<code>token-stats.ts:13</code>）、log ring（<code>logger.ts:8</code>）、stats ring（<code>stats.ts:37</code>）、messages ring（<code>messages.ts:20</code>）；加上 <code>state.ts</code> 全域單例與服務註冊表。<br>
+        <code>ecosystem.config.cjs:7</code> <code>instances: 1</code> 是正確的，但沒有任何註解說明<strong>為什麼不能改成 2</strong>。<br>
+        連線層同樣是單點：LINE 長連線、Baileys 長連線、Teams access token 快取，皆不可跨行程共用。
+      </div>
+      <ul>
+        <li>短期：把限制寫成程式碼與文件——<code>ecosystem.config.cjs</code> 加註解、<code>docs/architecture.md</code> 列出「行程內狀態清單」</li>
+        <li>開機時偵測環境變數（若 <code>NODE_APP_INSTANCE</code> &gt; 0）就明確報錯退出</li>
+        <li>中期（選做）：上述狀態抽到介面後，sessions／rate-limit／nonce 可改存 Redis，成為可水平擴展的架構——但前提是先完成 A6 的儲存層抽象</li>
+      </ul>
+      <div class="gain">避免未來有人「順手把 instances 改成 2」而讓登入限流、重播保護、idempotency、/health、dashboard 彙總同時失效。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">D6</span><h4>WhatsApp 雙模式共用同一個 platform key，造成覆蓋與資料孤兒</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">Cloud API 與 Web 個人帳號<strong>都</strong>回報 <code>platform: "whatsapp"</code>，而註冊表以該字串為 key 且 <code>set()</code> 不檢查重複。這造成三個可觀察的問題。</p>
+      <div class="ev"><b>證據</b>
+        <code>whatsapp/client.ts:118</code> 與 <code>whatsapp/web-client.ts:103</code> 皆為 <code>readonly platform = "whatsapp" as const</code>；<code>messaging/services.ts:3-8</code> <code>services.set(service.platform, service)</code>；<br>
+        <b>① 排程檔孤兒化</b>：Cloud 用 <code>schedules-whatsapp.json</code>（<code>client.ts:158</code>）、Web 用 <code>schedules-whatsapp-web.json</code>（<code>web-client.ts:144</code>），而 <code>/console</code> 只列出目前生效服務的任務（<code>server.ts:3418</code>、<code>:3437</code>）→ <strong>切換 mode 後所有既有排程從 UI 消失且無法找回</strong>（可能含 <code>ctx.watch</code> 註冊的週期任務）；<br>
+        <b>② 統計混合</b>：兩者都寫 <code>platform:"whatsapp"</code>，<code>stats.ts:86</code> 依此過濾 → 兩種完全不同的傳輸（Graph API vs Baileys socket）混成同一條成功率曲線，切換後歷史資料語意錯誤；<br>
+        <b>③ 結構上無法同時開</b>：<code>config.whatsapp.mode</code> 是純量 enum；且 <code>state.ts</code> 是單例，兩者會互相覆蓋狀態（<code>server.ts:3254-3257</code> 的 <code>platformQr</code> 與 <code>/status/qr</code> 也一律套用 Web 模式 QR 語意）。
+      </div>
+      <ul>
+        <li>短期：<code>registerService()</code> 偵測重複 key 時記錄明確 error（成本一行）；模式切換時於 <code>/console</code> 提示「另有 N 筆排程屬於另一模式」並提供匯出</li>
+        <li>中期：<code>Platform</code> 改為含 mode 的複合 id（如 <code>whatsapp:cloud</code>／<code>whatsapp:web</code>），<code>ALL_PLATFORMS</code> 與 UI 的 icon／badge 一併擴充（<code>icons/</code> 需新增兩張）</li>
+        <li>統計與排程檔名一律以複合 id 分檔</li>
+      </ul>
+      <div class="gain">讓兩種 WhatsApp 模式在資料與 UI 上真正分離；也是新增 Discord 等平台的模板。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">D7</span><h4>全域狀態單例只被 LINE 寫入</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body"><code>state.ts</code> 是模組層級的單一 <code>StatusState</code>，實質上只服務 LINE；其他平台各自維護 <code>loginState</code>。同一個概念有兩套機制。</p>
+      <div class="ev"><b>證據</b><code>src/state.ts:3-14</code>；LINE 走 <code>setState()</code>，Telegram／WhatsApp／Teams 走各自類別內的 <code>loginState</code> 與 <code>loginStatus()</code>（<code>messaging/types.ts:104</code>）。</div>
+      <div class="gain">以 <code>Map&lt;Platform, StatusState&gt;</code> 取代單例，或直接以各服務的 <code>loginStatus()</code> 為唯一真實來源——<code>/health</code> 與 dashboard 都應走這條路徑（見 C1、D7）。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">D8</span><h4>安全比對函式重複三份</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body">恆定時間比對函式被複製了三份，未來修一次要改三處。</p>
+      <div class="ev"><b>證據</b><code>middleware/hmac.ts:28-32</code>、<code>middleware/session.ts:78-82</code>、<code>webhook/server.ts:3269-3273</code>（<code>constantTimeEqual</code>）。</div>
+      <div class="gain">抽到 <code>src/util/safe-equal.ts</code> 並保留單元測試；順帶確認三者行為一致（例如都做長度預檢、都用 hex 編碼）。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">D9</span><h4>沒有 schema 版本與資料遷移機制</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">磁碟上有五種不同格式的狀態，全靠「格式剛好還能讀」維持。版本一旦升級就可能靜默遺失資料。</p>
+      <div class="ev"><b>證據</b>全專案 <code>grep -i migrat</code> 為 0 筆。風險清單：<br>
+        <code>storage.json</code>：LINE Thrift auth blob + E2EE 私鑰；升級 <code>@evex/linejs</code> 或改 <code>LINE_DEVICE</code>／<code>LINE_DEVICE_NAME</code> 可能失效 → 需重登，<strong>且沒有先備份的步驟</strong>；<br>
+        <code>data/whatsapp-web/creds.json</code>：Baileys 裝置金鑰，套件是 <code>7.0.0-rc14</code>（<strong>RC 版</strong>），升級可能需重掃 QR；<br>
+        <code>schedules-*.json</code>：形狀變更會靜默遺失排程；<code>data/cache/*.json</code>：約 14 個技能各自定義，無版本欄位；<br>
+        <code>settings.json</code>：讀取用 <code>.partial()</code>（<code>settings.ts:330</code>）但<strong>存檔用非 partial</strong>（<code>:365</code>）→ 被移除或改名的欄位在下一次存檔時<strong>無聲消失</strong>，既無 <code>.strict()</code> 也無棄用機制。
+      </div>
+      <div class="gain">加 <code>schemaVersion</code> 欄位 + <code>src/migrations/</code> 陣列（<code>001-add-wa-mode.ts</code> 風格），開機時依序套用並記錄；未知欄位改為<strong>保留並原樣寫回</strong>而非丟棄（避免降版時資料蒸發）；升級前自動備份（見 J3）。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">D10</span><h4>缺少 <code>.gitattributes</code></h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body">Windows 開發、全專案大量中文檔、且歷史上確實發生過 CJK 編碼損壞（專案裡還留著專門修復亂碼的 <code>scripts/repair.mjs</code>），但沒有任何行尾或編碼的保護。</p>
+      <div class="ev"><b>證據</b>無 <code>.gitattributes</code>；<code>.npmrc</code> 與 <code>.gitignore</code> 都有維護卻少了這個。本次掃描已確認目前所有原始檔為合法 UTF-8（<strong>現況是好的，這是預防性建議</strong>），但沒有機制保證它維持如此。</div>
+      <div class="gain">加入 <code>* text=auto eol=lf</code>、<code>*.ts text eol=lf</code>、<code>*.png binary</code>，並以 <code>.editorconfig</code> 鎖定 <code>charset = utf-8</code>；與 D3 一起做最省事。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">D11</span><h4>缺少 <code>engines</code>，且有 RC 級依賴</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body">README 宣告 Node 20+，但 <code>package.json</code> 沒有 <code>engines</code>，因此 npm 不會警告、CI 也不會驗證。CI 只測 Node 24。</p>
+      <div class="ev"><b>證據</b><code>package.json</code> 無 <code>engines</code>；<code>.github/workflows/ci.yml</code> 單一 <code>node-version: 24</code>、<code>runs-on: ubuntu-24.04</code>（但 <code>scripts/scp-update.ps1</code> 是 Windows 專用，CI 完全沒測 Windows）；<code>@whiskeysockets/baileys</code> 為 <code>7.0.0-rc14</code>（RC 版，<strong>且其 session 金鑰與版本綁定</strong>，見 D9）；<code>express</code> 仍是 v4 而非 v5。</div>
+      <div class="gain">加 <code>"engines": { "node": "&gt;=20.11" }</code>；CI 加 20/22/24 矩陣（若 A6 採 <code>node:sqlite</code>，下限需為 22，<strong>這一點會影響決策</strong>）；RC 依賴加註解說明風險與升級時需重掃 QR；加 Dependabot（見 J4）。</div>
+    </div>
+
+  </div>
+</section>
+
+<section id="E">
+  <h2 class="sec">E ・ 多 IM 平台 <span class="bn">Multi-IM</span></h2>
+  <p class="muted">共 8 項：4 項 P1、3 項 P2、1 項 P3。抽象層已就位，「加平台」是純加法。以下依<strong>優先級</strong>而非可行性排序——最該優先的是消除單點法遵風險，而不是加最多平台。</p>
+
+  <div class="grid">
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">E2</span><h4>LINE 官方 Messaging API 雙軌模式（消除 selfbot 風險）</h4><span class="p P1">P1</span><span class="p E">XL</span></div>
+      <p class="body">目前 LINE 是 <code>@evex/linejs</code> selfbot，README 自己就標註違反條款、有停權風險。這是整個專案<strong>最大的單一風險</strong>：帳號被停就等於 LINE 這條線全斷。</p>
+      <div class="ev"><b>現況與取捨</b>
+        <code>line/client.ts</code> 692 行：QR/PIN 登入、E2EE 媒體上傳、Flex、貼圖、群組；<code>storage.json</code> 存 authToken 與 E2EE 私鑰。<br>
+        官方 API 的限制：需 LINE Developers 帳號 + Messaging API channel；僅能主動推播給「曾互動過」的使用者；模板訊息需審核；群組功能有限；Flex 需在 LINE Console 綁定 template id。<br>
+        <code>docs/IM-setup.md</code> 已把 selfbot 的申請與風險寫得很清楚，可直接沿用其結構補官方版章節。
+      </div>
+      <ul>
+        <li>新增第 5 個 adapter <code>src/line-official/</code>（<code>platform: "line-official"</code>），與現有 selfbot <strong>並存</strong>，可在 dashboard 切換</li>
+        <li>共用的技能／指令／轉發管線<strong>完全不用改</strong>——這正是抽象層的價值</li>
+        <li>官方模式缺少的能力（收檔、讀取已讀、任意群發、跨裝置訊息）在 UI 上明確標示降級，而非假裝支援（延續現有哲學）</li>
+        <li>遷移路線：官方帳號先行、selfbot 保留為個人自用通道，兩者 targets 分開存放</li>
+        <li>注意 D6：兩個 LINE adapter 會有同樣的 <code>platform</code> key 問題，應在設計時就採複合 id</li>
+      </ul>
+      <div class="gain">把專案從「可能被停權」變成「長期可用」，且不犧牲任何現有功能。這是<strong>單一投入產出比最高</strong>的項目。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">E1</span><h4>Discord（第 4 個規劃中的平台，尚未實作）</h4><span class="p P1">P1</span><span class="p E">L</span></div>
+      <p class="body">已在 <code>Platform</code> union 與 <code>docs/IM.md</code> Phase 4 中規劃，但未進入 <code>ALL_PLATFORMS</code>、無 adapter、無 icon、無設定卡、無測試。</p>
+      <div class="ev"><b>現況</b>
+        <code>messaging/types.ts:4</code> 已含 <code>"discord"</code>；<code>docs/IM.md:118-122</code> 有實作計畫（Bot token、MESSAGE_CONTENT intent、Embed ≈ Flex 簡版可轉譯）；<code>docs/IM.md:129-131</code> 已有路由與 targets 的命名對照表。<br>
+        缺的是全部實作層：<code>src/discord/</code>、<code>icons/discord.png</code>、<code>ALL_PLATFORMS</code>、設定卡、<code>/webhook/discord</code>、<code>discordTargets</code>、dashboard 分頁、正規化測試。
+      </div>
+      <ul>
+        <li><code>src/discord/client.ts</code>：REST 發送 + Gateway WebSocket 收訊；Embed 可轉譯自現有 Flex（可重用 <code>teams/client.ts</code> 的 <code>flexToAdaptiveCard</code> 思路）</li>
+        <li>Discord 的 rate limit 以 bucket 為單位（由 response header 回傳），建議在 <code>SendQueue</code> 加可插拔的節流策略介面</li>
+        <li>收訊需開 MESSAGE_CONTENT intent，屬部署前置條件，寫入 <code>docs/IM-setup.md</code></li>
+      </ul>
+      <div class="gain">驗證抽象層的第 5 次重用；若順利，等於證明「加平台」的成本真的已降到很低。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">E3</span><h4>建立正式的「平台能力矩陣」並在 UI 中顯示降級</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">8 種訊息型別 × 4 個平台的支援度目前只散落在各 adapter 的降級程式碼與 README 敘述裡。使用者事前不知道自己會不會踩到降級。</p>
+      <div class="ev"><b>現況</b>
+        降級邏輯散落各處：Telegram 的 Flex 降級為 altText、LINE 貼圖降為文字說明；WhatsApp Cloud 的 24 小時視窗與模板限制（<code>whatsapp/client.ts</code> 將 <code>131047</code> 歸為永久錯誤）；Teams 把 Flex 轉成 Adaptive Card（<strong>是真正的轉譯而非降級</strong>，這是現有資產，且有單元測試）；<br>
+        <code>docs/IM.md:136</code> 已寫下「一律降級 + 寫進 README，不假裝支援」的原則——但只在文件裡，產品內沒有。
+      </div>
+      <ul>
+        <li>在 <code>src/messaging/capabilities.ts</code> 定義單一能力宣告表：<code>text / file / image / video / audio / sticker / location / flex / template / proactivePush / typingIndicator / readReceipts / groupChat</code> × 平台</li>
+        <li>adapter 實作 <code>capabilities()</code>；<code>/console</code> 送訊<strong>前</strong>即時提示「此平台不支援貼圖，將以文字取代」</li>
+        <li>文件與 UI 都由這一張表生成，避免兩邊不同步</li>
+      </ul>
+      <div class="gain">把「靜默降級」變成「事前告知」。這是使用者信任感的最大來源之一。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">E4</span><h4>平台別健康檢查與自動復原</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">健康監控只接 LINE。其他三個平台的 token 過期、webhook 設定遺失、對話 serviceUrl 未記錄等問題，<strong>沒有任何自動偵測</strong>。</p>
+      <div class="ev"><b>證據</b>
+        <code>monitor/token.ts:13</code> 簽章只收 LINE；<code>index.ts:96</code> 只傳 line。<br>
+        各平台已實作但無人呼叫的方法：<code>healthCheck()</code>／<code>recover()</code>（<code>IMessagingService</code> 介面必備）、<code>loginStatus()</code>（<code>types.ts:104</code>）。<br>
+        已知但無監控的具體失效模式：Meta access token 過期、Teams app password 輪替、Teams 主動推播缺少 conversation <code>serviceUrl</code>（只能靠先前收訊學到）、Telegram <code>setWebhook</code> 設定遺失。
+      </div>
+      <div class="gain">監控迴圈改為迭代 <code>listServices()</code>，逐平台檢查並在異常時呼叫 <code>recover()</code>；各平台補專屬檢查（Telegram <code>getMe</code>、Meta token 有效性與 24h 視窗狀態、Teams access token 剩餘時間——<code>teams/client.ts</code> 已快取至過期前 60 秒）。介面已定義好，缺的只是把迴圈泛化。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">E6</span><h4>跨平台訊息格式轉譯層</h4><span class="p P2">P2</span><span class="p E">L</span></div>
+      <p class="body">Teams 的 Flex→Adaptive Card 轉譯是全專案唯一的「跨平台富樣式轉換」，而且是成功的先例。其他平台目前都只能降級。</p>
+      <div class="ev"><b>現況</b><code>teams/client.ts</code> 的 <code>flexToAdaptiveCard</code>（有單元測試 <code>tests/teams.test.ts</code>，11 個 <code>it</code>）；其餘平台為降級路徑。<code>/console</code> 的 Flex 編輯器目前是 LINE 專屬。</div>
+      <ul>
+        <li>抽出通用的 <code>src/messaging/rich/</code>：以 Flex 為來源，輸出 Adaptive Card／Telegram Markdown／WhatsApp 互動按鈕／純文字降級</li>
+        <li>反向亦可（Adaptive Card → Flex），方便從 Teams 側維護樣板</li>
+        <li>把 Flex 編輯器改為跨平台，並即時預覽各平台實際輸出（配合 E3）</li>
+      </ul>
+      <div class="gain">同一份樣板在四個平台都能用，是「多 IM 抽象」最直接的使用者價值。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">E5</span><h4>收訊模式不一致（webhook vs 長連線）尚未被抽象</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">LINE 與 WhatsApp Web 走長連線，Telegram／Meta／Teams 走 webhook。這讓兩件事做不到：無 webhook 的平台無法水平擴展；兩種模式的錯誤處理與重試語意不同、可靠性保證不同。</p>
+      <div class="ev"><b>證據</b>
+        <code>IMessagingService.handleIncoming?()</code> 已是可選方法（<code>messaging/types.ts</code>），抽象方向正確；<br>
+        但接收端路由（<code>server.ts:3910-4002</code>）與長連線處理（各 client 內部）是兩套程式碼，兩邊的錯誤處理與 logging 也不同。<br>
+        連線層同樣受限：LINE 長連線與 Baileys 長連線都是單點（見 D5）。
+      </div>
+      <div class="gain">短線程：把 A1 的去重做成兩條路徑共用（長連線與 webhook 都觸發去重）；長線程：LINE 官方 API（E2）與 Discord 都可用 webhook／互動端點，讓長連線族群逐漸縮小。收訊統一後，訊息可靠度（A2）、去重（A1）、監控（C4）只需維護一套。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">E7</span><h4>「聊天對象」模型統一（個人 / 群組 / 頻道）</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">現有模型只有 <code>{name, id}</code> 與 <code>chatType</code>，但四個平台的「群體」語意差異很大：LINE 群組、Telegram 群組／頻道、WhatsApp 群組／廣播清單、Teams 團隊頻道／私訊。</p>
+      <div class="ev"><b>證據</b>
+        <code>messaging/types.ts</code> 的 <code>ChatTarget</code> 與 <code>IncomingMessage.chatName/chatType</code>；<br>
+        LINE 額外有 <code>refreshContacts()</code> 抓好友與群組（<code>server.ts:3785</code> 的「重新整理聯絡人」為 LINE 專屬操作，Console 也據此隱藏於其他平台）；<br>
+        能列出 targets 的平台只有 LINE 與 WhatsApp Web；Telegram／Teams 的 targets 需手動填或靠收訊自學。
+      </div>
+      <ul>
+        <li>擴充 <code>ChatTarget</code>：<code>kind: "dm" | "group" | "channel" | "broadcast"</code>、<code>memberCount?</code>、<code>platformKind</code></li>
+        <li>技能可依 kind 決定行為（例如 <code>auto-reply</code> 在群組中不 @ 回特定使用者）</li>
+        <li>為每平台補 targets 的自動探索，或至少提供「從最近收訊自動匯入 targets」</li>
+      </ul>
+      <div class="gain">群組是實際使用情境中很重要的一塊，現在的模型太薄。</div>
+    </div>
+
+    <div class="card" data-p="P3">
+      <div class="head"><span class="id">E8</span><h4>更多平台（Facebook Messenger / Instagram / Slack）</h4><span class="p P3">P3</span><span class="p E">L</span></div>
+      <p class="body">技術上都是同樣的 REST + webhook 模式，成本已大幅下降。建議<strong>等 E2／E1 完成後再評估</strong>，否則會分散對最高風險（selfbot）的處理。</p>
+      <ul>
+        <li>Slack 需 Socket Mode 或 Events API；Messenger／Instagram 走 Graph API，與 WhatsApp 共用經驗（Meta 後台設定、簽章驗證）</li>
+        <li>Once 抽象穩固（D6 的複合 id、E3 的能力矩陣），每個平台的 adapter 應能控制在 500 行內</li>
+        <li>Slack 特別適合承接 C2／K5 的告警與 K9 的 webhook 通知</li>
+      </ul>
+      <div class="gain">每個新平台約 500–600 行 adapter + icon + 設定卡 + 測試，邊際成本已很低。</div>
+    </div>
+
+  </div>
+</section>
+
+<section id="F">
+  <h2 class="sec">F ・ 技能框架 <span class="bn">Skill Framework</span></h2>
+  <p class="muted">共 8 項：1 項 P0、3 項 P1、4 項 P2。技能是這個專案最有價值的資產，也是目前最大的攻擊面。</p>
+
+  <div class="grid">
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">F1</span><h4>技能權限模型與沙箱（B2 的框架面）</h4><span class="p P0">P0</span><span class="p E">XL</span></div>
+      <p class="body"><code>SkillContext</code> 目前是「方便使用的能力面」而非「受限的權限面」：<code>reply</code>、<code>sendImage</code>、<code>sendFile</code>、<code>schedule</code>、<code>watch</code>、<code>unwatch</code> 全是活的手柄，直接交給任意程式碼。</p>
+      <div class="ev"><b>證據</b>
+        <code>skills/types.ts:19-42</code>（<code>SkillContext</code>）；<br>
+        <code>skills/install.ts:66-79</code>、<code>:115-124</code> 只從 zip 讀 <code>id</code> 與顯示用字串，<strong>沒有 manifest schema 驗證</strong>、沒有簽章、沒有允許清單、沒有靜態掃描；<br>
+        <code>skills/loader.ts:34</code>、<code>:69</code> 直接 <code>import()</code>；<br>
+        <code>skills/install.ts:91-167</code> 的所有檢查都只針對路徑與大小。
+      </div>
+      <ul>
+        <li><strong>第一步（低成本）</strong>：定義 <code>skill.json</code> manifest — <code>permissions: ["fs:uploads", "net:api.weather.gov.tw", "env:none"]</code>；安裝時顯示權限清單並要求確認，安裝後在 <code>/skills</code> 卡片顯示</li>
+        <li><strong>第二步</strong>：安裝時靜態掃描（阻擋 <code>child_process</code>、<code>process.env</code>、動態 <code>import</code>、<code>eval</code>），並要求簽章或列入允許清單</li>
+        <li><strong>第三步</strong>：執行期沙箱 — <code>node:vm</code> 或 <code>worker_threads</code> 搭配受限的 <code>require</code>；或以子行程 + 訊號傳遞介面</li>
+        <li>官方 38 個技能維持 in-process（可信），僅對使用者安裝的技能套用限制——<strong>這條分界線能讓成本大幅下降</strong></li>
+      </ul>
+      <div class="gain">「技能市集」（K6）可行的前提。沒有這一層，開放分享技能等同開放 RCE。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">F4</span><h4>技能失敗的回覆本身未保護 → 連帶擊倒後續技能與轉發規則</h4><span class="p P1">P1</span><span class="p E">S</span></div>
+      <p class="body">錯誤處理區塊裡呼叫的回覆函式沒有被 try/catch 包住。一旦它失敗，例外逸出 <code>runSkills</code>，被外層接住後<strong>剩餘技能全部跳過，轉發規則也完全不會執行</strong>。</p>
+      <div class="ev"><b>證據</b>
+        <code>messaging/dispatch.ts:229-232</code> 的 <code>await deps.replyTo(chat, …)</code> 位於 catch 區塊內但未保護；<br>
+        外層 catch 在 <code>dispatch.ts:46-48</code>；<code>runForwardRules</code> 於 <code>dispatch.ts:45</code> 排在其後 → <strong>順序性失效</strong>；<br>
+        觸發情境很日常：未登入（<code>NotLoggedInError</code>）、目標不存在（<code>TargetNotFoundError</code>）、WhatsApp 24 小時視窗拒絕。
+      </div>
+      <ul>
+        <li>把回覆包進自己的 try/catch（<strong>數行</strong>）</li>
+        <li>更根本：<code>runSkills</code>／<code>runForwardRules</code> 各自有獨立 try/catch，任一環節失敗不影響其他環節</li>
+        <li>補測試：模擬「技能丟錯 + 回覆也丟錯」，斷言後續技能仍執行</li>
+      </ul>
+      <div class="gain">單一技能的偶發錯誤不再變成「整則訊息的轉發規則靜默失效」。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">F5</span><h4>每個技能沒有速率或併發上限</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">單一訊息內技能是循序執行，但<strong>跨訊息完全無上限</strong>：收訊處理是 fire-and-forget，不同 webhook 併行。現有的三道閘門沒有一道是 per-skill 的。</p>
+      <div class="ev"><b>證據</b>
+        現有閘門：per-IP HTTP 限流（<code>rateLimit.ts:20-36</code>，60/60s，對 Telegram／Meta 這類集中來源 IP 效果有限）、出站佇列節流與深度上限 1000（<code>queue.ts:23</code>、<code>:69-74</code>，<strong>只管出站</strong>）；技能執行本身無計數、無 semaphore、無冷卻。<br>
+        疊加 <code>triggerMode:"any"</code>（<code>dispatch.ts:147-148</code>）後，攻擊者可用每分鐘約 60 則訊息持續呼叫 LLM 或打外部 API；<br>
+        <code>POST /skills/llm/models</code>（<code>server.ts:3546-3563</code>）只有 session + same-origin，<strong>完全沒有 rate limit</strong>，且會對呼叫者指定的 <code>baseUrl</code> 發請求（見 G5）。
+      </div>
+      <ul>
+        <li>在技能執行層加 per-skill 的 semaphore（同時執行上限）+ token bucket（每分鐘呼叫上限），兩者都在 <code>/skills</code> 可調</li>
+        <li>對會花錢或會上網的技能（<code>ai</code>、<code>summarize</code>、<code>flight</code>、<code>translate</code>）設更嚴的預設上限</li>
+        <li>同一 IP 在冷卻期內重複觸發同一技能時直接忽略（比全域 per-IP 限流更精準）</li>
+        <li>把「已達上限」寫進 <code>skill_exec_total{skill,result="throttled"}</code>（C4）</li>
+      </ul>
+      <div class="gain">讓 per-skill 的成本與外部 API 曝險可控，而不是靠全域 IP 限流兜底。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">F2</span><h4>技能設定欄位沒有驗證規則</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body"><code>SkillField</code> 沒有 <code>required</code>、<code>pattern</code>、<code>min</code>／<code>max</code>、也沒有 default 值；載入與存檔都只做字串強制轉換。所有驗證都是各技能在 <code>run()</code> 裡即興寫的。</p>
+      <div class="ev"><b>證據</b>
+        <code>skills/types.ts:92-99</code> <code>SkillField = {key, label, hint?, secret?, type?, options?}</code>——<strong>無 required／pattern／預設值</strong>；<br>
+        <code>settings.ts:158</code> <code>z.record(z.string(), z.string())</code>；<br>
+        <code>server.ts:3617-3629</code> 存檔時盲目 <code>String(v ?? "")</code>；<br>
+        驗證分散在技能內，例如 <code>summarize/index.ts:80-83</code> <code>if (cfg.provider !== "local" &amp;&amp; !cfg.apiKey) …</code>；<br>
+        結果：設定頁可以存下無效設定（例如把快取 TTL 設成 <code>abc</code>），錯誤只在技能被觸發時才浮現，且錯誤訊息是中文句子、不指出是哪個欄位。
+      </div>
+      <ul>
+        <li>擴充 <code>SkillField</code>：<code>required?: boolean</code>、<code>pattern?: string</code>、<code>min?/max?</code>、<code>default?: string</code>、<code>placeholder?/help?</code></li>
+        <li>用既有的 zod（已是依賴）在 <code>POST /skills</code> 與啟動載入時驗證；不符時<strong>指出是哪個技能的哪個欄位</strong></li>
+        <li>缺必填欄位的技能在 <code>/skills</code> 卡片顯示「尚未完成設定」並阻止啟用</li>
+      </ul>
+      <div class="gain">把「錯誤在使用時才出現」提前到「設定時就擋下」，並讓技能作者不必重複寫驗證。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">F3</span><h4>缺少 <code>fields</code> 的技能會讓整個 <code>/skills</code> 頁 500</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body">型別上 <code>fields</code> 是必填，但載入時只驗三個欄位，渲染時又無條件呼叫 <code>.map()</code>。一個格式不對的 zip 技能會讓<strong>整個技能設定頁掛掉</strong>，連其他 37 個技能的設定都改不了。</p>
+      <div class="ev"><b>證據</b>
+        <code>skills/loader.ts:17-22</code> 只檢查 <code>id</code>／<code>name</code>／<code>run</code>；<code>loader.ts:67</code> 無 <code>?? []</code> 保護；<br>
+        <code>server.ts:2593</code> <code>fields: skill.fields.map(…)</code> 無防護 → <code>TypeError</code> → 整頁 500。
+      </div>
+      <div class="gain"><code>loader.ts</code> 的 <code>toSkill()</code> 補上完整驗證（<code>fields ?? []</code>、逐欄位驗 <code>key</code>／<code>type</code>、<code>ruleFields ?? []</code>）；<code>server.ts:2593</code> 加 <code>?? []</code> 雙重保險；驗證失敗的技能仍載入但顯示為「設定格式錯誤，該技能已停用」，不讓整頁爆掉。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">F6</span><h4>技能熱更新沒有版本與回滾機制</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">安裝／卸載會即時 <code>reloadSkills()</code>，但沒有版本概念：更新一個技能等同刪除再安裝，若新版有 bug 就只能手動裝回舊版。</p>
+      <div class="ev"><b>證據</b><code>server.ts:3572</code> <code>/skills/install</code> 與 <code>:3589</code> <code>/skills/uninstall</code> 都是直接 <code>rm -rf</code> 該技能目錄後重新載入；<code>loader.ts:34</code>、<code>:69</code> 的 <code>import()</code> 帶 <code>?t=Date.now()</code> 破壞 module cache 以求重載，但舊的 module 實例仍在記憶體中。</div>
+      <ul>
+        <li><code>skill.json</code> 加 <code>version</code> 與 <code>previousVersion</code>；更新前把舊目錄 rename 為 <code>.bak</code> 保留</li>
+        <li><code>/skills</code> 加「回滾到上一版」按鈕</li>
+        <li>更新失敗（載入拋錯）時自動回滾，並在 UI 顯示</li>
+        <li>library 產出的 zip（<code>scripts/build-library.mjs</code>）加入 manifest 版本與雜湊</li>
+      </ul>
+      <div class="gain">讓「技能市集」（K6）不會成為單點故障——一個壞版技能不該讓整套自動化停擺。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">F7</span><h4>技能市集：分類、搜尋、評分、一鍵安裝</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body"><code>library/index.html</code> 已是完整的「技能庫」靜態頁（38 張卡、8 個分類 filter、用法展開、下載連結），但它與 <code>/skills</code> 管理頁是<strong>兩個互不相通的世界</strong>。</p>
+      <div class="ev"><b>證據</b>
+        <code>scripts/build-library.mjs</code>（366 行）從 <code>index.ts</code> 靜態解析 metadata、產生 <code>library/index.html</code> 與 38 個 <code>&lt;id&gt;.zip</code>；<br>
+        該頁為純靜態、可獨立部署，但需手動重新產生、需手動上傳 zip；<br>
+        <code>/skills</code> 頁只有「上傳 zip」與「卸載」，沒有瀏覽／搜尋市集的入口（僅 <code>POST /skills/install</code> 收 zip）。
+      </div>
+      <ul>
+        <li>在 <code>/skills</code> 加「技能市集」分頁：直接讀 <code>library/</code> 的 manifest（而非解析 HTML），顯示分類／關鍵字搜尋／已安裝標記／一鍵安裝</li>
+        <li>顯示每個技能的權限需求（F1）與最後更新時間</li>
+        <li>評分與使用數（可由本機的 <code>skill_exec_total</code> 統計作為「已安裝人數」替代）</li>
+        <li>讓 <code>build-library.mjs</code> 可由 <code>npm run</code> 觸發，並在 README 說明如何自架</li>
+      </ul>
+      <div class="gain">把已經做好的靜態頁接進產品，降低技能分發成本——這是 38 個技能價值的放大器。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">F8</span><h4>技能測試 harness：讓技能作者能寫測試</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">38 個技能中只有一部分的 parser 有測試（集中在 <code>tests/new-skills.test.ts</code> 的 25 個 <code>it</code>），而且測試是為「已知的 parser」寫的，不是技能作者能重用的框架。</p>
+      <div class="ev"><b>證據</b><code>tests/new-skills.test.ts</code> 直接 import 各技能的內部 helper 並斷言；沒有 mock <code>SkillContext</code>、沒有 mock <code>net</code>、沒有 fixture 機制。<code>SkillContext</code> 有 11 個成員（<code>skills/types.ts:19-42</code>），全部手寫假物件成本高。</div>
+      <ul>
+        <li>提供 <code>createTestContext(overrides)</code> 輔助函式，給出所有 <code>SkillContext</code> 成員的預設 no-op 實作，並記錄 <code>reply</code>／<code>sendImage</code> 的呼叫以供斷言</li>
+        <li>提供 <code>fetchStub</code>（依 URL pattern 回傳 fixture）取代現有「只測離線拒絕分支」的做法</li>
+        <li>在 <code>/skills</code> 的技能卡上顯示「健康度」＝ 該技能是否有測試覆蓋</li>
+        <li>隨 F1 的 manifest 一併提供 <code>permissions</code> 與 <code>testCommand</code> 欄位</li>
+      </ul>
+      <div class="gain\">技能數量成長後，「靠人工測試」不可行；有了 harness，未來加技能（K13 的可組合資料源）才安全。</div>
+    </div>
+
+  </div>
+</section>
+
+<section id="G">
+  <h2 class="sec">G ・ AI / LLM <span class="bn">Artificial Intelligence</span></h2>
+  <p class="muted">共 6 項：1 項 P0、3 項 P1、2 項 P2。LLM 是本專案最「昂貴」的能力，也是安全防護最薄弱的一環。</p>
+
+  <div class="grid">
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">G1</span><h4>LLM 需白名單 + 預算護欄（與 B3 同源）</h4><span class="p P0">P0</span><span class="p E">S</span></div>
+      <p class="body">指令層有 <code>commands.allowFrom</code>，技能層沒有任何授權閘門。LLM 技能因此對所有能傳訊息的人開放，且沒有任何花費上限。</p>
+      <div class="ev"><b>證據</b>
+        <code>dispatch.ts:139-171</code>（技能無閘門）vs <code>dispatch.ts:290-294</code>（指令有白名單）；<br>
+        <code>skills/ai/index.ts:19-26</code> 可設 <code>triggerMode:"any"</code> → 每則訊息都呼叫模型；<br>
+        記憶可被寫入並黏著：<code>skills/llm.ts:182-191</code> <code>pushHistory()</code> 寫入 <code>memory</code>，<code>ai/index.ts:76</code> 每輪重播；<br>
+        錯誤訊息會把上游錯誤本文（<code>llm.ts:89</code>、<code>:125</code> 各取前 150 字元）回傳到聊天視窗——可能洩漏 API key 片段或 prompt 片段。
+      </div>
+      <ul>
+        <li>技能層的 <code>allowedUsers</code> 白名單（B3），<code>ai</code>／<code>summarize</code> 預設啟用</li>
+        <li>每日額度：<code>{provider, skill, chat}</code> 三個維度的 token 上限，超限回覆「今日額度已用完」</li>
+        <li>把上游錯誤本文先過濾（不回傳 body，只回狀態碼與供應商訊息代碼）</li>
+        <li>記憶加上「每輪最大字元數」與總容量上限，避免記憶被塞滿</li>
+      </ul>
+      <div class="gain">同時解決「被當免費 LLM」與「預算失控」兩個問題。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">G2</span><h4>成本統計與儀表板</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">發出了模型請求但從不回讀用量，因此無法知道花了多少錢、哪個技能花最多、誰在花。產品面詳見 K5。</p>
+      <div class="ev"><b>證據</b><code>skills/llm.ts:80-101</code>（OpenAI 相容）只讀 <code>data.choices?.[0]</code>，不讀 <code>usage</code>；<code>llm.ts:127-132</code>（Gemini）忽略 <code>usageMetadata</code>；<code>llm.ts:197-202</code> 只記錯誤。詳見 C6。</div>
+      <ul>
+        <li>沿用既有 stats JSONL 管道新增 <code>llm_tokens_total</code> 事件類型，避免另建一套</li>
+        <li>價格表放在設定（可更新），以 <code>{model: {input, output}}</code> 換算每日金額</li>
+        <li><code>/dashboard</code> 加成本卡：今日／本月總額、Top 5 技能、Top 5 會話</li>
+        <li>與 <code>skill_exec_total</code>（C4）交叉檢視：成本異常時能立刻定位到是哪個技能的哪個會話</li>
+      </ul>
+      <div class="gain">花錢的功能沒有成本可見性，是預算事故的標準前兆。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">G3</span><h4>LLM 記憶存在無上限的 Map，既不持久也無法刪</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">對話記憶是模組層級的 <code>Map</code>：不落地（重啟即失）、<strong>不限制 chat 數量</strong>（每個用過的會話一個 entry）、且無總容量上限（只有 per-chat 的 <code>keepTurns × 2</code>）。</p>
+      <div class="ev"><b>證據</b>
+        <code>skills/llm.ts:176</code> <code>const memory = new Map&lt;string, ChatMessage[]&gt;()</code>；<br>
+        <code>llm.ts:183,189</code> 只做 per-chat 的 front-trim（<code>keepTurns</code> 預設 6 → 12 則）；<br>
+        無 chat 數量上限、無 TTL、無總位元組上限 → 緩慢洩漏；<br>
+        內容是<strong>使用者原始文字 + 模型原始輸出</strong>，保留整個行程生命週期——這同時是隱私問題（見 I1）；<br>
+        重置指令 <code>清除記憶|忘記|reset</code>（<code>ai/index.ts:62-66</code>）只影響單一 chat；行程重啟後<strong>所有歷史仍留在磁碟的 messages.jsonl 中</strong>。
+      </div>
+      <ul>
+        <li>加總量上限（例如最多 500 個 chat，超過以 LRU 淘汰）與 TTL</li>
+        <li>選項：落地到 A6 的統一儲存（可加密、可依保留政策清除），或明確標示為「僅記憶體、重啟即清」</li>
+        <li>在隱私說明中列出生效範圍，並提供「清除某會話記憶」的管理入口</li>
+        <li>per-chat 與全域兩層額度都設上限（G1）</li>
+      </ul>
+      <div class="gain">同時修掉記憶體洩漏與「使用者要求刪除但其實沒刪掉」的隱私落差。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">G4</span><h4>Prompt injection 緩解（內容邊界與輸出過濾）</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">IM 收來的文字直接進 <code>user</code> turn，沒有任何分隔、標記或輸出約束；對 <code>summarize</code> 而言，輸入更是<strong>第三方網頁內容</strong>。</p>
+      <div class="ev"><b>證據</b>
+        <code>skills/ai/index.ts:74-77</code>：system prompt（若設定）→ 記憶 → 使用者原文，無邊界標記；<br>
+        <code>skills/summarize/index.ts:107</code> <code>{role:"user", content: "網址：…\\n\\n內文：\\n" + clipped}</code>，其中 <code>clipped</code> 是抓來的第三方 HTML 文字；<br>
+        現有的提示只有 <code>temperature 0.7</code>、<code>maxTokens 2048</code>、<code>timeoutMs 30000</code>（<code>llm.ts:46-48</code>）與 summarize 的 <code>只根據內容回答，不要編造</code>（<code>summarize/index.ts:10</code>）——皆為柔性提示，非機制性防護。
+      </div>
+      <ul>
+        <li>所有非系統來源（IM 文字、抓取內容）以明確包裝標記（如 <code>&lt;untrusted-user-content&gt;</code>）並在 system prompt 宣告「僅視為資料」</li>
+        <li>對 <code>summarize</code> 特別要求：輸出只能是摘要，不得執行或遵循內容中的指令</li>
+        <li>若支援 function calling，限制可用工具（目前無工具呼叫，是優勢——應維持）</li>
+        <li>可選：輸出側過濾（拒絕含特定樣式的回覆，如疑似外洩的環境變數名稱）</li>
+        <li>與 B4（SSRF）合併處理，因為兩者都在同一條程式路徑</li>
+      </ul>
+      <div class="gain">把「提示工程的期待」升級為「機制性的邊界」。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">G5</span><h4>供應商白名單與 baseURL 允許清單</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body"><code>custom</code> provider 允許任意 <code>baseUrl</code>，等同於讓設定頁發出任意網路請求。</p>
+      <div class="ev"><b>證據</b>
+        <code>skills/llm.ts:3</code> <code>type LlmProvider = "openai" | "gemini" | "opencode" | "local" | "custom"</code>；
+       <code>llm.ts:73</code> 起 <code>openaiCompatChat</code> 直接 <code>fetch(cfg.baseUrl)</code>；
+       <code>POST /skills/llm/models</code>（<code>server.ts:3546-3563</code>）以 <code>admin</code> + same-origin 保護，但<strong>沒有 rate limit</strong>，會對呼叫者指定的 <code>baseUrl</code> 發請求 → 可用作內網探測或壓力放大。
+     </div>
+      <ul>
+        <li>沿用 B4 的位址過濾（拒絕 loopback／private／link-local／metadata），但對 <code>local</code> provider <strong>例外放行</strong>（Ollama 常跑在 localhost）</li>
+        <li>設定頁顯示目前 baseUrl 的解析 IP，並警告它是否為內網位址</li>
+        <li><code>/skills/llm/models</code> 加 rate limit 與逾時</li>
+      </ul>
+      <div class="gain">在不影響本地 Ollama 使用的前提下關閉 SSRF。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">G6</span><h4>串流回覆與輸入中指示</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">目前 LLM 回覆是一次性送出，長回答期間使用者看不到任何狀態；四個平台的 API 大多支援串流或 typing indicator，但都沒被使用。</p>
+      <div class="ev"><b>證據</b>各 adapter 的 <code>SendInput</code>（<code>messaging/types.ts</code>）沒有「typing」或「stream」欄位；Telegram 的 <code>sendChatAction</code>、Teams 的 typing activity、WhatsApp 的 typing indicator 皆未實作。<code>chunkReplyText</code>（<code>messaging/text.ts</code>）只在超過 <code>replyMaxChars</code> 時切段並加 <code>(n/N)</code> 前綴。</div>
+      <ul>
+        <li><code>SendInput</code> 加 <code>typing?: boolean</code> 與 <code>stream?: boolean</code>；不支援的平台自動降級</li>
+        <li>Telegram 支援真正的串流編輯訊息（editMessageText 逐段更新），體感差異最大</li>
+        <li>等待 LLM 期間先送「思考中…」佔位，回覆後更新／刪除</li>
+        <li>與 E3 能力矩陣一起實作，避免各 adapter 各自為政</li>
+      </ul>
+      <div class="gain">把 AI 回覆的體感從「卡住」變成「在回」，是使用者感受提升最大的細節之一。</div>
+    </div>
+
+  </div>
+</section>
+
+<section id="H">
+  <h2 class="sec">H ・ 使用者體驗與在地化 <span class="bn">UX &amp; Localization</span></h2>
+  <p class="muted">共 7 項：1 項 P0、2 項 P1、4 項 P2。本類有一項是<strong>功能性缺陷</strong>而非美化問題：非中文部署下技能會完全失靈。</p>
+
+  <div class="grid">
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">H1</span><h4>非中文部署下，助理模式技能會完全失靈</h4><span class="p P0">P0</span><span class="p E">M</span></div>
+      <p class="body">助理前綴與禮貌詞的剥离只認中文正體字串；dispatch 層所有回給 IM 使用者的訊息也全是硬編中文、沒有 i18n。管理介面有 zh/en/ja，但<strong>bot 回覆沒有</strong>。</p>
+      <div class="ev"><b>證據</b>
+        <code>messaging/dispatch.ts:123</code> <code>const polite = /^(請幫忙|請幫|幫忙|麻煩|幫我|幫)\s*/</code> —— 僅繁體中文；
+       dispatch 層硬編中文：<code>:302-311</code>（help 清單）、<code>:231</code>（技能失敗）、<code>:329</code>（send 用法）、<code>:337</code>（未知指令）；
+       <code>skills/types.ts:11-17</code> <code>LocalizedText</code> 的 <code>en</code>／<code>ja</code> 是<strong>選填</strong>，缺 translation 時靜默 fallback 到 <code>zh</code>（<code>types.ts:14-16</code>）；
+       <code>config.ts:382</code>／<code>settings.ts:149</code> <code>assistant.name</code> 預設「阿寶」；<code>config.ts:43</code>／<code>settings.ts:17</code> <code>timezone</code> 預設 <code>Asia/Taipei</code>。
+     </div>
+      <p class="body">後果具體而嚴重：英文部署者輸入「Abao train Taipei to Kaohsiung」，前綴不會被剥离 → 觸發詞比對失敗 → <strong>所有 assistant-mode 技能靜默無回應</strong>，而且沒有任何錯誤訊息。</p>
+      <ul>
+        <li>把禮貌詞／前綴改為語意化而非字串比對：<code>LocalizedText</code> 化的前綴清單，或支援正規化前綴（去除標點、英文 case-insensitive）</li>
+        <li>把 dispatch 層所有使用者可見字串納入 <code>src/i18n.ts</code>（含技能失敗訊息 C5）</li>
+        <li>提供 <code>i18n lint</code>（測試）：掃描所有技能的 <code>description</code>／<code>usage</code>／<code>fields</code> 是否具備當前語言，缺則警告</li>
+        <li>設定頁在 <code>language !== "zh"</code> 時顯示「N 個技能缺少英／日翻譯」的清單</li>
+      </ul>
+      <div class="gain">讓介面已宣稱支援的三種語言<strong>真的</strong>在三個地方都成立（UI、bot 回覆、技能描述）。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">H2</span><h4>i18n 覆蓋率不足，約 80–100 條 UI 字串繞過 <code>tr()</code></h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">已有一套很好的 <code>data-i18n</code> 橋接機制（<code>server.ts:761-771</code>）與 <code>src/i18n.ts</code> 字典，但只覆蓋「標籤／標題」；所有狀態訊息、提示說明、toast 都是硬編中文。英文／日文的介面約七成未翻譯。</p>
+      <div class="ev"><b>量測</b>
+        已有：字典 <code>i18n.ts:12-379</code>、<code>data-i18n</code> 屬性 132 個、<code>data-i18n-ph</code> 6 個、<code>T()</code> 呼叫 68 處、server 端 <code>tr()</code> 63 處；
+       <code>server.ts</code> 內共 313 行含 CJK，其中 <strong>213 行在模板字串內（使用者可見）</strong>；
+       具體漏網：所有 toast／狀態訊息（<code>server.ts:871-886</code> 密碼、<code>:1921-2001</code> 設定儲存、<code>:2158-2361</code> console、<code>:2635-2686</code> 技能）、所有 <code>.hint</code> 說明（<code>:1274-1407</code>）、登入頁語言切換器 <code>:3075</code>／<code>:3083</code>（<code>{zh:"中", ja:"日"}</code> 硬編）、<code>/readme</code> 頁標題 <code>:3156</code>（<code>page("ReadMe", …)</code>，<code>title_readme</code> 字典鍵不存在）、QR 提示 <code>:1148-1182</code>（含 <code>未啟用</code>）。
+     </div>
+      <ul>
+        <li>優先補：所有狀態／錯誤訊息 → 抽成字典鍵（這些是使用者最常看到的）</li>
+        <li>登入頁語言切換器與 <code>/readme</code> 標題</li>
+        <li>加 CI 檢查：掃描 <code>src/webhook/</code> 模板字串中的 CJK 字元，發現硬編中文即失敗（或警告）——這能<strong>防止問題再生</strong></li>
+        <li>把 bot 回覆一併納入同一字典（見 H1），避免兩套文案系統</li>
+      </ul>
+      <div class="gain">用同一套機制同時解決 UI 與 bot 的在地化，並加上 CI 守門防止迴歸。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">H3</span><h4>無障礙支援幾乎為零</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">全專案 <strong>0 個 <code>aria-*</code> 屬性、0 個 <code>&lt;label for&gt;</code></strong>，而 90 個 <code>&lt;label&gt;</code> 都是「標籤旁有輸入框」的視覺關聯（無程式化關聯），82 個 <code>&lt;input&gt;</code> 全部依賴這種方式。</p>
+      <div class="ev"><b>量測</b>
+        <code>aria-*</code> 0 個；<code>role="dialog"</code> 0 個；<code>aria-live</code> 0 個；<code>&lt;label for&gt;</code> 0 個（共 90 個 <code>&lt;label&gt;</code>）；<code>&lt;caption&gt;</code> 0 個；<code>alt=</code> 只有 3 個；
+       密碼視窗（<code>server.ts:725-734</code>、<code>USER_SCRIPT:852-888</code>）：無 <code>role="dialog"</code>／<code>aria-modal</code>、無焦點陷阱、無 <kbd>Esc</kbd> 關閉（只有點外部與取消鈕）、關閉後焦點不回 <code>#user-avatar</code>；
+       下拉選單（<code>#im-switch-menu</code> <code>:675-677</code>、<code>#user-menu</code> <code>:651-654</code>、<code>#lang-menu</code> <code>:643</code>）只切 <code>hidden</code>，無 <code>aria-expanded</code>／<code>aria-haspopup</code>、無方向鍵導覽；
+       閒置倒數每 1000ms 更新 <code>textContent</code>（<code>USER_SCRIPT:891-907</code>）但無 <code>aria-live="off"</code> → 螢幕閱讀器會反覆朗讀；
+       色彩對比：<code>.stat-label</code>／<code>.hint</code>／<code>.chart-label</code> 用 <code>#94a3b8</code> 疊在深色漸層上（CSS <code>:452,:459,:580</code>），可能低於 WCAG AA 4.5:1；
+       純圖示按鈕（如 <code>:2051</code> 的 <code>&#128197;</code> 日曆）只靠 <code>title</code> 提供無障礙名稱。
+      </div>
+      <ul>
+        <li>為 82 個 <code>&lt;input&gt;</code> 補 <code>id</code> + <code>&lt;label for&gt;</code>（可機械式改寫）</li>
+        <li>密碼視窗加 <code>role="dialog"</code> <code>aria-modal="true"</code> <code>aria-labelledby</code>、焦點陷阱、<kbd>Esc</kbd>、關閉後還原焦點</li>
+        <li>狀態訊息容器（<code>#login-msg</code>、<code>#pw-msg</code>、<code>#settings-msg</code>、<code>#test-msg</code>）加 <code>role="status"</code>／<code>aria-live="polite"</code>；倒數區加 <code>aria-live="off"</code></li>
+        <li>下拉選單加 <code>aria-expanded</code>／<code>aria-controls</code>，並支援鍵盤操作</li>
+        <li>表格補 <code>&lt;caption class="sr-only"&gt;</code>；調整對比色</li>
+        <li>建議在 D2（抽靜態資源）之後做，CSS 類名已穩定</li>
+      </ul>
+      <div class="gain">管理介面有 82 個輸入框，是每天要操作的工具——無障礙不是加分項，是可用性基本盤。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">H4</span><h4>台灣限定資料來源的靜默降級（會產生錯誤資訊）</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">大部分技能綁定台灣的資料來源，這在台灣是對的。但有幾處<strong>不是降級、而是回傳錯誤資訊</strong>，使用者不會知道自己拿到的是別處的資料。</p>
+      <div class="ev"><b>最嚴重的一例</b>
+        <code>skills/weather/index.ts:66-75</code> <code>CITIES</code> 只有 16 個中文台灣城市；<code>:79</code> <code>const coord = CITIES[city.trim().replace(/市$/,"")] ?? CITIES["臺北"]</code>；<code>:87</code> 回應中 <strong>echo 使用者輸入的城市名</strong>。
+       → 大阪查「weather 大阪」會取得<strong>台北的天氣</strong>並標示為「大阪」。無警告、無錯誤。
+       <code>weather/index.ts:82</code> 亦硬編 <code>timezone=Asia/Taipei</code>。
+       其他靜默降級：<code>quake/index.ts:163</code> 硬編台灣 bbox、<code>:34-45</code> 強制以 Asia/Taipei 格式化時間（忽略 <code>config.timezone</code>）；<code>stock/index.ts:130</code> 對<strong>所有</strong>市場套用台股「張」為單位；<code>flight/index.ts:62,74,87,98</code> 所有價格硬編 TWD；<code>exchange-rate/index.ts:109</code> 單幣別查詢預設目標 TWD；<code>summarize/index.ts:10</code> system prompt 硬編「繁體中文摘要助手」；<code>translate/index.ts:109</code> 非 CJK 輸入預設翻譯<strong>成</strong> zh-TW；<code>air-quality/index.ts:27,32</code> WAQI token 靜默用共用 <code>demo</code> token（會被限流）；<code>cpbl/index.ts:5-6</code> 使用第三方爬蟲站 <code>zxc22.idv.tw</code>（脆弱、無備援）。
+     </div>
+      <ul>
+        <li>最優先：<code>weather</code> 查不到城市時<strong>明確回報「查無此地區，請指定以下城市」並列出清單</strong>，絕不回傳替代資料</li>
+        <li>其餘：資料來源為台灣限定時，在技能說明與 <code>/skills</code> 卡片標註「僅支援台灣」</li>
+        <li><code>quake</code> 的時間格式化改為使用 <code>config.timezone</code>；bbox 改為可設定</li>
+        <li><code>stock</code>／<code>flight</code>／<code>exchange-rate</code> 的幣別與單位依 <code>config.language</code>／<code>timezone</code> 推導，改為可設定</li>
+        <li>資料來源健康度（<code>health()</code>）應納入「此技能在目前 locale 是否適用」的提示</li>
+      </ul>
+      <div class="gain">把「說錯話」改成「說不知道」。對自動化系統而言，寧可失敗也不要給出錯誤答案。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">H5</span><h4>行動版體驗與 PWA</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">管理介面是桌面優先的（多欄卡片網格、寬表格、常駐側欄），且沒有任何 PWA / manifest / 主畫面 icon / 行動通知。</p>
+      <div class="ev"><b>證據</b>現有 viewport meta 已設定，但 CSS 網格為 <code>repeat(auto-fit, minmax(...))</code> 加上多處固定寬度（例如 <code>SETTINGS_STYLE</code> 內的欄位網格與 <code>renderSettingsHtml</code> 的左側導航 <code>:2011-2026</code> 在小螢幕會擁擠）；<code>icons/</code> 有 4 個平台 png 但沒有 app icon / favicon 集；無 <code>manifest.webmanifest</code>、無 service worker、無 <code>apple-touch-icon</code>。</div>
+      <ul>
+        <li>加入 <code>manifest.webmanifest</code> + 192/512 app icon + favicon SVG，讓手機可「加入主畫面」</li>
+        <li>小螢幕下把設定頁左側導航改為可收合的 drawer；表格改為卡片式堆疊</li>
+        <li>把「登入 QR」做成全屏最佳化——這是最常在手機上做的操作（LINE／WhatsApp 掃碼）</li>
+        <li>與 K15（推播）合併為 PWA：加入主畫面後可收推播</li>
+      </ul>
+      <div class="gain\">實際使用情境中，掃 QR 登入與查通知都發生在手機上。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">H6</span><h4>統一收件匣：跨平台訊息搜尋、標籤、未讀</h4><span class="p P2">P2</span><span class="p E">L</span></div>
+      <p class="body"><code>/messages</code> 目前是「最近 300 則的唯讀 log」，沒有跨平台視圖、沒有篩選維度、沒有標記、沒有真正的搜尋（見 A6：檔案裡的舊資料讀不到）。</p>
+      <div class="ev"><b>現況</b>
+        <code>src/messages.ts</code>：記憶體 300 則（<code>:16</code> <code>LIMIT</code>）、<code>searchMessages()</code>（<code>:77-93</code>）僅支援 <code>q</code>／<code>chat</code>／<code>limit</code>；<br>
+        <code>ReceivedMessage</code>（<code>:7-14</code>）有 <code>platform</code> 欄位嗎？——<strong>沒有</strong>，只有 <code>fromMid</code>／<code>chatMid</code>／<code>chatType</code>／<code>text</code>，所以現有資料<strong>無法區分平台</strong>；<br>
+        UI 有 JSON／CSV 匯出（<code>renderMessagesHtml</code> <code>server.ts:3158-3250</code>），但沒有篩選器與分頁。
+      </div>
+      <ul>
+        <li>先在 <code>ReceivedMessage</code> 補 <code>platform</code> 與 <code>messageId</code>（與 A1 的去重共用同一識別碼）</li>
+        <li>待 A6 的儲存層到位後，提供全量歷史搜尋（不只是 300 則）、跨平台過濾、時間範圍、正規式</li>
+        <li>加標籤／星號／未讀，支援「把這段對話轉成技能 watch 規則」的快捷入口（呼應 K3）</li>
+        <li>保留政策與清除入口必須一起做（見 I1）</li>
+      </ul>
+      <div class="gain">把「log 檢視器」升級為「可回溯的訊息收件匣」，也是 A1／A2 除錯時的必要工具。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">H7</span><h4>排程視覺化日曆</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">排程目前是一個表格清單（時間、內容、目標、兩個動作）。cron 遞迴的內容無法直觀看到「每週一早上 8 點」，misfire 歷史也看不見。</p>
+      <div class="ev"><b>現況</b><code>renderConsoleHtml()</code> 的排程區（<code>server.ts:2112</code> 起、<code>:2183-2210</code> 的動作列）；資料來自 <code>svc.listScheduled()</code>（<code>server.ts:3418</code>、<code>:3437</code>）——<strong>只列出目前生效服務</strong>（見 D6）。cron 解析器是自製的 5 欄位實作（<code>line/cron.ts</code>，有 8 個單元測試）。</div>
+      <ul>
+        <li>月／週視圖顯示所有排程與 watch 任務，含 cron 展開為具體日期</li>
+        <li>拖曳改期（呼叫既有的 <code>POST /settings/scheduled/update</code>，不需新後端 API）</li>
+        <li>顯示 misfire 記錄（A4）與上次執行結果（A3）</li>
+        <li>跨平台合併檢視（修正 D6 後自然成立）</li>
+      </ul>
+      <div class="gain\">排程與週期任務是這個專案最複雜也最難維護的部分，視覺化能大幅降低出錯率。搭配 K7 一併規劃。</div>
+    </div>
+
+  </div>
+</section>
+
+<section id="I">
+  <h2 class="sec">I ・ 資料與隱私 <span class="bn">Data &amp; Privacy</span></h2>
+  <p class="muted">共 5 項：3 項 P1、2 項 P2。系統會保存聊天 ID、顯示名稱、<strong>訊息全文</strong>與來源 IP，且沒有任何清除機制。</p>
+
+  <div class="grid">
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">I1</span><h4>訊息紀錄沒有時間保留政策，且模組在結構上無法刪除</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">只有「大小輪替」而沒有「時間保留」。更嚴重的是：<code>src/messages.ts</code> <strong>沒有任何刪除函式</strong>，路由表也沒有 <code>DELETE</code> 或 purge 端點——清除資料只能停掉行程後手動 <code>rm</code>。</p>
+      <div class="ev"><b>證據</b>
+        儲存的 PII（<code>messages.ts:7-14</code>）：<code>fromMid</code>（平台使用者 ID）、<code>fromName</code>（顯示名稱）、<code>chatMid</code>、<code>chatType</code>、<strong><code>text</code>（訊息全文）</strong>；
+       沒有 TTL、沒有 <code>maxAgeMs</code>、<code>recordMessage()</code>（<code>:52-64</code>）無條件 append；<br>
+        邊界只有：記憶體 300 則（<code>:16</code>）與檔案 5MB × 3（<code>:17-18</code>）→ 上限約 15MB，但那是<strong>量</strong>不是<strong>時</strong>：低流量的最舊紀錄可永久保留；<br>
+        <code>messages.ts</code> 只 export <code>initMessages</code>／<code>reloadMessages</code>／<code>recordMessage</code>／<code>getMessages</code>／<code>searchMessages</code>——<strong>沒有 purge</strong>；
+       <code>reloadMessages()</code>（<code>:48-50</code>）是<strong>合併</strong>而非覆寫，記憶體視窗可能超過 300 則；
+       關閉 <code>messagesPersist</code> 只是「不再寫入」，<strong>既有檔案原封不動留在磁碟</strong>——這不是 GDPR 類的刪除機制。
+      </div>
+      <ul>
+        <li>加保留政策：<code>retentionDays</code>（預設如 30 天）+ <code>maxMessages</code>，開機與每日週期執行修剪</li>
+        <li>新增 <code>purgeMessages(before?)</code> 與管理端「清除訊息紀錄」按鈕（含二次確認與影響範圍說明）</li>
+        <li>修正 <code>reloadMessages()</code> 為覆寫語義，避免視窗無上限膨脹</li>
+        <li>其他無期限 PII 儲存一併納入：<code>stats.jsonl</code>（含目標 ID）、<code>logs/app.log</code>（含客戶端 IP）、<code>token-usage.json</code>（含每個 token 的最後 IP）、<code>data/cache/*.json</code></li>
+        <li>文件明確寫出「關閉持久化不等於刪除資料」</li>
+      </ul>
+      <div class="gain">把「資料會一直留著」變成「資料會依政策自動過期，且你真的能刪掉」。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">I2</span><h4>上傳的媒體檔案沒有清理策略</h4><span class="p P1">P1</span><span class="p E">S</span></div>
+      <p class="body">管理介面的測試送與 webhook 都能上傳檔案到 <code>data/uploads</code>，但沒有任何清理機制，會隨時間無限增長。</p>
+      <div class="ev"><b>證據</b>
+        <code>UPLOADS_PATH</code> 預設 <code>./data/uploads</code>（<code>config.ts:79</code>，可於 <code>/settings</code> 改）；<br>
+        <code>POST /settings/upload</code>（<code>server.ts:3752-3779</code>）以 <code>X-Filename</code> header 決定檔名並寫入（已有路徑沙箱 <code>resolveLocalMediaPath</code> 保護讀取側，但<strong>寫入側沒有配額或保留策略</strong>）；<br>
+        無 TTL、無配額、無總量上限、<code>/console</code> 沒有檔案管理介面。
+       注意 <code>MAX_BODY_MB</code>（預設 25MB，<code>config.ts:56</code>）只限制單次請求大小，不限制累積量。
+      </div>
+      <ul>
+        <li>加 <code>uploadsRetentionDays</code> 與總量上限（例如 2GB），超過時拒絕新的上傳並在 <code>/console</code> 顯示用量</li>
+        <li><code>/console</code> 加檔案管理：列表、刪除、下載</li>
+        <li>明確區分「測試上傳」與「webhook 上傳」兩種來源，可分別設定保留期</li>
+        <li>把用量顯示在 <code>/dashboard</code>（與 C1 的就緒檢查一起：磁碟可用空間）</li>
+      </ul>
+      <div class="gain">避免長期運行後磁碟被無聲填滿——而磁碟滿會讓所有寫入類操作（含 log、stats）一起失效。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">I3</span><h4><code>read</code> scope 就能匯出訊息內容與日誌（含 IP）</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">scope 模型只有 <code>read</code>／<code>send</code>／<code>admin</code> 三級，而 <code>read</code> 這個「只能讀」的級別實際上包含了<strong>個人可識別資訊</strong>的讀取。</p>
+      <div class="ev"><b>證據</b>
+        <code>GET /messages.json</code>（<code>server.ts:3649</code>）為 <code>read</code> scope → 任何 read token 每次可取最多 1000 則含全文的訊息（<code>messages.ts:80</code> clamp）；
+       <code>GET /status.json</code>（<code>:3426</code>）與 <code>GET /dashboard.json</code>（<code>:3403</code>）為 <code>read</code> scope，且回傳 <code>logger.getRecent()</code> 的 log 緩衝——<strong>內含客戶端 IP</strong>（多數 warn/info 行把 <code>ip</code> 放進 meta）；
+       <code>/settings/export</code>（<code>:3666</code>）為 <code>admin</code>，但無 <code>?password=</code> 時輸出<strong>全部明文密鑰</strong>且<strong>無稽核紀錄</strong>；
+       沒有「讀取密鑰」或「讀取 PII」這種更細的 scope。
+     </div>
+      <ul>
+        <li>細分 scope：<code>read:meta</code>（狀態、統計）與 <code>read:messages</code>（訊息全文）分開；既有 token 沿用舊行為並在 UI 標示「可讀訊息」</li>
+        <li><code>/messages.json</code> 加速率限制與「單次最大筆數」上限（可設定）</li>
+        <li><code>logger.getRecent()</code> 對外的版本先做遮罩（IP 打碼），完整版本限 <code>admin</code></li>
+        <li><code>/settings/export</code> 預設要求密碼或 2FA，並寫入稽軌（見 B9）</li>
+      </ul>
+      <div class="gain\">讓「給人一個唯讀 token 去看監控」不再等同於「給人全部對話紀錄」。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">I4</span><h4>敏感操作沒有稽核紀錄</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">改設定、匯出設定（含全部密鑰）、安裝／卸載技能、改密碼、上傳檔案、刪除排程——這些操作<strong>都沒有留下可查的紀錄</strong>，只有一般 log 行且無 actor 概念。</p>
+      <div class="ev"><b>證據</b>全專案無稽核寫入；<code>logger</code> 有 <code>ip</code> 欄位但無 <code>actor</code>／<code>action</code> 的結構化紀錄，也沒有查詢 UI。<code>POST /settings/export</code> 尤其明顯——它把整份密鑰寫成可下載檔案，<strong>連 log 都沒有</strong>。</div>
+      <div class="gain">新增 <code>data/audit.jsonl</code>（格式見 B9），在 <code>/dashboard</code> 提供時間軸檢視與篩選；寫入點可用一個小 middleware 包住所有 <code>requireSameOrigin</code> 的 POST 路由，避免漏寫。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">I5</span><h4>資料匯出與刪除流程（使用者請求）</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">聊天對象要求刪除自己的資料時，目前沒有任何支援：訊息存在 JSONL、LLM 記憶在記憶體、排程內容在 JSON、<code>targets</code> 裡有對方 ID。</p>
+      <div class="ev"><b>資料散落位置</b><code>messages.jsonl</code>（含全文）、<code>skills/llm.ts:176</code> 的記憶 Map（<strong>重啟即消失</strong>，但仍在記憶體中）、<code>schedules-*.json</code>（<code>scheduler.ts</code> 的 job inputs 含訊息文字）、<code>settings.json</code> 的 <code>targets</code>、<code>stats.jsonl</code> 的 <code>to</code>、<code>logs/app.log</code> 的 IP。</div>
+      <ul>
+        <li>提供「資料匯出」（單一聊天對象的全部相關資料）與「資料刪除」（依 chat id 從所有儲存中移除）</li>
+        <li>待 A6 統一儲存層後，這兩件事會大幅簡單——<strong>又一次說明 A6 的槓桿效應</strong></li>
+        <li>刪除操作本身寫入稽軌（I4）</li>
+        <li>README／<code>docs/</code> 說明資料流向與保留政策（目前完全沒有這份文件）</li>
+      </ul>
+      <div class="gain\">讓「收到資料刪除請求」從一件做不到的事，變成一個按鈕。</div>
+    </div>
+
+  </div>
+</section>
+
+<section id="J">
+  <h2 class="sec">J ・ 部署與維運 <span class="bn">Deployment &amp; Operations</span></h2>
+  <p class="muted">共 8 項：2 項 P0、3 項 P1、3 項 P2。前兩項是<strong>已存在的具體缺陷</strong>，其中一項在容器環境中每次都會發生。</p>
+
+  <div class="grid">
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">J1</span><h4>Dockerfile 未複製 <code>icons/</code> → 容器內 IM 切換圖示全部消失</h4><span class="p P0">P0</span><span class="p E">S</span></div>
+      <p class="body"><code>imIcon()</code> 從 <code>./icons/&lt;id&gt;.png</code> 讀檔並 base64 內嵌，但 Dockerfile 只 <code>COPY</code> 了 <code>dist</code> 與 <code>README.md</code>。<strong>用 Docker 部署時，右上角四個平台圖示會消失，且完全無錯誤訊息。</strong></p>
+      <div class="ev"><b>證據</b>
+        <code>server.ts:601-612</code> <code>imIcon()</code> 讀 <code>readFileSync(resolve("./icons/" + id + ".png"))</code>，失敗時 <code>catch { cache.set(id, ""); return ""; }</code> —— <strong>靜默降級</strong>；
+       <code>server.ts:674-676</code> 的 fallback 是純色圓點；
+       <code>Dockerfile:14-15</code> 只有 <code>COPY --from=build /app/dist ./dist</code> 與 <code>COPY README.md ./</code>，<strong>沒有 <code>COPY icons</code></strong>；
+       <code>icons/</code> 有 4 個真實檔案（<code>line.png</code> 8.0KB、<code>whatsapp.png</code> 10.3KB、<code>teams.png</code> 6.7KB、<code>telegram.png</code> 3.8KB）且<strong>在版控內</strong>，只是沒被打包；
+       額外問題：<code>imIcon()</code> 是從 <strong>CWD</strong> 相對路徑讀取，不是 <code>import.meta.url</code> → 行程的 CWD 必須是專案根目錄，否則即使在非容器環境也會失效。
+     </div>
+      <ul>
+        <li>修法：Dockerfile 加一行 <code>COPY icons ./icons</code></li>
+        <li>根治：改為以 <code>import.meta.url</code> 解析絕對路徑，並在啟動時檢查圖示是否存在、缺檔時 <code>logger.warn</code></li>
+        <li>長期：配合 D2 改成 <code>express.static("/icons")</code>，用 <code>&lt;img src&gt;</code> 取代 base64 內嵌（順帶減少每頁 29KB）</li>
+        <li>防迴歸：CI 加一步「<code>docker build</code> 後啟動並 curl <code>/dashboard</code>，斷言 HTML 含 <code>/icons/line.png</code>」（見 J4）</li>
+      </ul>
+      <div class="gain">一行 Dockerfile 就能修好一個每次 Docker 部署都會發生、卻沒有人發現的缺陷。</div>
+    </div>
+
+    <div class="card" data-p="P0">
+      <div class="head"><span class="id">J2</span><h4>容器以 root 執行、無 healthcheck、無資源限制</h4><span class="p P0">P0</span><span class="p E">S</span></div>
+      <p class="body">行程掛掉不會被重啟（疊加 C1 的「<code>/health</code> 永遠 200」），且以最高權限執行、無記憶體上限。</p>
+      <div class="ev"><b>證據</b>
+        <code>Dockerfile</code>：無 <code>USER</code> 指令 → 以 root（uid 0）執行；無 <code>HEALTHCHECK</code>；<code>node:24-bookworm-slim</code> 為浮動 tag 未鎖 digest；
+       <code>docker-compose.yml</code>：只有 <code>restart: unless-stopped</code>；無 <code>healthcheck</code>、<code>user</code>、<code>read_only</code>、<code>tmpfs</code>、<code>cap_drop</code>、<code>security_opt: no-new-privileges</code>、<code>mem_limit</code>／<code>cpus</code>／<code>pids_limit</code>；
+       容器 stdout/stderr（<code>logger.ts:25-26</code>）<strong>無輪替</strong>，受 daemon <code>json-file</code> 預設值-governed；
+       <code>./data:/app/data</code> bind mount 沿用主機擁有權，程式以 root 寫入 → <strong>主機端檔案變成 root 擁有</strong>（Linux 上的實際維運痛點）。
+      </div>
+      <ul>
+        <li>Dockerfile 加 <code>USER node</code>，並 <code>chown</code> <code>/app/data</code></li>
+        <li>Dockerfile 加 <code>HEALTHCHECK</code> 指向修好的 <code>/healthz</code>（C1）；compose 加對應 <code>healthcheck</code></li>
+        <li>compose 加 <code>mem_limit</code>（配合 C4 的 metrics 觀察真實用量後設定）、<code>pids_limit</code>、<code>security_opt</code></li>
+        <li>設定 <code>logging</code> 輪替（<code>max-size</code>／<code>max-file</code>）</li>
+        <li>把這些設定納入文件，說明「單一實例」的原因（見 D5）</li>
+      </ul>
+      <div class="gain\">讓「壞掉的行程」與「記憶體洩漏」這兩類最常見的線上事故能被自動處理。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">J3</span><h4>沒有備份與還原機制</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">需要備份的東西有五類，其中兩類<strong>丟了就要重新人工處理</strong>，但目前完全沒有備份。</p>
+      <div class="ev"><b>需要保護的資料</b>
+        <code>storage.json</code>：LINE authToken + E2EE 私鑰 → <strong>丟了要重新掃 QR</strong>；<br>
+        <code>data/whatsapp-web/</code>：Baileys <code>creds.json</code> 裝置金鑰 → <strong>丟了要重新掃 QR</strong>；<br>
+        <code>settings.json</code>：含全部設定與明文密鑰；<br>
+        <code>data/</code>：<code>auth.json</code>（管理密碼）、<code>messages.jsonl</code>、<code>schedules-*.json</code>、<code>stats.jsonl</code>、<code>token-usage.json</code>、<code>cache/</code>；<br>
+        <code>skills/</code>（外掛技能）與使用者上傳的媒體。
+       現況：<code>scripts/scp-update.sh/.ps1</code> 是<strong>單向</strong>部署同步（local → remote），不是備份；<code>scripts/scp-update.sh</code> 明確排除 <code>.env</code>／<code>storage.json</code>／<code>settings.json</code>。
+      </div>
+      <ul>
+        <li>提供 <code>/settings/backup</code>：把上述內容打包成單一檔案（沿用既有的 <code>settings-crypto.ts</code> 加密機制，AES-256-GCM + scrypt）</li>
+        <li>提供還原端點，恢復前先自動備份現況（防誤操作）</li>
+        <li>搭配 D9 的 <code>schemaVersion</code>：還原時依序套用遷移，讓舊備份能在新版運作</li>
+        <li>文件寫明建議的備份頻率與保留期；把 <code>storage.json</code> 的重要性寫進 README 的部署章節（目前只在「刪除會登出」這句帶過）</li>
+      </ul>
+      <div class="gain">目前「伺服器掛掉」的成本不只是服務中斷，而是可能需要重新掃 QR、重新設定所有技能。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">J4</span><h4>CI 不建 Docker、沒有 Dependabot、沒有 secret scanning、沒有 lint</h4><span class="p P1">P1</span><span class="p E">S</span></div>
+      <p class="body">CI 只有五個步驟。這直接解釋了為什麼 J1（Docker 缺 icons）可以長期存活。</p>
+      <div class="ev"><b>證據</b>
+        <code>.github/workflows/ci.yml</code>：<code>npm ci → typecheck → build → test → node .github/audit-gate.mjs</code>，單一 <code>ubuntu-24.04</code> / Node 24；
+       <b>沒有</b>：Docker build、lint（D3）、覆蓋率（D4）、e2e、Dependabot、gitleaks／trufflehog secret scanning、CodeQL／Semgrep SAST、多版本 Node 矩陣（D11）；
+       <code>.github/scripts/</code> 為<strong>空目錄</strong>；
+       <code>.github/audit-gate.mjs</code> 有兩個軟肋：<code>via</code> 為純字串（指標式）的漏洞會被 <code>continue</code> 跳過（<code>:37-39</code>）；allowlist 無 <code>expires</code>／<code>reviewedAt</code>，豁免永久有效；
+       <code>npm audit</code> 的兩個豁免是 <code>thrift</code>（僅經 <code>@evex/linejs@3.4.2</code> 可達）——註解已說明，良好。
+      </div>
+      <ul>
+        <li>加 <code>docker build</code> 步驟（即使只 build，也能擋住 J1 這類 COPY 遺漏）</li>
+        <li>加 <code>.github/dependabot.yml</code>（npm + github-actions）——有 RC 版依賴（D11）時特別重要</li>
+        <li>加 gitleaks（本專案已在 <code>scripts/</code> 出現明文密碼，B11；若未來有人誤 commit 就靠這個擋）</li>
+        <li>audit allowlist 加上 <code>expires</code> 與 <code>reviewedAt</code> 欄位並在過期時 fail</li>
+        <li>移除或填入 <code>.github/scripts/</code> 空目錄</li>
+      </ul>
+      <div class="gain">CI 是唯一能「在問題變大之前免費發現問題」的地方；目前它對部署與供應鏈兩層都沒有覆蓋。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">J5</span><h4>資料沒有遷移／版本機制</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">與 D9 為同一問題的維運面，此處專注「怎麼安全地跨版本前進」。</p>
+      <div class="ev"><b>證據</b>無 <code>migrat</code> 相關程式碼；<code>settings.json</code> 讀取 <code>.partial()</code> / 存檔非 partial（<code>settings.ts:330</code> vs <code>:365</code>）→ 未知或已移除欄位在存檔時蒸發；<code>@evex/linejs</code> 為 <code>^3.4.2</code>（<strong>浮動 minor 版本</strong>）、<code>@whiskeysockets/baileys</code> 為 RC 版，兩者升級都可能使 session 失效。</div>
+      <ul>
+        <li>開機時列印「即將套用遷移 N → N+1」的清楚訊息，並在遷移前自動備份（J3）</li>
+        <li>README 的升級章節加上：升級前必做備份、清單、預期影響（特別是 linejs 與 baileys）</li>
+        <li>把關鍵狀態檔的路徑集中定義，避免 <code>.env</code>（主機）與 compose <code>environment</code>（容器）兩份設定分歧（見 J8）</li>
+      </ul>
+      <div class="gain">讓「按 README 升級」變成一個可預期的動作。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">J6</span><h4>PM2 設定有幾處會削弱既有保護</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body">PM2 設定本身正確（<code>instances: 1</code>、<code>autorestart</code>、<code>max_restarts</code>），但有幾個細節會讓應用程式已有的保護失效。</p>
+      <div class="ev"><b>證據</b>
+        <code>ecosystem.config.cjs:12</code> <code>kill_timeout: 5000</code> <strong>&lt;</strong> <code>index.ts:134-137</code> 的 10 秒強制結束 → PM2 會在 5 秒時先 SIGKILL，<strong>可能截斷 graceful shutdown</strong>（排程器可能因此遺失狀態）；
+       無 <code>max_memory_restart</code> → 記憶體洩漏只會在 <code>max_restarts: 20</code> 後才被注意到；
+       無 <code>out_file</code>／<code>error_file</code> → PM2 自己的 <code>~/.pm2/logs</code> 未設輪替；
+       無 <code>env_production</code> 密文機制 → <code>.env</code> 必須實際存在於部署目錄，而 <code>scp-update.sh/.ps1</code> 明確排除它 → 新 clone 必須人工配置；
+       沒有註解說明為何 <code>instances</code> 必須是 1（見 D5）。
+      </div>
+      <ul>
+        <li><code>kill_timeout</code> 調到 12000 以上，或把應用的強制結束改為 3 秒讓兩者一致</li>
+        <li>加 <code>max_memory_restart</code>（數值依 C4 觀察後設定）</li>
+        <li>設定 <code>out_file</code>／<code>error_file</code> 並接上 PM2 的輪替選項</li>
+        <li>加註解說明單一實例限制，並在 <code>docs/architecture.md</code> 列出行程內狀態清單（D5）</li>
+        <li>文件寫明 <code>.env</code> 需人工配置（不可被同步覆蓋）</li>
+      </ul>
+      <div class="gain">讓 supervisor 與應用程式的行為一致，而不是互相截斷。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">J7</span><h4><code>.gitignore</code> 忽略 <code>tests/</code>，但測試已被版控追蹤</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body">這個矛盾會讓未來新增的測試檔在 <code>git add</code> 時被無聲忽略——而 CI 正是靠這些測試把關。</p>
+      <div class="ev"><b>證據</b><code>.gitignore</code> 第 8 行含 <code>tests/</code>；但 <code>git ls-files tests/</code> 回傳 <strong>23 個已追蹤檔案</strong>（因為它們在被加入 ignore 之前就已 tracked，所以規則對它們無效）。<br>後果：新建立的測試檔（例如 <code>tests/dispatch.test.ts</code>）會被 git 忽略，<code>git status</code> 不會提示，CI 也不會跑到它——<strong>而且沒有任何錯誤</strong>。</div>
+      <ul>
+        <li>從 <code>.gitignore</code> 移除 <code>tests/</code></li>
+        <li>順手檢視 <code>scripts/</code>（同樣被忽略，但內含唯一的部署腳本 B11）——建議把不含機密的樣板移入版控</li>
+        <li>把「新增測試檔後 <code>git status</code> 是否顯示」當成一個檢查點；D4 建立新測試時特別容易踩到</li>
+      </ul>
+      <div class="gain">一個字元的修正，避免未來「測試寫了但沒在跑」的無聲失效。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">J8</span><h4>主機與容器的路徑設定易分歧</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body">同一批檔案在主機與容器中位於不同位置，管理者在主機編輯設定檔可能對容器完全無效，而且沒有任何提示。</p>
+      <div class="ev"><b>證據</b>
+        <code>.env</code>（主機與容器共用同一份 <code>env_file</code>）中 <code>SETTINGS_PATH=./settings.json</code>、<code>STORAGE_PATH=./storage.json</code>；
+       而 <code>docker-compose.yml:10-13</code> 以 <code>environment</code> <strong>覆寫</strong> 為 <code>/app/data/storage.json</code>、<code>/app/data/settings.json</code>、<code>/app/data/logs/app.log</code>、<code>/app/data/messages.jsonl</code>；
+       compose 只掛載 <code>./data:/app/data</code> → <strong>主機端的 <code>settings.json</code> 與 <code>storage.json</code>（在 repo 根目錄）與容器實際讀寫的 <code>data/</code> 底下是兩份不同的檔案</strong>。
+       而 <code>scripts/scp-update.sh</code> 排除的是<strong>根目錄那份</strong> → 更新不會覆蓋容器的實際設定（正確），但主機上看到的那份是<strong>過期的</strong>。
+      </div>
+      <ul>
+        <li>統一：讓 <code>.env</code> 的路徑全部指向 <code>./data/...</code>（或全部指向根目錄），compose 不再覆寫；單一真實來源</li>
+        <li>或在 <code>/dashboard</code> 顯示<strong>目前實際生效的各檔案絕對路徑</strong>（含 settings／storage／messages／schedules／logs）——這個資訊在任何情況下都有用，成本很低</li>
+        <li>README 的部署章節明確標示「容器部署時真正的設定檔在 <code>./data/settings.json</code>」</li>
+      </ul>
+      <div class="gain\">消除「我改了設定但沒生效」這類難以診斷的問題。</div>
+    </div>
+
+  </div>
+</section>
+
+<section id="K">
+  <h2 class="sec">K ・ 新功能提案 <span class="bn">New Features</span></h2>
+  <p class="muted">共 15 項。以下是<strong>產品面的新增功能</strong>（不同於 A–J 的工程改善）。每項標註建議優先度與主要前置依賴。</p>
+
+  <div class="grid">
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">K1</span><h4>多使用者、角色與稽核軌跡</h4><span class="p P1">P1</span><span class="p E">L</span></div>
+      <p class="body">目前只有單一管理帳號。若這個 bot 要服務一個小團隊，「誰能看到訊息、誰能改設定、誰能裝技能」必須分開。</p>
+      <ul>
+        <li>帳號資料模型：<code>users.json</code>（scrypt 雜湊）+ <code>role</code>（<code>owner</code>／<code>admin</code>／<code>operator</code>／<code>viewer</code>）</li>
+        <li>登入介面改為帳號選擇或輸入 username；權限檢查從單一 <code>requireSessionOrApi(scope)</code> 擴充為角色 × scope</li>
+        <li>所有敏感操作寫入稽軌（B9／I4），稽軌頁面只有 <code>owner</code> 可看</li>
+        <li>與 I3 的 scope 細分一致化：<code>read:messages</code> 應該只有 <code>owner</code>／<code>admin</code> 預設擁有</li>
+      </ul>
+      <div class="gain">前置依賴：B9（稽軌結構）、I3（scope 細分）。是多人使用的必要條件。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">K2</span><h4>統一收件匣（跨平台訊息中心）</h4><span class="p P1">P1</span><span class="p E">L</span></div>
+      <p class="body">四個平台的訊息目前混在同一個 log 視窗裡，沒有平台欄位、沒有搜尋歷史、沒有標記。把「log 檢視器」變成「收件匣」。</p>
+      <ul>
+        <li>資料面：<code>ReceivedMessage</code> 補 <code>platform</code> 與 <code>messageId</code>（與 A1 去重共用）；待 A6 儲存層到位後提供全量歷史</li>
+        <li>功能：跨平台搜尋、依平台／聊天對象／時間範圍過濾、標籤與星號、匯出（CSV/JSON）</li>
+        <li>快捷動作：把一則訊息「轉成技能 watch 規則」或「轉成轉發規則」（呼應 K3），降低設定門檻</li>
+        <li>保留政策與清除入口必須一起交付（I1）</li>
+      </ul>
+      <div class="gain">前置依賴：A6（統一儲存）、H6、A1（識別碼）。技術面詳見 H6。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">K4</span><h4>死信佇列與失敗重送中心</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">把 A3 的工程修復變成可用的產品功能：所有永久性失敗的訊息集中管理，可檢視原因、可手動重送、可批次處理。</p>
+      <ul>
+        <li>列表頁：時間、平台、目標、型別、錯誤訊息、原始 payload（可展開）</li>
+        <li>動作：重送（單筆／勾選多筆）、複製 payload 為 curl（與 K9 的產生器共用）、標記已處理、清除</li>
+        <li>在 <code>/dashboard</code> 顯示死信數量與最舊一筆的時間；數量異常時告警（接上 C2）</li>
+        <li>與排程失敗關聯：顯示「此排程已連續失敗 N 次」並建議檢查（呼應 A4）</li>
+      </ul>
+      <div class="gain">前置依賴：A3。這是本報告中「工程改善 → 使用者價值」轉換最直接的一項。</div>
+    </div>
+
+    <div class="card" data-p="P1">
+      <div class="head"><span class="id">K5</span><h4>LLM 成本儀表板與預算護欄</h4><span class="p P1">P1</span><span class="p E">M</span></div>
+      <p class="body">把 C6／G2 的統計做成產品功能，並加上硬性上限，避免「月底收到帳單才發現」。</p>
+      <ul>
+        <li>卡片：今日／本月 token 與金額、依技能與依會話的 Top 10、平均延遲、失敗率</li>
+        <li>護欄：每日額度、單次最大 token、超限行為（拒絕／降級到較便宜的模型／僅記錄）</li>
+        <li>依現有 UI 慣例沿用 <code>/dashboard</code> 的長條圖（目前已有 <code>STATS_DAYS</code> 天數視窗的統計圖可直接擴充）</li>
+        <li>與 F5 的 per-skill token bucket 聯動：額度用盡時自動暫停該技能並在 UI 顯示原因</li>
+      </ul>
+      <div class="gain">前置依賴：C6、G2、F5。是使用付費 LLM 時的必要管理介面。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">K3</span><h4>視覺化自動化流程編輯器（no-code 規則）</h4><span class="p P2">P2</span><span class="p E">XL</span></div>
+      <p class="body">目前有三套機制各自獨立設定：轉發規則（<code>settings.json</code> 的 <code>forward</code>）、自動回覆（技能）、排程任務。設定成本高，且沒有可視化能回答「收到某則訊息時會發生什麼」。</p>
+      <ul>
+        <li>統一模型：<code>觸發條件</code>（來源平台／聊天／關鍵字／正規式／排程）→ <code>動作</code>（回覆／轉發／呼叫技能／排程／呼叫 webhook）</li>
+        <li>視覺化編輯器 + YAML/JSON 進階模式（照顧既有設定的相容性）</li>
+        <li><strong>關鍵功能：dry-run 測試器</strong>——貼一則假訊息，預覽會命中哪些規則、會做什麼動作。這直接消除目前「規則只能靠實際發訊息驗證」的痛點</li>
+        <li>執行軌跡：每條規則顯示觸發次數與最近結果（呼應 C4 的 metrics）</li>
+      </ul>
+      <div class="gain">前置依賴：A6（執行紀錄）、C4（metrics）。這是讓非開發者也能用這個系統的關鍵。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">K7</span><h4>排程日曆視圖與範本庫</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">把 H7 的日曆擴充成完整的排程管理：視覺化、範本、重複規則的易懂描述。</p>
+      <ul>
+        <li>月／週視圖、拖曳改期、跨平台合併檢視（修正 D6 後自然成立）</li>
+        <li>cron 的<strong>自然語言描述</strong>（例如「每週一早上 8:00」）與下一次執行的倒數；避免「cron 寫錯了要等一週才發現」</li>
+        <li>範本庫：把常見的排程（到價通知、晨報、每週回顧）存成範本，一鍵套用並帶入對應技能</li>
+        <li>顯示 misfire 歷史（A4）與上次執行結果（A3）</li>
+      </ul>
+      <div class="gain">前置依賴：A4、D6。cron 是既有的自製實作，擴充顯示層即可，後端 API 已存在。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">K6</span><h4>技能市集：評分、版本自動更新與簽章</h4><span class="p P2">P2</span><span class="p E">L</span></div>
+      <p class="body">F7 的延伸。目標是讓第三方技能可以安全地被分享與自動更新——這是 38 個技能規模之後的自然需求。</p>
+      <ul>
+        <li>技能包 manifest 標準化：<code>id</code>／<code>version</code>／<code>permissions</code>／<code>dependencies</code>／<code>homepage</code>／<code>checksum</code></li>
+        <li>簽章與驗證鏈（F1 第二步）；市集列表顯示權限需求，讓使用者看得到「這個技能要連哪些網域」</li>
+        <li>自動更新 + 版本釘選 + 回滾（F6）</li>
+        <li>技能之間的相依管理（目前技能都是獨立的，加相依後需要解決）</li>
+        <li>沿用既有 <code>library/</code> 靜態產物作為自架市集的格式，不必引入新的服務端</li>
+      </ul>
+      <div class="gain">前置依賴：F1（權限／簽章）、F6（版本／回滾）。<strong>沒有 F1 就不該做 K6</strong>。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">K9</span><h4>API 文件、SDK 與 Webhook 試算機</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">API 已在 README 有完整表格，但沒有機器可讀的規格；對「把這個服務當成後端元件來呼叫」的外部使用者，門檻偏高。</p>
+      <ul>
+        <li>產生 OpenAPI 3.1 規格（可由 zod schema 推導，<code>src/settings.ts</code>／<code>src/config.ts</code> 已有 schema）；<code>/docs</code> 提供 Swagger UI</li>
+        <li>Webhook 試算機：填入平台、端點、token → 產生可直接貼上的 <code>curl</code>／Node／Python 範例（呼應 K4 的「複製為 curl」）</li>
+        <li>四個平台的差異（模板必填、24h 視窗、Flex 降級）以<strong>範例註解</strong>呈現，取代散落在 README 的敘述</li>
+        <li>可選：產生 TypeScript / Python 客戶端 SDK</li>
+      </ul>
+      <div class="gain">前置依賴：E3（能力矩陣，可讓文件自動正確）。降低外部整合成本，也讓 A2／A3 的除錯更容易。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">K10</span><h4>Prometheus / Grafana 儀表板範本 + dead-man switch</h4><span class="p P2">P2</span><span class="p E">S</span></div>
+      <p class="body">C4 的監控指標若沒有現成範本，多數人也不會去看；dead-man switch 則是解決 C2「告警通道本身故障」的最簡手段。</p>
+      <ul>
+        <li><code>docs/monitoring/</code> 提供 Grafana dashboard JSON（面板：發送量／成功率、佇列深度、收訊量、各技能執行狀態、LLM 成本、HTTP 延遲）</li>
+        <li>建議的 alert 規則清單（如：連續 5 分鐘 <code>im_send_total{result="fail"}</code> 比例 &gt; 10%、死信數量 &gt; 0、排程器無心跳）</li>
+        <li>dead-man switch：行程每 N 分鐘對外部服務（如 healthchecks.io、Uptime Kuma）打一次存活訊號</li>
+        <li>與 K15 的推播通道整合：告警同時發 Email 與 ntfy／Telegram</li>
+      </ul>
+      <div class="gain">前置依賴：C3、C4。<strong>成本低、可用性高</strong>——這是讓 C 類投入真正變成「有人在看」的關鍵。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">K8</span><h4>跨平台互動式對話（按鈕、快速回覆、rich menu）</h4><span class="p P2">P2</span><span class="p E">L</span></div>
+      <p class="body">目前 outbound 支援 8 種型別，但 inbound 只有純文字解析（<code>IncomingMessage</code> 只有 <code>text</code>）。四個平台其實都支援互動元件，這是尚未開挖的一整塊。</p>
+      <ul>
+        <li>擴充 <code>IncomingMessage</code>：<code>quickReply?</code>、<code>action?</code>（按鈕回傳值）、<code>command?</code>（斜線命令）、<code>referencedMessageId?</code></li>
+        <li>新增互動元件為 <code>SendInput</code> 型別：按鈕陣列、快速回覆、rich menu；不支援的平台自動降級為編號清單（沿用 <code>chunkReplyText</code> 的降級哲學）</li>
+        <li>讓排程／watch 也能送出互動元件（到價通知附「立即下單」按鈕）</li>
+        <li>與 E3 能力矩陣、E6 轉譯層一起設計</li>
+      </ul>
+      <div class="gain">前置依賴：E3、E6。互動元件能讓「通知型」技能從「只能看」變成「可以做決定」。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">K11</span><h4>一鍵備份／還原／遷移助手</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">J3 的工程修復加上產品化的介面。目標是讓「搬機器」與「還原」變成一個按鈕，而不是一份 checklist。</p>
+      <ul>
+        <li>備份包內容：<code>settings.json</code>（加密）、<code>storage.json</code>、<code>data/</code>（含 auth、messages、schedules、stats、Baileys creds）、外掛技能、上傳清單（不含檔案本體或選擇性包含）</li>
+        <li>還原流程：先自動備份現況 → 驗證備份包完整性與版本 → 套用遷移（D9）→ 重啟並驗證（自動打 <code>/healthz</code>）</li>
+        <li>遷移助手：從舊版 <code>settings.json</code> 推導新版設定，列出需要人工確認的項目（例如 WhatsApp 模式切換造成的排程歸屬）</li>
+        <li>把備份／還原也寫入稽軌（I4）</li>
+      </ul>
+      <div class="gain">前置依賴：J3、D9、B5（密鑰加密）。<code>storage.json</code> 遺失＝重掃 QR，這個功能的價值主要在保護它。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">K12</span><h4>跨平台富樣式編輯器與預覽</h4><span class="p P2">P2</span><span class="p E">L</span></div>
+      <p class="body">把 <code>/console</code> 的 Flex 編輯器（目前 LINE 專屬）升級成跨平台編輯器，並即時預覽每個平台的實際輸出。</p>
+      <ul>
+        <li>以 Flex 為編輯來源，<strong>同時</strong>預覽：LINE Flex、Telegram Markdown、Teams Adaptive Card、WhatsApp 降級結果、純文字備援</li>
+        <li>顯示各平台的限制（字數、卡片大小、欄位數），在編輯時就警告</li>
+        <li>版面與元件庫（對應 E6 的轉譯層支援範圍）</li>
+        <li>樣板管理：<code>flexTemplates</code> 目前已是 LINE 專屬資料（<code>settings.json</code>），改為平台無關並在所有平台的 <code>/console</code> 可用</li>
+      </ul>
+      <div class="gain">前置依賴：E3、E6。讓「一次設計、四處發布」成立，是多 IM 最實際的效率提升。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">K13</span><h4>可組合資料源 + 通用告警技能</h4><span class="p P2">P2</span><span class="p E">L</span></div>
+      <p class="body">目前 38 個技能裡，約一半是「打某個 API → 格式化 → 回覆」。其中 <code>price-alert</code>／<code>rss</code>／<code>morning</code> 已經是「資料源 + 條件 + 推播」的形态，但各自實作。<strong>把這個形态抽成框架，新增技能的成本會大幅下降。</strong></p>
+      <ul>
+        <li>抽象 <code>DataSource</code>（<code>fetch()</code> → 正規化資料）與 <code>AlertRule</code>（<code>condition</code> → <code>notify</code>），<code>price-alert</code>／<code>rss</code>／<code>morning</code>／<code>outage</code>／<code>quake</code> 先遷移作為示範</li>
+        <li>通用 <code>alert</code> 技能：使用者只需選資料源（已存在）+ 條件（價格高於 X／關鍵字出現／值變動幅度）+ 推播目標與平台，不需寫程式</li>
+        <li>資料源快取與健康檢查由框架統一處理（解決 A7、A8）</li>
+        <li>與 H4 連結：資料源宣告自己適用的 locale／區域，不適用時明確提示而非靜默降級</li>
+      </ul>
+      <div class="gain">前置依賴：F8（測試 harness，遷移才安全）、A7、A8、I1（保留政策）。是讓技能數量能持續成長而不失控的架構。</div>
+    </div>
+
+    <div class="card" data-p="P2">
+      <div class="head"><span class="id">K15</span><h4>手機推播與 PWA 通知</h4><span class="p P2">P2</span><span class="p E">M</span></div>
+      <p class="body">C2 的告警通道目前只有 Email，而 Email 容易被過濾、也不夠即時。「推播給自己」是成本最低、感受最好的通道。</p>
+      <ul>
+        <li><strong>ntfy</strong>：最簡單（純 HTTP 發布 + 官方 App），可設定為優先級與標籤，且不需要額外服務</li>
+        <li><strong>Telegram 推播自己</strong>：本專案已經有完整的 Telegram adapter，用它推播自己的告警是最「自製自用」的優雅解</li>
+        <li>LINE 通知：需官方 Messaging API（E2），可一併納入</li>
+        <li>與 H5（PWA）合併：加入主畫面後用 Web Push</li>
+        <li>告警分級（資訊／警告／緊急）對應不同通道與是否喚醒通知</li>
+      </ul>
+      <div class="gain">前置依賴：C2。低成本、高價值——把「壞了沒人知道」變成「手機震動」。</div>
+    </div>
+
+    <div class="card" data-p="P3">
+      <div class="head"><span class="id">K14</span><h4>通知與自動化流程的觸發來源擴充</h4><span class="p P3">P3</span><span class="p E">M</span></div>
+      <p class="body">目前只有兩種觸發來源：IM 收訊（webhook／長連線）與時間（cron／<code>watch</code>）。加上事件來源後，同一套技能與規則就能處理更多類型的自動化。</p>
+      <ul>
+        <li><strong>Email 收件</strong>（IMAP）：許多服務（銀行、雲端、監控）只發 email——這是目前最大的未覆蓋來源</li>
+        <li><strong>Webhook 事件</strong>（GitHub、CI/CD 結果）：觸發通知或自動化</li>
+        <li><strong>HTTP 輪詢</strong>：抓取沒有 webhook 的 API（呼應 A6 的資料源抽象）</li>
+        <li>所有來源統一轉為與 IM 收訊相同的 <code>IncomingMessage</code> 形狀 → <strong>技能、管線、規則完全重用</strong></li>
+      </ul>
+      <div class="gain">前置依賴：A6。因為共用 <code>dispatch</code> 管線，這是四個新來源只寫一個 adapter 的高槓桿項目。</div>
+    </div>
+
+  </div>
+</section>
+
+<section id="roadmap">
+  <h2 class="sec">建議執行順序 <span class="bn">Roadmap</span></h2>
+  <p class="muted">依「風險已存在 × 可獨立進行 × 為後續工作提供安全網」三個準則排序。各項目編號對應前面的卡片。</p>
+
+  <div class="phase">
+    <div class="lbl">Phase 0</div>
+    <h4>止血：關上敞開的門，並停止資料蒸發</h4>
+    <div class="when">建議 1 週內 · 可平行進行 · 全部為獨立小改動</div>
+    <ul>
+      <li><strong>B1</strong> webhook 驗證全關時 fail-fast（數行）＋ 設定頁安全狀態警示</li>
+      <li><strong>B3 / G1</strong> LLM 技能加上寄件者白名單，<code>ai</code>／<code>summarize</code> 預設啟用</li>
+      <li><strong>B4 / G5</strong> 阻擋 loopback／private／link-local／metadata 位址（重用 <code>middleware/ip.ts</code> 既有邏輯）</li>
+      <li><strong>A1</strong> 收訊去重（重用 <code>hmac.ts</code> 的 ring + GC 寫法）</li>
+      <li><strong>A3</strong> 死信紀錄 + 排程失敗保留（資料層先做最小版，UI 可後補）</li>
+      <li><strong>C1</strong> <code>/health</code> 壞時回 503，拆 <code>/healthz</code>／<code>/readyz</code></li>
+      <li><strong>J1</strong> Dockerfile 加 <code>COPY icons ./icons</code>（一行）</li>
+      <li><strong>J2</strong> Dockerfile 加 <code>USER node</code> ＋ <code>HEALTHCHECK</code></li>
+      <li><strong>F4</strong> 技能 catch 內的回覆加 try/catch（數行，但需補測試）</li>
+      <li><strong>J7</strong> 從 <code>.gitignore</code> 移除 <code>tests/</code>（一個字元）</li>
+    </ul>
+    <div class="note risk" style="margin-top:16px">
+      這一階段的共通點：<strong>都是「正在發生的風險」，而且每一項都可以在一天內獨立完成並驗證。</strong>
+      B2／F1（技能沙箱）是唯一的 XL 項，建議在 Phase 2 排入，但先在文件與 UI 上明確警告「zip 技能等同授予完整權限」。
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="lbl">Phase 1</div>
+    <h4>建立安全網：可觀測性 + 失敗處理 + 測試 + 拆分</h4>
+    <div class="when">建議 2–4 週 · 這是所有後續工作的前置條件</div>
+    <ul>
+      <li><strong>D2</strong> CSS/JS 抽成靜態資源 → <strong>D1</strong> 拆分 <code>server.ts</code> 為模組（先抽資源、再切檔案）</li>
+      <li><strong>C3</strong> 日誌層級 + JSON 格式 + request id ＋ <strong>C4</strong> <code>/metrics</code> 與 RED 指標</li>
+      <li><strong>C2</strong> 告警泛化到所有平台 ＋ 多通道 ＋ 去抖重發 ＋ dead-man switch（並接上 K15 的 ntfy／Telegram）</li>
+      <li><strong>C5</strong> 技能錯誤分類與降級</li>
+      <li><strong>D4</strong> 取得覆蓋率基線，補 <code>dispatch.ts</code>／<code>queue.ts</code>／<code>scheduler.ts</code> 測試</li>
+      <li><strong>D3</strong> 引入 lint／formatter ＋ <strong>D10</strong> <code>.gitattributes</code> ＋ <strong>D11</strong> <code>engines</code></li>
+      <li><strong>A4</strong> misfire 策略、<strong>A5</strong> idempotency 修正、<strong>A7</strong> health 逾時與快取</li>
+      <li><strong>F5</strong> per-skill 速率與併發上限、<strong>F3</strong> 技能欄位驗證</li>
+      <li><strong>J4</strong> CI 加 docker build ＋ Dependabot ＋ secret scanning</li>
+      <li><strong>K4</strong> 死信重送中心（此時已有 A3 的資料）</li>
+    </ul>
+    <div class="note good" style="margin-top:16px">
+      順序理由：<strong>D2 必須在 D1 之前</strong>（不先抽靜態資源就切模組，會反覆搬移同一批字串）；<strong>C3/C4 必須在 C2 之前</strong>（沒有指標就不知道告警門檻該設多少）；<strong>D4 的基線必須在 A1–A5 的改動之前取得</strong>，否則無法判斷重構是否造成迴歸。
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="lbl">Phase 2</div>
+    <h4>資料層統一 + 平台對齊</h4>
+    <div class="when">建議 4–8 週 · 這是上層功能（K1/K2/K13/K14）的共同前提</div>
+    <ul>
+      <li><strong>A6</strong> 統一儲存層：先定義 <code>Store</code> 介面並讓 JSONL 實作，再考慮 <code>node:sqlite</code>（注意會把 Node 下限拉到 22，與 D11 一併決策）</li>
+      <li><strong>A8</strong> 快取 TTL sweep、<strong>D9</strong> schema 版本與遷移機制、<strong>J5</strong> 升級流程文件化</li>
+      <li><strong>B5</strong> 密鑰欄位加密（重用 <code>settings-crypto.ts</code>）＋ 回傳遮罩；<strong>B7</strong> <code>/readme</code> 消毒；<strong>B8</strong> CSP + HSTS（此時 D2 已完成，CSP 才可行）</li>
+      <li><strong>B6</strong> scrypt async + 帳號鎖定；<strong>B9</strong> 稽核軌跡；<strong>B10 / B12</strong> scope 與收件端限流</li>
+      <li><strong>D6</strong> WhatsApp 複合 platform id（先做短期警示，再做中期重構）</li>
+      <li><strong>E3</strong> 平台能力矩陣 → 帶動 <strong>E6</strong> 轉譯層與 <strong>K9</strong> API 文件</li>
+      <li><strong>E4</strong> 平台別健康檢查（此時 C2 的告警通道已就緒）</li>
+      <li><strong>I1 / I2 / I3</strong> 保留政策、清除 API、scope 細分</li>
+      <li><strong>J3</strong> 備份／還原端點；<strong>J6 / J8</strong> supervisor 與路徑設定</li>
+      <li><strong>F1 / F6</strong> 技能權限 manifest + 簽章 + 版本回滾（解鎖 K6）</li>
+      <li><strong>H1 / H2 / H3</strong> 在地化補齊與無障礙（此時 server.ts 已拆模組，改動成本較低）</li>
+    </ul>
+    <div class="note" style="margin-top:16px">
+      A6 是本階段的<strong>樞紐</strong>：K2（收件匣）、K3（流程編輯器）、K11（遷移助手）、K13（可組合資料源）、K14（新觸發來源）都依賴它。建議先只做介面抽象與 JSONL 實作（風險低），把 SQLite 當成後續可選步驟。
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="lbl">Phase 3</div>
+    <h4>產品擴張：正式 LINE、更多平台與使用者功能</h4>
+    <div class="when">無時限壓力 · 技術債清完後才開始</div>
+    <ul>
+      <li><strong>E2</strong> LINE 官方 Messaging API 雙軌模式（<strong>建議優先於加更多平台</strong>——消除專案最大的單點法遵風險）</li>
+      <li><strong>E1</strong> Discord（驗證抽象層第 5 次重用），之後視需求再評估 <strong>E8</strong>（Messenger／Instagram／Slack）</li>
+      <li><strong>E5 / E7</strong> 收訊模式統一、聊天對象模型（dm／group／channel／broadcast）</li>
+      <li><strong>K1</strong> 多使用者與角色、<strong>K2</strong> 統一收件匣</li>
+      <li><strong>K5</strong> LLM 成本儀表板、<strong>K3</strong> 視覺化流程編輯器（含量測試器）</li>
+      <li><strong>K8</strong> 互動式對話元件、<strong>K12</strong> 跨平台富樣式編輯器</li>
+      <li><strong>K7</strong> 排程日曆、<strong>K13</strong> 可組合資料源、<strong>K14</strong> 新觸發來源</li>
+      <li><strong>K6</strong> 技能市集、<strong>K10</strong> Grafana 範本、<strong>F8</strong> 測試 harness、<strong>F7</strong> 市集入口</li>
+      <li><strong>H4 / H5</strong> 在地化資料來源治理、行動版體驗</li>
+    </ul>
+  </div>
+</section>
+
+<section id="quickwin">
+  <h2 class="sec">低成本立即可做清單 <span class="bn">Quick Wins</span></h2>
+  <p class="muted">以下 14 項的預估工作量都在<strong>數小時以內</strong>，但能立即消除一個已存在的風險或明顯缺陷。適合在開始任何重構之前先做掉。</p>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>#</th><th>項目</th><th>改動</th><th>消除的問題</th><th>預估</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><strong>J1</strong></td><td>Dockerfile 加 <code>COPY icons ./icons</code></td><td>Docker 部署時四個 IM 圖示全部消失（每次都發生，且無錯誤訊息）</td><td>1 分鐘</td></tr>
+        <tr><td>2</td><td><strong>J7</strong></td><td><code>.gitignore</code> 移除 <code>tests/</code></td><td>未來新增的測試檔被 git 無聲忽略，CI 測不到</td><td>1 分鐘</td></tr>
+        <tr><td>3</td><td><strong>D8</strong></td><td>抽 <code>safe-equal.ts</code>，三處改為 import</td><td>安全比對邏輯重複三份</td><td>15 分鐘</td></tr>
+        <tr><td>4</td><td><strong>B5</strong>（部分）</td><td><code>settings.ts:374</code> 的 <code>writeFileSync</code> 補 <code>{mode:0o600}</code></td><td>密鑰檔案權限 0644（與 <code>session.ts:106</code> 的既有正確寫法一致）</td><td>1 分鐘</td></tr>
+        <tr><td>5</td><td><strong>C1</strong>（部分）</td><td><code>server.ts:3396-3399</code> 在 bad 時加 <code>res.status(503)</code></td><td>負載平衡與健康檢查永遠看不到故障</td><td>5 分鐘</td></tr>
+        <tr><td>6</td><td><strong>F4</strong></td><td><code>dispatch.ts:231</code> 的 <code>replyTo</code> 包進 try/catch</td><td>一次回覆失敗讓後續技能與轉發規則全部靜默失效</td><td>10 分鐘</td></tr>
+        <tr><td>7</td><td><strong>F3</strong></td><td><code>server.ts:2593</code> 加 <code>?? []</code>；<code>loader.ts</code> 補驗證</td><td>壞技能讓整個 <code>/skills</code> 頁 500</td><td>20 分鐘</td></tr>
+        <tr><td>8</td><td><strong>A5</strong>（部分）</td><td><code>hmac.ts</code> 的 idempotency 視窗改為可設定</td><td>10 分鐘硬編、無法依需求調整</td><td>20 分鐘</td></tr>
+        <tr><td>9</td><td><strong>D6</strong>（短期）</td><td><code>services.ts</code> 的 <code>set()</code> 加重複 key 警告</td><td>兩個 WhatsApp adapter 靜默互相覆蓋</td><td>15 分鐘</td></tr>
+        <tr><td>10</td><td><strong>C3</strong>（部分）</td><td><code>config.ts</code> 加 <code>LOG_LEVEL</code>，<code>logger.ts</code> 加層級過濾</td><td>技能每則訊息的詳細 log 永遠全開（僅數行）</td><td>30 分鐘</td></tr>
+        <tr><td>11</td><td><strong>C3</strong>（部分）</td><td><code>logger.ts:28</code> 的空 callback 改成記錄錯誤</td><td>寫入失敗被完全吞掉</td><td>10 分鐘</td></tr>
+        <tr><td>12</td><td><strong>B1</strong>（部分）</td><td><code>hmac.ts</code> 驗證全關時 <code>logger.error</code>（原為 warn）並在設定頁顯示警示</td><td>開放端點只有一行 warn，使用者不會注意到</td><td>30 分鐘</td></tr>
+        <tr><td>13</td><td><strong>D11</strong></td><td><code>package.json</code> 加 <code>engines</code></td><td>在錯誤的 Node 版本上執行而沒有任何警告</td><td>5 分鐘</td></tr>
+        <tr><td>14</td><td><strong>D4</strong>（部分）</td><td><code>npm test</code> 加 <code>--experimental-test-coverage</code></td><td>完全不知道覆蓋率是多少</td><td>5 分鐘</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note good">
+    <strong>建議的收尾方式</strong>：把這 14 項做成一個獨立的「維運修正」PR 或數個小 PR。<strong>它們互相獨立、風險極低、且每一項都有明確的可驗證結果</strong>——適合作為下一次大規模重構（D1／A6）前的暖身，也順手把分支保護與 CI 的習慣建立起來。
+  </div>
+
+  <h3 class="sub">最後一點提醒</h3>
+  <p class="muted">
+    本報告的每一項建議都附上了原始碼位置，這些位置在實作前請重新確認——本專案的開發速度很快，
+    行號可能已移動。另外，本次掃描<strong>沒有執行任何會發送真實訊息的測試</strong>，
+    因此與外部服務的實際行為（LINE／Telegram／Meta／Teams 的限流、錯誤碼、模板規則）仍需以真實環境驗證；
+    報告中引用平台限制的部分，是根據 adapter 現有實作與註解判讀而來。
+  </p>
+</section>
+
+</main>
+</div>
+
+<button class="totop" id="totop" type="button" aria-label="回到頂端">↑</button>
+
+<script>
+(function(){
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.card'));
+  var chips = Array.prototype.slice.call(document.querySelectorAll('.chip'));
+  var q = document.getElementById('q');
+  var count = document.getElementById('count');
+  var TOTAL = cards.length;
+  var filter = 'all';
+
+  function apply(){
+    var term = (q.value || '').trim().toLowerCase();
+    var shown = 0;
+    cards.forEach(function(c){
+      var okP = (filter === 'all') || (c.getAttribute('data-p') === filter);
+      var okQ = !term || c.textContent.toLowerCase().indexOf(term) !== -1;
+      var show = okP && okQ;
+      c.classList.toggle('hidden', !show);
+      if (show) shown++;
+    });
+    count.textContent = shown + ' / ' + TOTAL + ' 項';
+  }
+
+  chips.forEach(function(ch){
+    ch.addEventListener('click', function(){
+      chips.forEach(function(o){ o.classList.remove('on'); });
+      ch.classList.add('on');
+      filter = ch.getAttribute('data-p');
+      apply();
+    });
+  });
+  q.addEventListener('input', apply);
+
+  var top = document.getElementById('totop');
+  top.addEventListener('click', function(){ window.scrollTo({top:0, behavior:'smooth'}); });
+  window.addEventListener('scroll', function(){ top.classList.toggle('show', window.scrollY > 700); }, {passive:true});
+
+  apply();
+})();
+</script>
+</div>
+</body>
+</html>

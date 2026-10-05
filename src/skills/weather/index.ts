@@ -74,9 +74,11 @@ const CITIES: Record<string, { lat: number; lon: number }> = {
   宜蘭: { lat: 24.75, lon: 121.75 }, 屏東: { lat: 22.67, lon: 120.49 },
 };
 
-/** 備援：open-meteo（免 key，需經緯度）。 */
+/** 備援：open-meteo（免 key，需經緯度）。呼叫前已由 fetchWeather 驗證城市。 */
 async function fromOpenMeteo(city: string): Promise<Reading> {
-  const coord = CITIES[city.trim().replace(/市$/, "")] ?? CITIES["臺北"];
+  const normalized = city.trim().replace(/市$/, "");
+  const coord = CITIES[normalized];
+  if (!coord) throw new Error(`查無「${city}」的天氣，目前僅支援台灣：${supportedCities().join("、")}`);
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${coord.lat}&longitude=${coord.lon}` +
     `&current=temperature_2m,relative_humidity_2m,weather_code&timezone=Asia%2FTaipei`;
@@ -103,9 +105,20 @@ function weatherCodeText(code: number): string {
   return "";
 }
 
+/** 支援的城市清單（H4：查無時明確報錯並列出，絕不靜默回傳替代城市）。 */
+export function supportedCities(): string[] {
+  return Object.keys(CITIES);
+}
+
 /** 抓取天氣（含 CWA→wttr.in→open-meteo 備援鏈與快取），供 run 與晨報共用。 */
 export async function fetchWeather(city: string, cwaKey: string, ttlMs: number): Promise<Reading> {
+  const normalized = city.trim().replace(/市$/, "");
+  if (!CITIES[normalized]) {
+    throw new Error(`查無「${city}」的天氣，目前僅支援台灣：${supportedCities().join("、")}`);
+  }
   const cacheKey = `weather-${city}`;
+  const hit = readCache<Reading>(cacheKey, ttlMs);
+  if (hit) return hit;
   const cached = readCache<Reading>(cacheKey, ttlMs);
   if (cached) return cached;
 

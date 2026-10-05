@@ -5,6 +5,7 @@ import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { recordMessage } from "../messages.js";
 import { recordSend } from "../stats.js";
+import { writeDeadLetter } from "../deadletter.js";
 import { setState } from "../state.js";
 import { SendQueue } from "../line/queue.js";
 import { SendScheduler, type ScheduledJobView } from "../line/scheduler.js";
@@ -62,6 +63,7 @@ export function normalizeTeamsActivity(activity: TeamsActivity): IncomingMessage
     fromName: activity.from?.name ?? fromId,
     chatName: activity.conversation?.name ?? "",
     text,
+    messageId: activity.id,
   };
 }
 
@@ -419,6 +421,13 @@ export class TeamsService implements IMessagingService {
         errors.push(error);
         messages.push(`${input.to}: ${error instanceof Error ? error.message : String(error)}`);
         recordSend({ time: new Date().toISOString(), to: input.to, type: this.inputType(input), ok: false, platform: "teams" });
+        writeDeadLetter({
+          platform: "teams",
+          kind: "send",
+          to: [input.to],
+          summary: this.inputType(input),
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
     if (errors.length === 1 && errors[0] instanceof Error) throw errors[0];

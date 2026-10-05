@@ -1,7 +1,7 @@
 import type { SkillConfig } from "../config.js";
 import { config } from "../config.js";
 import { tr, type Lang } from "../i18n.js";
-import { getSkill, listSkills } from "./index.js";
+import { getSkill } from "./index.js";
 import { resolveText, type SkillDefinition, type SkillField } from "./types.js";
 
 /** 有效觸發模式（技能設定可覆寫定義）。 */

@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { timingSafeEqual } from "node:crypto";
+import { safeEqual } from "../safe-equal.js";
 import express, {
   type ErrorRequestHandler,
   type NextFunction,
@@ -15,22 +15,30 @@ import { getState } from "../state.js";
 import { currentSettings, saveSettings } from "../settings.js";
 import { getStats } from "../stats.js";
 import { getTokenUsage } from "../token-stats.js";
-import { listSkills, isBuiltinSkill } from "../skills/index.js";
+import { listSkills, isBuiltinSkill, getSkill } from "../skills/index.js";
 import { resolveText } from "../skills/types.js";
 import { installZip, listInstalled, uninstallSkill } from "../skills/install.js";
+import { validateSkillConfig } from "../skills/validate.js";
+import { readBackupBundle, restoreBackupBundle } from "../backup.js";
+import { audit } from "../audit.js";
 import { llmConfigFrom, listModels } from "../skills/llm.js";
 import { LANGS, LANG_LABELS, isLang, langMap, tr, type Lang } from "../i18n.js";
 import { NotLoggedInError, TargetNotFoundError, type FlexInput, type LocationInput, type SendInput, type StickerInput } from "../line/client.js";
 import type { IMessagingService, Platform } from "../messaging/types.js";
 import { getService, listServices } from "../messaging/services.js";
+import { recordMetric, renderMetrics } from "../metrics.js";
+import { degradedCapabilities } from "../messaging/capabilities.js";
+import { persistInbound } from "../messaging/inbox.js";
 import { verifyWhatsAppSignature } from "../whatsapp/client.js";
 import { verifyTeamsJwt } from "../teams/client.js";
 import { encryptSettings, decryptSettings, isEncryptedEnvelope } from "../settings-crypto.js";
-import { isDuplicateIdempotency, markIdempotency, requireSessionOrApi, verifyWebhookAuth, type RawBodyRequest } from "../middleware/hmac.js";
-import { getMessages, reloadMessages, searchMessages } from "../messages.js";
+import { reserveIdempotency, releaseIdempotency, requireSessionOrApi, verifyWebhookAuth, webhookAuthEnabled, type RawBodyRequest } from "../middleware/hmac.js";
+import { getMessages, reloadMessages, searchMessages, purgeMessages } from "../messages.js";
+import { readDeadLetters } from "../deadletter.js";
+import { uploadHasRoom, uploadUsage } from "../uploads.js";
 import { clientIp, ipGuard, isPrivateRequest } from "../middleware/ip.js";
-import { loginRateLimit, rateLimit } from "../middleware/rateLimit.js";
-import { changePassword, createSession, currentUser, destroySession, hasSession, refreshSession, requireSameOrigin, requireSession, sessionRemainingMs, verifyCredentials, } from "../middleware/session.js";
+import { loginRateLimit, rateLimit, recordLoginFailure, clearLoginFailures } from "../middleware/rateLimit.js";
+import { changePassword, createSession, currentUser, destroySession, hasSession, refreshSession, requireSameOrigin, requireSession, sessionRemainingMs, verifyCredentialsAsync, } from "../middleware/session.js";
 import { parseCron } from "../line/cron.js";
 import { parseDateTimeInTz } from "../time.js";
 
@@ -1262,6 +1270,7 @@ function renderSettingsHtml() {
 <form id="settings-form" class="fn-panel active">
   <fieldset class="fn-panel active" data-fn="security">
     <legend data-i18n="legend_security">安全 / 來源</legend>
+    <div id="security-strip" class="msg" style="margin-bottom:8px"></div>
     <div class="field"><label data-i18n="lbl_allowed_ips">允許的來源 IP</label><textarea id="allowedIps" data-i18n-ph="ph_allowed_ips" placeholder="逗號或換行分隔，留空 = 不限制"></textarea></div>
     <div class="auth-box">
     <div class="auth-box-title" data-i18n="lbl_hmac">HMAC 簽章密鑰</div>
@@ -1408,6 +1417,12 @@ function renderSettingsHtml() {
     <div class="actions">
       <button type="button" id="settings-export" data-i18n="btn_export">匯出設定</button>
       <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><span data-i18n="btn_import">匯入設定</span><input id="settings-import-file" type="file" accept="application/json,.json" style="display:none"></label>
+    </div>
+    <div class="hint" style="margin:14px 0 8px">完整備份（含設定、登入狀態、排程檔，一律加密；還原前會自動備份現況）。</div>
+    <div class="actions">
+      <button type="button" id="settings-backup">備份下載</button>
+      <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><span>還原備份</span><input id="settings-backup-file" type="file" accept="application/json,.json" style="display:none"></label>
+      <span id="backup-msg" class="msg"></span>
     </div>
   </fieldset>
 
@@ -1717,7 +1732,26 @@ function renderSettingsHtml() {
     return out;
   }
 
+  function paintSecurityStrip(s) {
+    var el = $("security-strip");
+    if (!el) return;
+    var hasHmac = (s.hmacEnabled !== false) && !!(s.hmacSecret || "");
+    var hasApi = (s.apiTokenEnabled !== false) && !!((s.apiToken || "") || ((s.apiTokens || []).some(function (t) { return t && t.token; })));
+    var hasToken = (s.webhookTokenEnabled !== false) && !!(s.webhookToken || "");
+    if (hasHmac || hasApi) {
+      el.style.color = "#34d399";
+      el.textContent = "🟢 " + T("security_green");
+    } else if (hasToken) {
+      el.style.color = "#fbbf24";
+      el.textContent = "🟡 " + T("security_yellow");
+    } else {
+      el.style.color = "#fb7185";
+      el.textContent = "🔴 " + T("security_red");
+    }
+  }
+
   function fillForm(s) {
+    paintSecurityStrip(s);
     $("allowedIps").value = (s.allowedIps || []).join(", ");
     $("hmacSecret").value = s.hmacSecret || "";
     $("hmacEnabled").checked = s.hmacEnabled !== false;
@@ -1960,6 +1994,32 @@ function renderSettingsHtml() {
     window.location.href = url;
   });
 
+  $("settings-backup").addEventListener("click", function () {
+    var pw = window.prompt("備份密碼（設定＋登入狀態＋排程檔，一律加密；還原時需同一組）", "");
+    if (!pw) { $("backup-msg").textContent = "備份需設定密碼"; return; }
+    window.location.href = "/settings/backup?password=" + encodeURIComponent(pw);
+  });
+
+  $("settings-backup-file").addEventListener("change", function () {
+    var input = $("settings-backup-file");
+    if (!input.files || !input.files[0]) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var parsed;
+      try { parsed = JSON.parse(String(reader.result)); }
+      catch (e) { $("backup-msg").textContent = "還原失敗：JSON 格式錯誤"; return; }
+      var pw = window.prompt("請輸入備份時的密碼（還原前會自動備份現況）：", "");
+      if (pw === null) { input.value = ""; return; }
+      post("settings/backup/restore", { bundle: parsed, password: pw }).then(function (r) {
+        if (!r.ok) { $("backup-msg").textContent = "還原失敗：" + (r.data.error || ""); return; }
+        $("backup-msg").textContent = "已還原（" + (r.data.restored || []).join("、") + "），請重啟服務";
+        loadForm();
+      });
+    };
+    reader.readAsText(input.files[0]);
+    input.value = "";
+  });
+
   $("settings-import-file").addEventListener("change", function () {
     var input = $("settings-import-file");
     if (!input.files || !input.files[0]) return;
@@ -2032,7 +2092,7 @@ function renderConsoleHtml() {
 <h2 style="margin-top:0" data-i18n="panel_test">測試發送</h2>
 <div class="glass glass-hover">
 <form id="test-form">
-  <div class="field"><label data-i18n="lbl_to">對象</label><input id="test-to" placeholder="好友名稱或 mid" required><div class="hint">發送平台由左側「通訊平台」決定</div></div>
+  <div class="field"><label data-i18n="lbl_to">對象</label><input id="test-to" placeholder="好友名稱或 mid" required><div class="hint">發送平台由左側「通訊平台」決定</div><div class="msg" id="capability-hint" style="margin-top:4px"></div></div>
   <div class="field"><label data-i18n="lbl_text">文字</label><input id="test-text" placeholder="訊息內容（可留空）"></div>
   <div class="field"><label data-i18n="lbl_file_path">檔案路徑</label><input id="test-file" placeholder="伺服器上的檔案路徑，例如 /opt/app/quote.pdf"></div>
   <div class="field"><label data-i18n="lbl_image">圖片（URL 或路徑）</label><input id="test-image" placeholder="https://... 或 /opt/app/a.jpg"></div>
@@ -2113,12 +2173,32 @@ function renderConsoleHtml() {
 </details>
 </div>
 </div>
+
+<div class="fn-panel" data-fn="deadletter">
+<h2 style="margin-top:0">死信（發送失敗紀錄）</h2>
+<div class="glass">
+<details open>
+  <summary>清單（<span id="deadletter-count">0</span>）</summary>
+  <table><thead><tr><th>時間</th><th>平台</th><th>種類</th><th>對象</th><th>內容</th><th>錯誤</th></tr></thead><tbody id="deadletter"></tbody></table>
+</details>
+</div>
+</div>
 `;
     const script = `
   ${HELPERS}
   ${SESSION_SCRIPT}
   var allTargets = [];
   var currentPlatform = window.LW_PLATFORM || "line";
+
+  // E3：送出前即時提示該平台的降級項目（由後端能力表生成）。
+  var CAPABILITY_NOTES = ${JSON.stringify(Object.fromEntries(Object.entries(capabilityNotes())))};
+
+  function paintCapabilityHint() {
+    var el = $("capability-hint");
+    if (!el) return;
+    var notes = CAPABILITY_NOTES[currentPlatform];
+    el.textContent = notes && notes.length > 0 ? "⚠ " + notes.join("；") : "";
+  }
 
   function applyConsoleImVisibility(platform) {
     Array.prototype.forEach.call(document.querySelectorAll("[data-im]"), function (el) {
@@ -2134,9 +2214,11 @@ function renderConsoleHtml() {
   window.onPlatformChange = function (platform) {
     currentPlatform = platform;
     applyConsoleImVisibility(platform);
+    paintCapabilityHint();
     refreshData();
   };
   applyConsoleImVisibility(currentPlatform);
+  paintCapabilityHint();
 
   function renderTargets() {
     var query = $("target-search").value.trim().toLowerCase();
@@ -2205,8 +2287,22 @@ function renderConsoleHtml() {
       });
       var actions = document.createElement("td");
       actions.className = "actions-cell";
+      // A3：失敗保留的任務可一鍵重送（delaySec: 0 立即执行並清除 lastError）。
+      if (j.lastError) {
+        var retry = document.createElement("button");
+        retry.type = "button";
+        retry.textContent = "重送";
+        retry.addEventListener("click", function () {
+          post("settings/scheduled/update", { id: j.id, platform: currentPlatform, delaySec: 0 }).then(function (r) {
+            if (!r.ok) alert("失敗：" + (r.data.error || ""));
+            refreshData();
+          });
+        });
+        actions.append(retry);
+      }
       actions.append(edit, cancel);
-      return tr(td(j.runAt), td((j.to || []).join(", ")), td(j.summary || ""), td(j.repeat || "-"), actions);
+      var summary = (j.summary || "") + (j.lastError ? "（失敗：" + j.lastError + "）" : "");
+      return tr(td(j.runAt), td((j.to || []).join(", ")), td(summary), td(j.repeat || "-"), actions);
     }));
   }
 
@@ -2215,6 +2311,7 @@ function renderConsoleHtml() {
     allTargets = data.targets;
     renderTargets();
     renderScheduled(data.scheduled);
+    renderDeadletter();
 
     var logs = data.logs.slice().reverse();
     var logBody = $("logs");
@@ -2225,6 +2322,25 @@ function renderConsoleHtml() {
         return tr(td(l.time), td(l.level, "lv-" + l.level), td(l.message), td(l.meta ? JSON.stringify(l.meta) : "", "mono"));
       }));
     }
+  }
+
+  function renderDeadletter() {
+    fetch("/deadletter.json?limit=50", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        var list = data.deadletters || [];
+        $("deadletter-count").textContent = String(list.length);
+        var bodyEl = $("deadletter");
+        if (list.length === 0) {
+          bodyEl.replaceChildren(emptyRow(6));
+          return;
+        }
+        bodyEl.replaceChildren.apply(bodyEl, list.slice().reverse().map(function (d) {
+          return tr(td(d.time), td(d.platform), td(d.kind), td((d.to || []).join(", ")), td(d.summary || ""), td(d.error || ""));
+        }));
+      })
+      .catch(function () {});
   }
 
   function refreshData() {
@@ -2573,6 +2689,7 @@ function renderConsoleHtml() {
   <button type="button" class="fn-card" data-fn="targets-list">${tr(config.language, "card_targets")}</button>
   <button type="button" class="fn-card" data-fn="logs">${tr(config.language, "card_logs")}</button>
   <button type="button" class="fn-card" data-fn="scheduled">${tr(config.language, "card_scheduled")}</button>
+  <button type="button" class="fn-card" data-fn="deadletter">死信</button>
 </div>
 <div class="side-section" data-im="line">${tr(config.language, "section_actions")}</div>
 <div class="fn-list" data-im="line">
@@ -2868,6 +2985,17 @@ function renderSkillsHtml() {
       body.appendChild(fieldWrap(T("lbl_trigger"), trigger));
     }
 
+    var allowUsers = document.createElement("textarea");
+    allowUsers.className = "sk-allow-users";
+    allowUsers.style.minHeight = "44px";
+    allowUsers.value = ((skill.allowedUsers || []).join("\n"));
+    var allowWrap = fieldWrap(T("lbl_allow_users"), allowUsers);
+    var allowHint = document.createElement("div");
+    allowHint.className = "msg";
+    allowHint.textContent = T("hint_allow_users");
+    allowWrap.appendChild(allowHint);
+    body.appendChild(allowWrap);
+
     (def.fields || []).forEach(function (f) {
       if (f.type === "file") {
         body.appendChild(fieldWrap(f.label, buildFileField(f)));
@@ -3004,6 +3132,9 @@ function renderSkillsHtml() {
         id: id,
         enabled: card.querySelector(".sk-enabled").checked,
         trigger: card.querySelector(".sk-trigger") ? card.querySelector(".sk-trigger").value.trim() : "",
+        allowedUsers: card.querySelector(".sk-allow-users")
+          ? card.querySelector(".sk-allow-users").value.split(/[\r\n,]+/).map(function (x) { return x.trim(); }).filter(Boolean)
+          : [],
         config: config
       });
     });
@@ -3136,24 +3267,52 @@ function renderLoginHtml(lang: Lang) {
 `;
     return page(tr(lang, "title_login"), "", body, script, { showNav: false, showTitle: false, lang });
 }
-let readmeCache: string | null = null;
+let readmeCache: { mtime: number; html: string } | null = null;
+/**
+ * README HTML 消毒（B7）：marked 不做消毒，這裡以允許清單過濾。
+ * 移除 script/style/iframe/object/embed/form、事件屬性（on*）、
+ * javascript:/data:(非圖片)/vbscript: URL。
+ */
+export function sanitizeReadmeHtml(html: string): string {
+  let out = String(html);
+  out = out.replace(/<(script|style|iframe|object|embed|form|input|button|textarea|select|option|meta|link|base|noscript)[\s\S]*?<\/\1\s*>/gi, "");
+  out = out.replace(/<(script|style|iframe|object|embed|form|input|button|textarea|select|option|meta|link|base|noscript)(\s[^>]*)?\/?>/gi, "");
+  out = out.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  out = out.replace(/\s+(href|src|xlink:href)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi, (_m, attr, _q, d1, d2, d3) => {
+    const value = String(d1 ?? d2 ?? d3 ?? "").trim();
+    const lower = value.toLowerCase().replace(/[\s\u0000-\u001f]+/g, "");
+    if (/^(javascript|vbscript|data(?=:)):/.test(lower)) {
+      // data: 僅允許圖片
+      if (lower.startsWith("data:") && /^data:image\/(png|jpe?g|gif|webp|svg\+xml);base64,/.test(lower)) {
+        return ` ${attr}="${value}"`;
+      }
+      return "";
+    }
+    return ` ${attr}="${value.replace(/"/g, "&quot;")}"`;
+  });
+  return out;
+}
 function readmeHtml() {
-    if (readmeCache !== null)
-        return readmeCache;
     try {
+        let statMtime = -1;
+        try {
+            statMtime = statSync("./README.md").mtimeMs;
+        } catch {
+            statMtime = -1;
+        }
+        if (readmeCache !== null && readmeCache.mtime === statMtime) return readmeCache.html;
         const markdown = readFileSync("./README.md", "utf8");
-        // README 雖為本機檔案，仍移除 script 區塊避免意外執行。
         const html = marked.parse(markdown, { async: false });
-        readmeCache = String(html).replace(/<script[\s\S]*?<\/script\s*>/gi, "");
+        readmeCache = { mtime: statMtime, html: sanitizeReadmeHtml(String(html)) };
     }
     catch (error) {
-        readmeCache = `<p>無法讀取 README.md：${String(error)}</p>`;
+        readmeCache = { mtime: -2, html: `<p>無法讀取 README.md：${String(error)}</p>` };
     }
-    return readmeCache;
+    return readmeCache.html;
 }
 function renderReadmeHtml() {
     const body = `<div class="glass md">${readmeHtml()}</div>`;
-    return page("ReadMe", "readme", body, "");
+    return page(tr(config.language, "title_readme"), "readme", body, "");
 }
 function renderMessagesHtml() {
     const body = `
@@ -3164,6 +3323,7 @@ function renderMessagesHtml() {
   <input id="message-chat" placeholder="MID" style="width:200px">
   <button type="button" id="message-export-json">JSON</button>
   <button type="button" id="message-export-csv">CSV</button>
+  <button type="button" id="message-purge" style="color:#fb7185">清除全部</button>
   <span id="message-count" class="msg"></span>
 </div>
 <table><thead><tr><th data-i18n="th_time">時間</th><th data-i18n="th_source">來源</th><th data-i18n="th_chat">對話</th><th data-i18n="th_content">內容</th></tr></thead><tbody id="messages"></tbody></table>
@@ -3235,6 +3395,16 @@ function renderMessagesHtml() {
     download("messages.csv", rows.map(function (r) { return r.join(","); }).join("\n"), "text/csv");
   });
 
+  $("message-purge").addEventListener("click", function () {
+    if (!window.confirm("確定清除全部訊息紀錄（記憶體＋檔案）？此動作無法復原。")) return;
+    post("messages/purge", {}).then(function (r) {
+      $("message-count").textContent = r.ok
+        ? ("已清除（記憶體 " + r.data.memory + " 筆）")
+        : ("失敗：" + (r.data.error || ""));
+      refresh();
+    });
+  });
+
   var searchTimer = null;
   [$("message-search"), $("message-chat")].forEach(function (el) {
     el.addEventListener("input", function () {
@@ -3255,9 +3425,14 @@ function platformQr(platform: string): string {
     const svc = getService(platform as Platform);
     return svc?.getQr?.() ?? "";
 }
+/** 各平台非原生能力的提示文字（給 /console 送出前提示用）。 */
+function capabilityNotes(): Record<string, string[]> {
+    const out: Record<string, string[]> = {};
+    for (const p of ALL_PLATFORMS) out[p] = degradedCapabilities(p);
+    return out;
+}
 /** 各平台服務摘要（給 dashboard / status 用）。 */
-function platformSummaries() {
-    return listServices().map((service) => ({
+function platformSummaries() {    return listServices().map((service) => ({
         platform: service.platform,
         targets: service.listTargets().length,
         queue: service.getQueueStats(),
@@ -3267,9 +3442,7 @@ function platformSummaries() {
 }
 /** 固定時間比較字串（避免以回應時間洩漏密鑰）。 */
 function constantTimeEqual(a: string, b: string): boolean {
-    const bufA = Buffer.from(a);
-    const bufB = Buffer.from(b);
-    return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
+    return safeEqual(a, b);
 }
 /**
  * 產生 /webhook 系列的發送處理器，讓 LINE 與其他平台共用同一套請求解析/排程/轉發邏輯。
@@ -3313,7 +3486,7 @@ function makeWebhookSender(resolveService: (req: Request) => IMessagingService |
         const dedupKey = typeof req.header("x-idempotency-key") === "string"
             ? (req.header("x-idempotency-key") as string).trim()
             : "";
-        if (dedupKey && isDuplicateIdempotency(dedupKey)) {
+        if (dedupKey && !reserveIdempotency(dedupKey)) {
             logger.info("重複的 idempotency key，略過", { ip: req.ip, dedupKey });
             res.json({ ok: true, duplicate: true });
             return;
@@ -3321,8 +3494,6 @@ function makeWebhookSender(resolveService: (req: Request) => IMessagingService |
         try {
             if (runAt !== undefined) {
                 const job = service.schedule(inputs, runAt, repeat || undefined);
-                if (dedupKey)
-                    markIdempotency(dedupKey);
                 logger.info("訊息已排程", {
                     ip: req.ip,
                     platform: service.platform,
@@ -3341,12 +3512,13 @@ function makeWebhookSender(resolveService: (req: Request) => IMessagingService |
                 return;
             }
             await service.sendAdvanced(inputs);
-            if (dedupKey)
-                markIdempotency(dedupKey);
             logger.info("訊息已轉發", { ip: req.ip, platform: service.platform, count: inputs.length });
             res.json({ ok: true, count: inputs.length });
         }
         catch (error) {
+            // 佔位後失敗要釋放，合法重試才可再送。
+            if (dedupKey)
+                releaseIdempotency(dedupKey);
             logger.error("轉發失敗", {
                 ip: req.ip,
                 platform: service.platform,
@@ -3380,10 +3552,35 @@ export function createServer(line: IMessagingService): express.Express {
         res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
         next();
     });
-    const authEnabled = (config.hmacEnabled && config.hmacSecret)
-        || (config.webhookTokenEnabled && config.webhookToken)
-        || (config.apiTokenEnabled && (config.apiToken || config.apiTokens.some((item) => item.token)));
-    if (!authEnabled) {
+    // C3：請求關聯 ID + access log（回傳 X-Request-Id 供追查）。
+    // 同時記錄 C4 指標：請求數與耗時。
+    app.use((req, res, next) => {
+        const reqId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        (req as { reqId?: string }).reqId = reqId;
+        res.setHeader("X-Request-Id", reqId);
+        const start = Date.now();
+        res.on("finish", () => {
+            logger.debug("HTTP", {
+                reqId,
+                method: req.method,
+                path: req.path,
+                status: res.statusCode,
+                ms: Date.now() - start,
+                ip: req.ip,
+            });
+            recordMetric("http_requests_total", 1, {
+                method: req.method,
+                route: req.route?.path ?? req.path,
+                status: String(res.statusCode),
+            });
+            recordMetric("http_request_duration_ms_sum", Date.now() - start, {
+                method: req.method,
+                route: req.route?.path ?? req.path,
+            });
+        });
+        next();
+    });
+    if (!webhookAuthEnabled()) {
         logger.warn("webhook 未啟用任何驗證（HMAC/Token/API Token），將接受所有來源呼叫");
     }
     app.use(express.json({
@@ -3393,9 +3590,34 @@ export function createServer(line: IMessagingService): express.Express {
         },
     }));
     app.get("/", (_req, res) => res.redirect("/dashboard"));
-    app.get("/health", (_req, res) => {
-        const ok = getState().status === "已登入";
-        res.json({ status: ok ? "ok" : "bad" });
+    // C4：Prometheus 文字格式指標（需 read 權限）。
+    app.get("/metrics", statusAccess, requireSessionOrApi("read"), (_req, res) => {
+        const lines: string[] = [renderMetrics().trimEnd()];
+        for (const svc of listServices()) {
+            const q = svc.getQueueStats();
+            lines.push(`im_queue_depth{platform="${svc.platform}"} ${q.pending}`);
+            const jobs = svc.listScheduled();
+            const failed = jobs.filter((j) => j.lastError).length;
+            lines.push(`scheduler_jobs{platform="${svc.platform}",state="scheduled"} ${jobs.length}`);
+            lines.push(`scheduler_jobs{platform="${svc.platform}",state="failed"} ${failed}`);
+        }
+        res.set("Cache-Control", "no-store");
+        res.type("text/plain; version=0.0.4").send(lines.join("\n") + "\n");
+    });
+    // C1：各在線平台的健康狀態；任一異常即 503（供負載平衡／監控判斷）。
+    app.get("/health", async (_req, res) => {
+        const services = listServices();
+        const detail: Record<string, boolean> = {};
+        let allOk = services.length > 0;
+        await Promise.all(services.map(async (svc) => {
+            try {
+                detail[svc.platform] = await svc.healthCheck();
+            } catch {
+                detail[svc.platform] = false;
+            }
+            if (!detail[svc.platform]) allOk = false;
+        }));
+        res.status(allOk ? 200 : 503).json({ status: allOk ? "ok" : "bad", services: detail });
     });
     app.get("/dashboard", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
         res.type("html").send(renderDashboardHtml());
@@ -3421,6 +3643,15 @@ export function createServer(line: IMessagingService): express.Express {
             stats: getStats(config.statsDays, svc.platform),
             statsByPlatform,
             messages: getMessages().slice(-50),
+            // J8：實際生效的檔案路徑（容器與主機可能不同，改設定卻沒生效時先看這裡）。
+            paths: {
+                settings: resolve(config.settingsPath),
+                storage: resolve(config.line.storagePath),
+                messages: resolve(config.messagesPath),
+                schedules: resolve(config.schedulesPath),
+                stats: resolve(config.statsPath),
+                logFile: resolve(config.logFile),
+            },
         });
     });
     app.get("/status.json", statusAccess, requireSessionOrApi("read"), (req, res) => {
@@ -3487,15 +3718,17 @@ export function createServer(line: IMessagingService): express.Express {
         );
         res.json({ ok: true, language: body.lang });
     });
-    app.post("/login", statusAccess, loginRateLimit, (req, res) => {
+    app.post("/login", statusAccess, loginRateLimit, async (req, res) => {
         const body = req.body;
         const user = typeof body?.user === "string" ? body.user : "";
         const pass = typeof body?.pass === "string" ? body.pass : "";
-        if (!verifyCredentials(user, pass)) {
-            logger.warn("登入失敗", { ip: req.ip });
-            res.status(401).json({ ok: false, error: "帳號或密碼錯誤" });
+        if (!(await verifyCredentialsAsync(user, pass))) {
+            const locked = recordLoginFailure(user);
+            logger.warn("登入失敗", { ip: req.ip, locked });
+            res.status(locked ? 429 : 401).json({ ok: false, error: locked ? "此帳號嘗試過於頻繁，請稍後再試" : "帳號或密碼錯誤" });
             return;
         }
+        clearLoginFailures(user);
         createSession(req, res);
         logger.info("登入成功", { ip: req.ip });
         res.json({ ok: true });
@@ -3529,21 +3762,41 @@ export function createServer(line: IMessagingService): express.Express {
     app.get("/skills", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
         res.type("html").send(renderSkillsHtml());
     });
+    // 技能健康探測：單技能 5 秒逾時，全體結果快取 60 秒（A7）。
+    let skillsHealthCache: { at: number; health: Record<string, Array<{ name: string; ok: boolean; detail?: string }>> } | null = null;
     app.get("/skills/health", statusAccess, requireSessionOrApi("read"), async (_req, res) => {
+        if (skillsHealthCache && Date.now() - skillsHealthCache.at < 60_000) {
+            res.json({ health: skillsHealthCache.health, cached: true });
+            return;
+        }
         const result: Record<string, Array<{ name: string; ok: boolean; detail?: string }>> = {};
+        const withTimeout = async <T>(name: string, task: Promise<T>): Promise<T> => {
+            let timer: NodeJS.Timeout | undefined;
+            try {
+                return await Promise.race([
+                    task,
+                    new Promise<never>((_, reject) => {
+                        timer = setTimeout(() => reject(new Error(`${name} 健康檢查逾時（5s）`)), 5000);
+                    }),
+                ]);
+            } finally {
+                if (timer) clearTimeout(timer);
+            }
+        };
         await Promise.all(listSkills().map(async (skill) => {
             if (!skill.health)
                 return;
             try {
-                result[skill.id] = await skill.health();
+                result[skill.id] = await withTimeout(skill.id, skill.health());
             }
             catch (error) {
                 result[skill.id] = [{ name: "health", ok: false, detail: String(error) }];
             }
         }));
-        res.json({ health: result });
+        skillsHealthCache = { at: Date.now(), health: result };
+        res.json({ health: result, cached: false });
     });
-    app.post("/skills/llm/models", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, async (req, res) => {
+    app.post("/skills/llm/models", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, rateLimit, async (req, res) => {
         const body = asRecord(req.body) ?? {};
         const raw: Record<string, string> = {};
         for (const [k, v] of Object.entries(body))
@@ -3577,6 +3830,7 @@ export function createServer(line: IMessagingService): express.Express {
         }
         try {
             const result = await installZip(data);
+            audit(req, "skills.install", (result as { id?: string }).id ?? "");
             res.json({ ok: true, ...result });
         }
         catch (error) {
@@ -3598,6 +3852,7 @@ export function createServer(line: IMessagingService): express.Express {
             res.status(404).json({ ok: false, error: "找不到技能" });
             return;
         }
+        audit(req, "skills.uninstall", id);
         res.json({ ok: true });
     });
     app.post("/skills", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
@@ -3606,6 +3861,36 @@ export function createServer(line: IMessagingService): express.Express {
             const assistant = asRecord(body.assistant);
             const skills = Array.isArray(body.skills) ? body.skills : [];
             const current = currentSettings();
+            const mappedSkills = skills.map((item: unknown) => {
+                const s = asRecord(item) ?? {};
+                const config = asRecord(s.config) ?? {};
+                const configOut: Record<string, string> = {};
+                for (const [k, v] of Object.entries(config))
+                    configOut[k] = String(v ?? "");
+                const rawAllowed = Array.isArray(s.allowedUsers) ? s.allowedUsers : [];
+                return {
+                    id: typeof s.id === "string" ? s.id : "",
+                    enabled: s.enabled === true,
+                    trigger: typeof s.trigger === "string" ? s.trigger : "",
+                    allowedUsers: rawAllowed
+                        .map((u: unknown) => String(u ?? "").trim())
+                        .filter((u: string) => u.length > 0),
+                    config: configOut,
+                };
+            });
+            // F2：先驗證「啟用中」技能的欄位（指出技能與欄位），通過才存檔。
+            const fieldErrors: string[] = [];
+            for (const entry of mappedSkills) {
+                if (!entry.enabled) continue;
+                const def = getSkill(entry.id);
+                if (!def) continue;
+                fieldErrors.push(...validateSkillConfig(def, entry.config, config.language));
+            }
+            if (fieldErrors.length > 0) {
+                res.status(400).json({ ok: false, error: fieldErrors.join("；") });
+                return;
+            }
+            audit(req, "skills.save", mappedSkills.filter((s) => s.enabled).map((s) => s.id).join(","));
             const saved = saveSettings({
                 ...current,
                 assistant: assistant
@@ -3614,19 +3899,7 @@ export function createServer(line: IMessagingService): express.Express {
                         name: typeof assistant.name === "string" && assistant.name.trim() ? assistant.name.trim() : "阿寶",
                     }
                     : current.assistant,
-                skills: skills.map((item: unknown) => {
-                    const s = asRecord(item) ?? {};
-                    const config = asRecord(s.config) ?? {};
-                    const configOut: Record<string, string> = {};
-                    for (const [k, v] of Object.entries(config))
-                        configOut[k] = String(v ?? "");
-                    return {
-                        id: typeof s.id === "string" ? s.id : "",
-                        enabled: s.enabled === true,
-                        trigger: typeof s.trigger === "string" ? s.trigger : "",
-                        config: configOut,
-                    };
-                }),
+                skills: mappedSkills,
             });
             res.json({ ok: true, assistant: saved.assistant, skills: saved.skills });
         }
@@ -3659,6 +3932,76 @@ export function createServer(line: IMessagingService): express.Express {
             }),
         });
     });
+    // I1：清除訊息紀錄（記憶體＋檔案），需二次確認由前端處理。
+    app.post("/messages/purge", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
+        const result = purgeMessages();
+        audit(req, "messages.purge", `memory:${result.memory} file:${result.file}`);
+        res.json({ ok: true, ...result });
+    });
+    // A3：死信列表（最近 100 筆，供檢視失敗原因）。
+    app.get("/deadletter.json", statusAccess, requireSessionOrApi("read"), (req, res) => {
+        res.set("Cache-Control", "no-store");
+        const q = req.query;
+        const limit = Number(typeof q.limit === "string" ? q.limit : "");
+        res.json({ deadletters: readDeadLetters(Number.isFinite(limit) ? limit : 100) });
+    });
+    // J3：備份（設定＋登入狀態＋排程），沿用 AES-256-GCM 加密；還原前自動備份現況。
+    app.get("/settings/backup", statusAccess, requireSessionOrApi("admin"), (req, res) => {
+        const password = typeof req.query.password === "string" ? req.query.password : "";
+        if (!password) {
+            res.status(400).json({ ok: false, error: "備份需設定密碼（?password=）" });
+            return;
+        }
+        try {
+            const bundle = readBackupBundle();
+            const envelope = encryptSettings(bundle, password);
+            audit(req, "settings.backup");
+            res.set("Cache-Control", "no-store");
+            res.setHeader("Content-Disposition", `attachment; filename="im-webhook-backup-${Date.now()}.enc.json"`);
+            res.type("application/json").send(JSON.stringify(envelope, null, 2));
+        } catch (error) {
+            res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
+        }
+    });
+    app.post("/settings/backup/restore", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
+        try {
+            const body = asRecord(req.body) ?? {};
+            const envelope = body.bundle ?? body.settings ?? req.body;
+            if (!isEncryptedEnvelope(envelope)) {
+                res.status(400).json({ ok: false, error: "不是有效的加密備份檔" });
+                return;
+            }
+            const password = typeof body.password === "string" ? body.password : "";
+            if (!password) {
+                res.status(400).json({ ok: false, error: "還原需輸入備份時的密碼" });
+                return;
+            }
+            let bundle: unknown;
+            try {
+                bundle = decryptSettings(envelope, password);
+            } catch {
+                res.status(400).json({ ok: false, error: "密碼錯誤或檔案已損毀" });
+                return;
+            }
+            // 還原前先自動備份現況（防誤操作）。
+            const safety = readBackupBundle();
+            const safetyPath = `${config.settingsPath}.restore-bak-${Date.now()}.json`;
+            try {
+                writeFileSync(safetyPath, JSON.stringify(safety, null, 2), { mode: 0o600 });
+            } catch (error) {
+                logger.warn("還原前備份現況失敗", { error: String(error) });
+            }
+            const restored = restoreBackupBundle(bundle);
+            reloadMessages();
+            audit(req, "settings.backup.restore", `safety:${safetyPath}`);
+            res.json({ ok: true, restored, safetyBackup: safetyPath });
+        } catch (error) {
+            res.status(400).json({
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    });
     app.get("/settings.json", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
         res.set("Cache-Control", "no-store");
         res.json(currentSettings());
@@ -3667,6 +4010,7 @@ export function createServer(line: IMessagingService): express.Express {
         const data = currentSettings();
         const password = typeof req.query.password === "string" ? req.query.password : "";
         res.set("Cache-Control", "no-store");
+        audit(req, "settings.export", password ? "encrypted" : "plaintext");
         if (password) {
             // 密碼加密匯出：整個設定以 AES-256-GCM 加密。
             const envelope = encryptSettings(data, password);
@@ -3698,6 +4042,7 @@ export function createServer(line: IMessagingService): express.Express {
             const saved = saveSettings(incoming);
             reloadMessages();
             logger.info("已匯入設定", { ip: req.ip });
+            audit(req, "settings.import");
             res.json({ ok: true, settings: saved });
         }
         catch (error) {
@@ -3715,6 +4060,7 @@ export function createServer(line: IMessagingService): express.Express {
             const merged = { ...currentSettings(), ...body };
             const saved = saveSettings(merged);
             reloadMessages();
+            audit(req, "settings.save");
             res.json({ ok: true, settings: saved });
         }
         catch (error) {
@@ -3747,6 +4093,7 @@ export function createServer(line: IMessagingService): express.Express {
             res.status(400).json({ ok: false, error: result.error ?? "變更失敗" });
             return;
         }
+        audit(req, "settings.password");
         res.json({ ok: true });
     });
     app.post("/settings/upload", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, express.raw({ type: "*/*", limit: `${config.maxBodyMb}mb` }), (req, res) => {
@@ -3763,6 +4110,13 @@ export function createServer(line: IMessagingService): express.Express {
             res.status(400).json({ ok: false, error: "沒有收到檔案內容" });
             return;
         }
+        // I2：總量配額，超過拒絕新的上傳。
+        if (!uploadHasRoom(data.length)) {
+            const usage = uploadUsage();
+            logger.warn("上傳配額已滿，拒絕上傳", { bytes: data.length, usage });
+            res.status(413).json({ ok: false, error: "上傳空間已滿，請先清理舊檔" });
+            return;
+        }
         try {
             mkdirSync(config.uploadsPath, { recursive: true });
             const safe = basename(name).replace(/[^\w.\-]+/g, "_") || "upload.bin";
@@ -3770,6 +4124,7 @@ export function createServer(line: IMessagingService): express.Express {
             const fullPath = resolve(config.uploadsPath, stored);
             writeFileSync(fullPath, data);
             logger.info("已上傳檔案", { file: stored, bytes: data.length });
+            audit(req, "settings.upload", `${stored} (${data.length} bytes)`);
             // 只回傳上傳目錄內的相對檔名，不暴露伺服器絕對路徑。
             res.json({ ok: true, path: stored, filename: safe, bytes: data.length });
         }
@@ -3849,6 +4204,7 @@ export function createServer(line: IMessagingService): express.Express {
             res.status(404).json({ ok: false, error: "找不到排程" });
             return;
         }
+        audit(req, "scheduled.cancel", `${svc.platform}:${id}`);
         res.json({ ok: true, platform: svc.platform });
     });
     app.post("/settings/scheduled/update", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
@@ -3922,6 +4278,8 @@ export function createServer(line: IMessagingService): express.Express {
                 return;
             }
         }
+        // 先落地再回 200：崩潰時仍可追溯（見 messaging/inbox.ts）。
+        persistInbound("telegram", req.body);
         // 先回 200 避免 Telegram 重送；實際處理非同步進行。
         res.json({ ok: true });
         void Promise.resolve(service.handleIncoming?.(req.body)).catch((error: unknown) => {
@@ -3970,6 +4328,8 @@ export function createServer(line: IMessagingService): express.Express {
                 return;
             }
         }
+        // 先落地再回 200：崩潰時仍可追溯（見 messaging/inbox.ts）。
+        persistInbound("whatsapp", req.body);
         // 先回 200 避免 Meta 重送；實際處理非同步進行。
         res.json({ ok: true });
         void Promise.resolve(service.handleIncoming?.(req.body)).catch((error: unknown) => {
@@ -3992,6 +4352,8 @@ export function createServer(line: IMessagingService): express.Express {
             res.status(403).json({ ok: false });
             return;
         }
+        // 先落地再回 200：崩潰時仍可追溯（見 messaging/inbox.ts）。
+        persistInbound("teams", req.body);
         // 先回 200 避免重送；實際處理非同步進行。
         res.json({ ok: true });
         void Promise.resolve(service.handleIncoming?.(req.body)).catch((error: unknown) => {

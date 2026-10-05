@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFil
 import { dirname } from "node:path";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
+import { writeDeadLetter } from "../deadletter.js";
 import { nextRun, parseCron } from "./cron.js";
 import type { SendInput } from "./client.js";
 
@@ -13,6 +14,8 @@ export interface ScheduledJobView {
   summary: string;
   repeat?: string;
   recurring: boolean;
+  /** 上次執行失敗的錯誤（一次性任務失敗會保留並標記，供重送）。 */
+  lastError?: string;
   /** 技能任務才有（沿用同一排程器持久化與列表）。 */
   skillTask?: {
     skillId: string;
@@ -39,6 +42,7 @@ export interface Job {
   summary: string;
   repeat?: string;
   createdAt: number;
+  lastError?: string;
   skillTask?: SkillTaskRef;
 }
 
@@ -69,6 +73,7 @@ function toView(job: Job): ScheduledJobView {
     summary: job.summary,
     repeat: job.repeat,
     recurring: Boolean(job.repeat),
+    ...(job.lastError ? { lastError: job.lastError } : {}),
     ...(job.skillTask
       ? {
           skillTask: {
@@ -104,6 +109,7 @@ export class SendScheduler {
     private readonly execute: (inputs: SendInput[]) => Promise<void>,
     private readonly onSkillTask?: (job: Job) => Promise<void>,
     schedulesPath: string = config.schedulesPath,
+    private readonly platform: string = "line",
   ) {
     this.path = schedulesPath;
     this.load();
@@ -161,7 +167,11 @@ export class SendScheduler {
       }
       job.repeat = patch.repeat || undefined;
     }
-    if (patch.runAt !== undefined) job.runAt = patch.runAt;
+    if (patch.runAt !== undefined) {
+      job.runAt = patch.runAt;
+      // 重新排期＝重送意圖，清除上次失敗標記。
+      delete job.lastError;
+    }
     this.save();
     logger.info("已更新排程", { id, runAt: job.runAt, repeat: job.repeat });
     this.arm();
@@ -241,6 +251,7 @@ export class SendScheduler {
     try {
       const now = Date.now();
       const before = raw.length;
+      let misfired = 0;
       this.jobs = raw.filter((job) => {
         if (!job || typeof job.id !== "string") return false;
         if (job.skillTask) {
@@ -264,10 +275,25 @@ export class SendScheduler {
             return false;
           }
         }
-        return typeof job.runAt === "number" && job.runAt > now - 60_000;
+        if (typeof job.runAt !== "number") return false;
+        if (job.runAt > now - 60_000) return true;
+        // misfire：24 小時內的過期一次性任務保留並立即補發一次；更早的寫死信後丟棄。
+        if (now - job.runAt < 24 * 60 * 60 * 1000) {
+          misfired += 1;
+          return true;
+        }
+        writeDeadLetter({
+          platform: this.platform,
+          kind: "scheduled-misfired",
+          to: job.to ?? [],
+          summary: job.summary ?? "",
+          error: `啟動時已過期超過 24 小時，未補發（原定 ${new Date(job.runAt).toISOString()}）`,
+        });
+        return false;
       });
       const dropped = before - this.jobs.length;
       if (dropped > 0) logger.warn("啟動時丟棄過期/無效排程", { path: this.path, dropped });
+      if (misfired > 0) logger.warn("啟動時補發過期排程", { path: this.path, misfired });
       logger.info("已載入排程", { path: this.path, count: this.jobs.length });
       this.arm();
     } catch (error) {
@@ -314,6 +340,7 @@ export class SendScheduler {
     const due = this.jobs.filter((job) => job.runAt <= now);
 
     for (const job of due) {
+      let failed: string | undefined;
       try {
         if (job.skillTask) {
           if (this.onSkillTask) {
@@ -326,16 +353,29 @@ export class SendScheduler {
           logger.info("排程訊息已送出", { id: job.id, to: job.to });
         }
       } catch (error) {
+        failed = error instanceof Error ? error.message : String(error);
         logger.error("排程執行失敗", {
           id: job.id,
           to: job.to,
-          error: error instanceof Error ? error.message : String(error),
+          error: failed,
+        });
+        writeDeadLetter({
+          platform: this.platform,
+          kind: job.skillTask ? `skill-task:${job.skillTask.skillId}/${job.skillTask.task}` : "scheduled",
+          to: job.to,
+          summary: job.summary,
+          error: failed,
         });
       }
 
       // 執行期間可能被更新/取消，重新找一次才變更，避免覆蓋別人的修改。
       const current = this.jobs.find((item) => item.id === job.id);
       if (!current) continue;
+      if (failed && !current.repeat) {
+        // 一次性任務失敗：保留並標記 lastError（可從 /console 重送），不要刪。
+        current.lastError = failed;
+        continue;
+      }
       if (current.repeat) {
         try {
           const cron = parseCron(current.repeat);

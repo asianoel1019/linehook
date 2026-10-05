@@ -74,10 +74,11 @@ const aiSkill: SkillDefinition = {
     const messages: ChatMessage[] = [];
     if (cfg.systemPrompt) messages.push({ role: "system", content: cfg.systemPrompt });
     if (memoryOn) messages.push(...getHistory(ctx.chat));
-    messages.push({ role: "user", content: question });
+    // G4：IM 原文標記為不可信內容，避免被當成系統指令。
+    messages.push({ role: "user", content: `<untrusted-user-content>\n${question}\n</untrusted-user-content>` });
 
     try {
-      const answer = await chat(cfg, messages);
+      const answer = await chat(cfg, messages, { skill: "ai" });
       await ctx.reply(answer);
       if (memoryOn) {
         pushHistory(

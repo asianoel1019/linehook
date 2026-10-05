@@ -30,6 +30,7 @@ describe("normalizeTeamsActivity", () => {
       fromName: "小明",
       chatName: "客服頻道",
       text: "哈囉",
+      messageId: "1",
     });
   });
 

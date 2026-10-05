@@ -114,7 +114,7 @@ const exchangeSkill: SkillDefinition = {
     }
 
     // 只填一種幣別時，目標預設為設定的預設幣別
-    let base = codes[0];
+    const base = codes[0];
     let target = codes[1];
     if (!target) {
       if (base === defaultCurrency) {

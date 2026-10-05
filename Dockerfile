@@ -13,5 +13,6 @@ COPY package.json package-lock.json .npmrc ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY README.md ./
+COPY icons ./icons
 EXPOSE 8090
 CMD ["node", "dist/index.js"]

@@ -1,4 +1,5 @@
 import { logger } from "../logger.js";
+import { recordMetric } from "../metrics.js";
 
 export type LlmProvider = "openai" | "gemini" | "opencode" | "local" | "custom";
 
@@ -55,11 +56,11 @@ function numOr(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-/** 呼叫 LLM，回傳純文字；失敗丟錯。 */
-export async function chat(cfg: LlmConfig, messages: ChatMessage[]): Promise<string> {
+/** 呼叫 LLM，回傳純文字；失敗丟錯。tag.skill 供用量統計歸屬。 */
+export async function chat(cfg: LlmConfig, messages: ChatMessage[], tag?: { skill?: string }): Promise<string> {
   if (!cfg.model) throw new Error("未設定模型（model）");
-  if (cfg.provider === "gemini") return geminiChat(cfg, messages);
-  return openaiCompatChat(cfg, messages, cfg.provider !== "local");
+  if (cfg.provider === "gemini") return geminiChat(cfg, messages, tag);
+  return openaiCompatChat(cfg, messages, cfg.provider !== "local", tag);
 }
 
 /** OpenAI-compatible：OpenAI、OpenCode、本地自建、custom 皆適用。 */
@@ -67,6 +68,7 @@ async function openaiCompatChat(
   cfg: LlmConfig,
   messages: ChatMessage[],
   requireKey: boolean,
+  tag?: { skill?: string },
 ): Promise<string> {
   if (requireKey && !cfg.apiKey) throw new Error("未設定 API key");
   const base = cfg.baseUrl || "http://localhost:11434/v1";
@@ -90,6 +92,7 @@ async function openaiCompatChat(
   }
   const data = (await res.json()) as {
     choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
   const choice = data.choices?.[0];
   let text = choice?.message?.content;
@@ -98,11 +101,12 @@ async function openaiCompatChat(
   if (choice?.finish_reason === "length") {
     text += "\n\n（回覆因長度上限中斷，可到技能設定調高「最大回覆 tokens」）";
   }
+  recordLlmUsage(cfg, tag?.skill, data.usage?.prompt_tokens, data.usage?.completion_tokens);
   return text;
 }
 
 /** Google Gemini generateContent。 */
-async function geminiChat(cfg: LlmConfig, messages: ChatMessage[]): Promise<string> {
+async function geminiChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { skill?: string }): Promise<string> {
   if (!cfg.apiKey) throw new Error("未設定 Gemini API key");
   const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
   const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
@@ -129,6 +133,7 @@ async function geminiChat(cfg: LlmConfig, messages: ChatMessage[]): Promise<stri
       content?: { parts?: Array<{ text?: string }> };
       finishReason?: string;
     }>;
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
   };
   const cand = data.candidates?.[0];
   let text = cand?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
@@ -137,7 +142,16 @@ async function geminiChat(cfg: LlmConfig, messages: ChatMessage[]): Promise<stri
   if (cand?.finishReason === "MAX_TOKENS") {
     text += "\n\n（回覆因長度上限中斷，可到技能設定調高「最大回覆 tokens」）";
   }
+  recordLlmUsage(cfg, tag?.skill, data.usageMetadata?.promptTokenCount, data.usageMetadata?.candidatesTokenCount);
   return text;
+}
+
+/** G2：記錄 LLM token 用量（供 /metrics 的 llm_tokens_total）。缺 usage 時記 0 佔位。 */
+function recordLlmUsage(cfg: LlmConfig, skill: string | undefined, prompt?: number, completion?: number): void {
+  const labels = { provider: cfg.provider, model: cfg.model, skill: skill ?? "unknown" };
+  recordMetric("llm_tokens_total", Math.max(0, prompt ?? 0), { ...labels, kind: "prompt" });
+  recordMetric("llm_tokens_total", Math.max(0, completion ?? 0), { ...labels, kind: "completion" });
+  recordMetric("llm_calls_total", 1, { provider: cfg.provider, model: cfg.model, skill: skill ?? "unknown" });
 }
 
 /** 列出供應商支援的模型 id。 */
@@ -173,6 +187,8 @@ async function geminiListModels(cfg: LlmConfig): Promise<string[]> {
 }
 
 // ===== 對話記憶（記憶體，每個 chat 保留最近 N 輪）=====
+// G3：總 chat 數上限 500（LRU 淘汰），避免緩慢洩漏。
+const MAX_CHATS = 500;
 const memory = new Map<string, ChatMessage[]>();
 
 export function getHistory(chat: string): ChatMessage[] {
@@ -187,11 +203,24 @@ export function pushHistory(chat: string, turns: ChatMessage[], keepTurns: numbe
     return;
   }
   while (list.length > max) list.shift();
+  memory.delete(chat);
   memory.set(chat, list);
+  while (memory.size > MAX_CHATS) {
+    const oldest = memory.keys().next();
+    if (oldest.done) break;
+    memory.delete(oldest.value);
+  }
 }
 
 export function clearHistory(chat: string): void {
   memory.delete(chat);
+}
+
+/** 清除全部對話記憶（管理用途）。 */
+export function clearAllHistory(): number {
+  const n = memory.size;
+  memory.clear();
+  return n;
 }
 
 export function logLlmError(skill: string, error: unknown): void {

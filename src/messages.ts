@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
@@ -44,9 +44,74 @@ export function initMessages(): void {
   loadFromFile();
 }
 
-/** 設定變更後呼叫：若開啟持久化則載入檔案內容。 */
+/** 設定變更後呼叫：若開啟持久化則重讀檔案（覆寫語義，避免視窗膨脹）。 */
 export function reloadMessages(): void {
-  if (config.messagesPersist) loadFromFile();
+  if (config.messagesPersist) {
+    buffer.length = 0;
+    loadFromFile();
+  }
+}
+
+/**
+ * 依保留政策修剪（I1）：刪除早於 retentionDays 的紀錄。
+ * retentionDays <= 0 表示不修剪。回傳實際刪除筆數。
+ */
+export function pruneMessages(retentionDays = config.messagesRetentionDays): { memory: number; file: number } {
+  const result = { memory: 0, file: 0 };
+  if (!(retentionDays > 0)) return result;
+  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  const before = buffer.length;
+  for (let i = buffer.length - 1; i >= 0; i--) {
+    if (Number.isNaN(new Date(buffer[i].time).getTime()) || new Date(buffer[i].time).getTime() < cutoff) {
+      buffer.splice(i, 1);
+    }
+  }
+  result.memory = before - buffer.length;
+  try {
+    if (existsSync(config.messagesPath)) {
+      const lines = readFileSync(config.messagesPath, "utf8").split("\n").filter(Boolean);
+      const kept: string[] = [];
+      for (const line of lines) {
+        try {
+          const m = JSON.parse(line) as { time?: string };
+          const t = m.time ? new Date(m.time).getTime() : NaN;
+          if (!Number.isNaN(t) && t >= cutoff) kept.push(line);
+          else result.file += 1;
+        } catch {
+          kept.push(line);
+        }
+      }
+      if (result.file > 0) {
+        const tmp = `${config.messagesPath}.tmp`;
+        mkdirSync(dirname(config.messagesPath), { recursive: true });
+        writeFileSync(tmp, kept.length > 0 ? kept.join("\n") + "\n" : "");
+        renameSync(tmp, config.messagesPath);
+      }
+    }
+  } catch (error) {
+    logger.warn("修剪訊息檔失敗", { error: String(error) });
+  }
+  if (result.memory > 0 || result.file > 0) {
+    logger.info("已依保留政策修剪訊息", { ...result, retentionDays });
+  }
+  return result;
+}
+
+/** 清除全部訊息紀錄（記憶體＋檔案；I1）。回傳清除筆數。 */
+export function purgeMessages(): { memory: number; file: boolean } {
+  const memory = buffer.length;
+  buffer.length = 0;
+  let file = false;
+  try {
+    if (existsSync(config.messagesPath)) {
+      rmSync(config.messagesPath);
+      file = true;
+    }
+  } catch (error) {
+    logger.warn("清除訊息檔失敗", { error: String(error) });
+  }
+  logger.info("已清除訊息紀錄", { memory, file });
+  return { memory, file };
 }
 
 export function recordMessage(message: ReceivedMessage): void {

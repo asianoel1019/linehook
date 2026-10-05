@@ -1,9 +1,13 @@
 import crypto from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { promisify } from "node:util";
 import type { NextFunction, Request, Response } from "express";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
+import { safeEqual } from "../safe-equal.js";
+
+const scryptAsync = promisify(crypto.scrypt);
 
 const SESSION_TTL_MS = 5 * 60 * 1000;
 const COOKIE_NAME = "lw_sid";
@@ -75,15 +79,23 @@ function parseCookies(req: Request): Record<string, string> {
   return out;
 }
 
-function safeEqual(a: string, b: string): boolean {
-  const bufferA = Buffer.from(a);
-  const bufferB = Buffer.from(b);
-  return bufferA.length === bufferB.length && crypto.timingSafeEqual(bufferA, bufferB);
-}
-
 export function verifyCredentials(user: string, pass: string): boolean {
   if (override) {
     return safeEqual(user, override.user) && safeEqual(hashPassword(pass, override.salt), override.hash);
+  }
+  return safeEqual(user, config.status.user) && safeEqual(pass, config.status.pass);
+}
+
+/** 非同步版驗證（B6）：scrypt 不阻塞事件迴圈，供登入路由使用。 */
+export async function verifyCredentialsAsync(user: string, pass: string): Promise<boolean> {
+  if (override) {
+    const hash = (await (scryptAsync as (
+      password: string,
+      salt: string,
+      keylen: number,
+      options: { maxmem: number },
+    ) => Promise<Buffer>)(pass, override.salt, 64, { maxmem: 32 * 1024 * 1024 })) as Buffer;
+    return safeEqual(user, override.user) && safeEqual(hash.toString("hex"), override.hash);
   }
   return safeEqual(user, config.status.user) && safeEqual(pass, config.status.pass);
 }

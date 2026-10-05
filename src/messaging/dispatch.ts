@@ -12,6 +12,39 @@ import type {
 } from "../skills/types.js";
 import type { Job as ScheduledJob, ScheduledJobView } from "../line/scheduler.js";
 import type { IncomingMessage, SendInput } from "./types.js";
+import { seenInbound } from "./dedup.js";
+import { writeDeadLetter } from "../deadletter.js";
+import { recordMetric } from "../metrics.js";
+
+/** per-skill 限流（F5）：預設每對話每分鐘 60 次；花錢/打外部 API 的技能更嚴。 */
+const SKILL_RATE_LIMIT_DEFAULT = 60;
+const SKILL_RATE_LIMIT_STRICT: Record<string, number> = {
+  ai: 30,
+  summarize: 30,
+  flight: 30,
+  translate: 30,
+};
+const WINDOW_MS = 60_000;
+const MAX_BUCKETS = 5000;
+const skillHits = new Map<string, number[]>();
+
+function skillThrottled(skillId: string, chat: string): boolean {
+  const limit = SKILL_RATE_LIMIT_STRICT[skillId] ?? SKILL_RATE_LIMIT_DEFAULT;
+  const key = `${skillId}:${chat}`;
+  const now = Date.now();
+  const times = (skillHits.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
+  if (times.length >= limit) {
+    skillHits.set(key, times);
+    return true;
+  }
+  times.push(now);
+  skillHits.set(key, times);
+  if (skillHits.size > MAX_BUCKETS) {
+    const oldest = skillHits.keys().next();
+    if (!oldest.done) skillHits.delete(oldest.value);
+  }
+  return false;
+}
 
 export type MediaKind = "image" | "video" | "audio" | "file";
 
@@ -36,10 +69,15 @@ export interface DispatchDeps {
   listScheduled(): ScheduledJobView[];
 }
 
-/** 收到訊息後的統一管線：指令 → 技能 → 轉發規則。 */
+/** 收到訊息後的統一管線：去重 → 指令 → 技能 → 轉發規則。 */
 export async function dispatchIncoming(msg: IncomingMessage, deps: DispatchDeps): Promise<void> {
   try {
     if (!msg.chat) return;
+    if (seenInbound(deps.platform, msg.messageId)) {
+      recordMetric("im_inbound_total", 1, { platform: deps.platform, dedup: "true" });
+      return;
+    }
+    recordMetric("im_inbound_total", 1, { platform: deps.platform, dedup: "false" });
     await runCommand(msg.text, msg.chat, msg.fromId, deps);
     await runSkills(msg.text, msg.chat, msg.fromName, msg.fromId, deps);
     await runForwardRules(msg.text, msg.chat, msg.fromName, msg.chatName, deps);
@@ -120,7 +158,13 @@ async function runSkills(
   let hasAssistantPrefix = false;
   if (assistant && text.startsWith(assistant)) {
     rest = text.slice(assistant.length).trim();
-    const polite = /^(請幫忙|請幫|幫忙|麻煩|幫我|幫)\s*/;
+    // H1：禮貌詞依介面語言剝除，否則非中文部署下助理模式完全失靈。
+    const polite =
+      config.language === "en"
+        ? /^(please|pls|help|help me|kindly)\s*/i
+        : config.language === "ja"
+          ? /^(お願い|おねがい|助けて|ヘルプ|ください)\s*/
+          : /^(請幫忙|請幫|幫忙|麻煩|幫我|幫)\s*/;
     for (let i = 0; i < 3; i++) {
       const next = rest.replace(polite, "");
       if (next === rest) break;
@@ -138,6 +182,12 @@ async function runSkills(
 
   for (const skill of config.skills) {
     if (!skill.enabled) continue;
+    // 技能白名單（B3/G1）：有設定時，只允許清單內的使用者/對話呼叫。
+    const allowed = skill.allowedUsers ?? [];
+    if (allowed.length > 0 && !allowed.includes(fromMid) && !allowed.includes(chat)) {
+      logger.warn("技能呼叫被白名單擋下", { skill: skill.id, fromMid, chat });
+      continue;
+    }
     const def = getSkill(skill.id);
     if (!def) continue;
 
@@ -169,6 +219,13 @@ async function runSkills(
       }
     }
     if (args === null) continue;
+
+    if (skillThrottled(skill.id, chat)) {
+      logger.warn("技能觸發過於頻繁，已略過", { skill: skill.id, chat });
+      recordMetric("skill_exec_total", 1, { skill: skill.id, result: "throttled" });
+      continue;
+    }
+    recordMetric("skill_exec_total", 1, { skill: skill.id, result: "run" });
 
     logger.info("觸發技能", { skill: skill.id, mode, chat });
     try {
@@ -227,8 +284,24 @@ async function runSkills(
       };
       await def.run(ctx);
     } catch (error) {
-      logger.error("技能執行失敗", { skill: skill.id, error: String(error) });
-      await deps.replyTo(chat, `技能「${def.name}」執行失敗：${error instanceof Error ? error.message : String(error)}`);
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error("技能執行失敗", { skill: skill.id, error: message });
+      writeDeadLetter({
+        platform: deps.platform,
+        kind: `skill:${skill.id}`,
+        to: [chat],
+        summary: def.name,
+        error: message,
+      });
+      // 錯誤回覆本身也要保護：回覆失敗不可擊倒後續技能與轉發規則。
+      try {
+        await deps.replyTo(chat, `技能「${def.name}」執行失敗：${message}`);
+      } catch (replyError) {
+        logger.error("技能錯誤回覆失敗", {
+          skill: skill.id,
+          error: replyError instanceof Error ? replyError.message : String(replyError),
+        });
+      }
     }
   }
 }

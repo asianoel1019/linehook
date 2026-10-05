@@ -21,7 +21,7 @@ export interface StatusState {
   lastError?: string;
 }
 
-export type LogLevel = "info" | "warn" | "error";
+export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export interface LogEntry {
   time: string;

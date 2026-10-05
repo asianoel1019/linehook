@@ -8,6 +8,7 @@ import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { recordMessage } from "../messages.js";
 import { recordSend } from "../stats.js";
+import { writeDeadLetter } from "../deadletter.js";
 import { getState, setState } from "../state.js";
 import { SendQueue } from "./queue.js";
 import { SendScheduler, type ScheduledJobView } from "./scheduler.js";
@@ -420,6 +421,13 @@ export class LineService implements IMessagingService {
         errors.push(error);
         messages.push(`${input.to}: ${error instanceof Error ? error.message : String(error)}`);
         recordSend({ time: new Date().toISOString(), to: input.to, type: inputType(input), ok: false, platform: "line" });
+        writeDeadLetter({
+          platform: "line",
+          kind: "send",
+          to: [input.to],
+          summary: inputType(input),
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
     if (errors.length === 1 && errors[0] instanceof Error) throw errors[0];
@@ -660,8 +668,16 @@ export class LineService implements IMessagingService {
         text,
       });
 
+      const rawId = (message as unknown as { id?: string | number }).id;
       await dispatchIncoming(
-        { chat, fromId: message.from.id, fromName, chatName, text },
+        {
+          chat,
+          fromId: message.from.id,
+          fromName,
+          chatName,
+          text,
+          messageId: rawId == null ? undefined : String(rawId),
+        },
         this.dispatchDeps(),
       );
     } catch (error) {

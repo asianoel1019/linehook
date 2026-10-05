@@ -96,6 +96,15 @@ export interface SkillField {
   secret?: boolean;
   type?: "text" | "password" | "textarea" | "file" | "select";
   options?: SkillFieldOption[];
+  /** 必填（F2）：為空時存檔擋下並指出欄位。 */
+  required?: boolean;
+  /** 值的正則（字串形式）；不符時擋下。 */
+  pattern?: string;
+  /** 數字欄位的最小/最大值。 */
+  min?: number;
+  max?: number;
+  /** 預設值（UI 初始填入；後端不自動填，只做驗證）。 */
+  default?: string;
 }
 
 export interface SkillHealth {

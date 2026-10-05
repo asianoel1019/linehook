@@ -3,7 +3,9 @@ import type { NextFunction, Request, Response } from "express";
 import { config, type ApiScope } from "../config.js";
 import { logger } from "../logger.js";
 import { recordTokenUsage } from "../token-stats.js";
+import { recordMetric } from "../metrics.js";
 import { sessionValid } from "./session.js";
+import { safeEqual } from "../safe-equal.js";
 
 export type RawBodyRequest = Request & { rawBody?: Buffer };
 
@@ -24,12 +26,6 @@ setInterval(() => {
     if (time < cutoff) seenNonces.delete(nonce);
   }
 }, 60_000).unref();
-
-function safeEqual(a: string, b: string): boolean {
-  const bufferA = Buffer.from(a);
-  const bufferB = Buffer.from(b);
-  return bufferA.length === bufferB.length && crypto.timingSafeEqual(bufferA, bufferB);
-}
 
 function verifySignature(req: Request): { ok: boolean; reason?: string } {
   const signature = String(req.header("x-signature") ?? "");
@@ -133,6 +129,28 @@ export function requireSessionOrApi(...scopes: ApiScope[]) {
 }
 
 /**
+ * 是否有任一 webhook 驗證生效（B1）。
+ * 三者全關或皆未設定時，發送端點形同公開——開機應直接拒絕啟動。
+ */
+export function webhookAuthEnabled(): boolean {
+  return Boolean(
+    (config.hmacEnabled && config.hmacSecret)
+    || (config.webhookTokenEnabled && config.webhookToken)
+    || (config.apiTokenEnabled && (config.apiToken || config.apiTokens.some((item) => item.token))),
+  );
+}
+
+/** 設定頁安全燈號：red（無驗證）/ yellow（僅 URL Token，易留存於 log）/ green。 */
+export function webhookAuthLevel(): "red" | "yellow" | "green" {
+  const hasHmac = Boolean(config.hmacEnabled && config.hmacSecret);
+  const hasApi = Boolean(config.apiTokenEnabled && (config.apiToken || config.apiTokens.some((item) => item.token)));
+  const hasToken = Boolean(config.webhookTokenEnabled && config.webhookToken);
+  if (hasHmac || hasApi) return "green";
+  if (hasToken) return "yellow";
+  return "red";
+}
+
+/**
  * Webhook 驗證：HMAC 簽章、URL token、API Token（Bearer）可並存（任一通過即可）。
  * 每種方式各有獨立開關；開關全關或三者皆未設定時不驗證。
  */
@@ -154,6 +172,7 @@ export function verifyWebhookAuth(req: Request, res: Response, next: NextFunctio
     }
     if (!hasToken && !hasApi) {
       logger.warn("webhook 簽章驗證失敗", { ip: req.ip, reason: result.reason });
+      recordMetric("webhook_auth_failures_total", 1, { method: "hmac", reason: result.reason ?? "unknown" });
       res.status(403).json({ ok: false, error: result.reason ?? "驗證失敗" });
       return;
     }
@@ -169,6 +188,7 @@ export function verifyWebhookAuth(req: Request, res: Response, next: NextFunctio
     if (auth) {
       if (!tokenHasScope(auth, "send")) {
         logger.warn("API Token 權限不足（需 send）", { ip: req.ip, name: auth.name });
+        recordMetric("webhook_auth_failures_total", 1, { method: "api", reason: "scope" });
         res.status(403).json({ ok: false, error: "權限不足（需要 send）" });
         return;
       }
@@ -179,25 +199,58 @@ export function verifyWebhookAuth(req: Request, res: Response, next: NextFunctio
   }
 
   logger.warn("webhook 驗證失敗", { ip: req.ip });
+  recordMetric("webhook_auth_failures_total", 1, { method: "none", reason: "auth" });
   res.status(403).json({ ok: false, error: "驗證失敗" });
 }
 
 const seenIdempotency = new Map<string, number>();
 const MAX_IDEMPOTENCY_KEYS = 5000;
+const MAX_IDEMPOTENCY_KEY_LEN = 256;
+
+function idempotencyWindowMs(): number {
+  return config.idempotencyWindowMs > 0 ? config.idempotencyWindowMs : 10 * 60 * 1000;
+}
 
 setInterval(() => {
-  const cutoff = Date.now() - 10 * 60 * 1000;
+  const cutoff = Date.now() - idempotencyWindowMs();
   for (const [key, time] of seenIdempotency) {
     if (time < cutoff) seenIdempotency.delete(key);
   }
 }, 60_000).unref();
 
 export function isDuplicateIdempotency(key: string): boolean {
-  return seenIdempotency.has(key);
+  if (key.length > MAX_IDEMPOTENCY_KEY_LEN) return false;
+  const time = seenIdempotency.get(key);
+  if (time === undefined) return false;
+  if (Date.now() - time > idempotencyWindowMs()) {
+    seenIdempotency.delete(key);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 先佔位再送：檢查即寫入，避免同視窗併發雙送。
+ * 已存在回傳 false；否則寫入並回傳 true。
+ */
+export function reserveIdempotency(key: string): boolean {
+  if (!key || key.length > MAX_IDEMPOTENCY_KEY_LEN) return true;
+  if (isDuplicateIdempotency(key)) return false;
+  seenIdempotency.set(key, Date.now());
+  if (seenIdempotency.size > MAX_IDEMPOTENCY_KEYS) {
+    const oldest = seenIdempotency.keys().next();
+    if (!oldest.done) seenIdempotency.delete(oldest.value);
+  }
+  return true;
+}
+
+/** 佔位後若最終失敗，釋放 key 讓合法重試可再送。 */
+export function releaseIdempotency(key: string): void {
+  seenIdempotency.delete(key);
 }
 
 export function markIdempotency(key: string): void {
-  if (key.length > 256) return;
+  if (!key || key.length > MAX_IDEMPOTENCY_KEY_LEN) return;
   seenIdempotency.set(key, Date.now());
   if (seenIdempotency.size > MAX_IDEMPOTENCY_KEYS) {
     const oldest = seenIdempotency.keys().next();

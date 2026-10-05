@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { rotateIfNeeded } from "./rotate.js";
 import { formatInTz } from "./time.js";
+import { recordMetric } from "./metrics.js";
 
 export interface SendEvent {
   time: string;
@@ -58,6 +59,11 @@ export function initStats(): void {
 export function recordSend(event: SendEvent): void {
   buffer.push(event);
   if (buffer.length > LIMIT) buffer.splice(0, buffer.length - LIMIT);
+  recordMetric("im_send_total", 1, {
+    platform: event.platform ?? "line",
+    type: event.type,
+    result: event.ok ? "ok" : "fail",
+  });
   try {
     mkdirSync(dirname(config.statsPath), { recursive: true });
     appendFileSync(config.statsPath, `${JSON.stringify(event)}\n`);

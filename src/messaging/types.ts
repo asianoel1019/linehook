@@ -23,6 +23,8 @@ export interface IncomingMessage {
   fromName: string;
   chatName: string;
   text: string;
+  /** 平台原生訊息 ID（去重用；無則不去重）。 */
+  messageId?: string;
 }
 
 export interface StickerInput {

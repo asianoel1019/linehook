@@ -69,17 +69,25 @@ const schema = z.object({
   HEALTH_CHECK_INTERVAL_SEC: z.coerce.number().int().positive().default(60),
   LOG_LIMIT: z.coerce.number().int().positive().default(200),
   LOG_FILE: z.string().default("./logs/app.log"),
+  LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   LOG_MAX_BYTES: z.coerce.number().int().positive().default(5242880),
   LOG_MAX_FILES: z.coerce.number().int().min(1).default(5),
   MESSAGES_PATH: z.string().default("./data/messages.jsonl"),
   MESSAGES_PERSIST: boolDefault(false),
+  MESSAGES_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
+  UPLOADS_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
+  UPLOADS_MAX_MB: z.coerce.number().int().min(0).default(2048),
+  INBOUND_QUEUE_PATH: z.string().default("./data/inbound-queue.jsonl"),
   SCHEDULES_PATH: z.string().default("./data/schedules.json"),
   STATS_PATH: z.string().default("./data/stats.jsonl"),
   STATS_DAYS: z.coerce.number().int().min(1).default(14),
+  DEADLETTER_PATH: z.string().default("./data/deadletter.jsonl"),
   UPLOADS_PATH: z.string().default("./data/uploads"),
   SKILLS_PATH: z.string().default("./data/skills"),
   CACHE_PATH: z.string().default("./data/cache"),
   MAX_BODY_MB: z.coerce.number().int().positive().default(25),
+  IDEMPOTENCY_WINDOW_MS: z.coerce.number().int().positive().default(600000),
+  ALLOW_OPEN_WEBHOOK: boolDefault(false),
   SEND_MAX_RETRIES: z.coerce.number().int().min(0).default(3),
   SEND_RETRY_BASE_MS: z.coerce.number().int().positive().default(500),
   SEND_MIN_INTERVAL_MS: z.coerce.number().int().nonnegative().default(200),
@@ -171,6 +179,8 @@ export interface SkillConfig {
   id: string;
   enabled: boolean;
   trigger: string;
+  /** 允許的使用者/對話 ID 清單；空陣列 = 所有人。 */
+  allowedUsers: string[];
   config: Record<string, string>;
 }
 
@@ -233,17 +243,25 @@ export interface Config {
   healthCheckIntervalSec: number;
   logLimit: number;
   logFile: string;
+  logLevel: "debug" | "info" | "warn" | "error";
   logMaxBytes: number;
   logMaxFiles: number;
   messagesPath: string;
   messagesPersist: boolean;
+  messagesRetentionDays: number;
+  uploadsRetentionDays: number;
+  uploadsMaxMb: number;
+  inboundQueuePath: string;
   schedulesPath: string;
   statsPath: string;
+  deadletterPath: string;
   statsDays: number;
   uploadsPath: string;
   skillsPath: string;
   cachePath: string;
   maxBodyMb: number;
+  idempotencyWindowMs: number;
+  allowOpenWebhook: boolean;
   send: {
     maxRetries: number;
     retryBaseMs: number;
@@ -341,17 +359,25 @@ export const config: Config = {
   healthCheckIntervalSec: env.HEALTH_CHECK_INTERVAL_SEC,
   logLimit: env.LOG_LIMIT,
   logFile: env.LOG_FILE,
+  logLevel: env.LOG_LEVEL,
   logMaxBytes: env.LOG_MAX_BYTES,
   logMaxFiles: env.LOG_MAX_FILES,
   messagesPath: env.MESSAGES_PATH,
   messagesPersist: env.MESSAGES_PERSIST,
+  messagesRetentionDays: env.MESSAGES_RETENTION_DAYS,
+  uploadsRetentionDays: env.UPLOADS_RETENTION_DAYS,
+  uploadsMaxMb: env.UPLOADS_MAX_MB,
+  inboundQueuePath: env.INBOUND_QUEUE_PATH,
   schedulesPath: env.SCHEDULES_PATH,
   statsPath: env.STATS_PATH,
+  deadletterPath: env.DEADLETTER_PATH,
   statsDays: env.STATS_DAYS,
   uploadsPath: env.UPLOADS_PATH,
   skillsPath: env.SKILLS_PATH,
   cachePath: env.CACHE_PATH,
   maxBodyMb: env.MAX_BODY_MB,
+  idempotencyWindowMs: env.IDEMPOTENCY_WINDOW_MS,
+  allowOpenWebhook: env.ALLOW_OPEN_WEBHOOK,
   send: {
     maxRetries: env.SEND_MAX_RETRIES,
     retryBaseMs: env.SEND_RETRY_BASE_MS,

@@ -2,11 +2,16 @@ import type { Server } from "node:http";
 import { config } from "./config.js";
 import { initLogger, logger } from "./logger.js";
 import { loadSettings } from "./settings.js";
+import { webhookAuthEnabled } from "./middleware/hmac.js";
 import { initAuth } from "./middleware/session.js";
 import { initMessages } from "./messages.js";
 import { initStats } from "./stats.js";
 import { initTokenStats } from "./token-stats.js";
 import { loadSkills } from "./skills/index.js";
+import { sweepCache } from "./skills/cache.js";
+import { pruneMessages } from "./messages.js";
+import { pruneUploads } from "./uploads.js";
+import { countPersistedInbound } from "./messaging/inbox.js";
 import { setState } from "./state.js";
 import { LineService } from "./line/client.js";
 import { TelegramService } from "./telegram/client.js";
@@ -36,13 +41,42 @@ function installProcessGuards(): void {
 
 async function main(): Promise<void> {
   installProcessGuards();
+  // D5：單一行程是硬性限制（行程內狀態＋長連線不可共享）；PM2/cluster
+  // 若啟動多實例，直接報錯退出，避免限流與重播保護靜默失效。
+  if (process.env.NODE_APP_INSTANCE && process.env.NODE_APP_INSTANCE !== "0") {
+    console.error("只支援單一行程執行（NODE_APP_INSTANCE 必須為 0），拒絕啟動");
+    process.exit(1);
+  }
   initLogger();
   loadSettings();
+  // B1：三種 webhook 驗證全關時直接拒絕啟動，避免靜默變成公開端點。
+  // 明確要開放測試時，設 ALLOW_OPEN_WEBHOOK=true。
+  if (!webhookAuthEnabled() && !config.allowOpenWebhook) {
+    logger.error(
+      "webhook 未啟用任何驗證（HMAC/Token/API Token 皆未設定），拒絕啟動；" +
+      "請至少設定其中一種，或以 ALLOW_OPEN_WEBHOOK=true 明確允許開放模式",
+    );
+    process.exit(1);
+  }
   initAuth();
   initMessages();
   initStats();
   initTokenStats();
   await loadSkills();
+  sweepCache();
+  setInterval(() => sweepCache(), 24 * 60 * 60 * 1000).unref?.();
+  // I1/I2：依保留政策修剪訊息與上傳檔。
+  pruneMessages();
+  setInterval(() => pruneMessages(), 24 * 60 * 60 * 1000).unref?.();
+  pruneUploads();
+  setInterval(() => pruneUploads(), 24 * 60 * 60 * 1000).unref?.();
+  const pendingInbound = countPersistedInbound();
+  if (pendingInbound > 0) {
+    logger.warn("落地收訊檔尚有未處理紀錄（上次崩潰可能遺失處理）", {
+      path: config.inboundQueuePath,
+      count: pendingInbound,
+    });
+  }
   logger.info("服務啟動中", { port: config.port });
 
   const line = new LineService();
@@ -93,7 +127,7 @@ async function main(): Promise<void> {
     });
   });
 
-  const monitor = startHealthMonitor(line);
+  const monitor = startHealthMonitor();
 
   void line.init().catch((error) => {
     logger.error("LINE 登入失敗，可至狀態頁查看", { error: String(error) });

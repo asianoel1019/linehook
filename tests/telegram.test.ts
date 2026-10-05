@@ -24,6 +24,7 @@ describe("normalizeTelegramUpdate", () => {
       fromName: "@ming",
       chatName: "@ming",
       text: "哈囉",
+      messageId: "1",
     });
   });
 

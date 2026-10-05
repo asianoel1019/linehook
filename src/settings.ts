@@ -4,7 +4,39 @@ import { config, DEVICES } from "./config.js";
 import { logger } from "./logger.js";
 import { resetMailer } from "./notify/mailer.js";
 
+/** 設定檔 schema 版本。未來格式變更時在此遞增，並在下方 migrations 加入遷移函式。 */
+export const SETTINGS_SCHEMA_VERSION = 1;
+
+type Migration = (data: Record<string, unknown>) => Record<string, unknown>;
+const migrations: Array<{ version: number; migrate: Migration }> = [
+  // 範例：{ version: 2, migrate: (data) => ({ ...data }) },
+];
+
+/** 開機載入時依 schemaVersion 依序套用遷移；未知版本給警告但不中斷。 */
+function migrateSettings(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const data = raw as Record<string, unknown>;
+  const from = typeof data.schemaVersion === "number" ? data.schemaVersion : 0;
+  if (from > SETTINGS_SCHEMA_VERSION) {
+    logger.warn("settings.json 版本較新，可能由新版程式寫入", { from, current: SETTINGS_SCHEMA_VERSION });
+    return data;
+  }
+  let out = data;
+  for (const { version, migrate } of migrations) {
+    if (version <= from) continue;
+    try {
+      out = migrate(out);
+      logger.info("已套用設定遷移", { version });
+    } catch (error) {
+      logger.error("設定遷移失敗", { version, error: String(error) });
+      break;
+    }
+  }
+  return out;
+}
+
 const settingsSchema = z.object({
+  schemaVersion: z.number().int().nonnegative().default(SETTINGS_SCHEMA_VERSION),
   allowedIps: z.array(z.string()).default([]),
   hmacSecret: z.string().trim().default(""),
   hmacEnabled: z.boolean().default(true),
@@ -155,6 +187,7 @@ const settingsSchema = z.object({
         id: z.string().default(""),
         enabled: z.boolean().default(false),
         trigger: z.string().default(""),
+        allowedUsers: z.array(z.string()).default([]),
         config: z.record(z.string(), z.string()).default({}),
       }),
     )
@@ -165,6 +198,7 @@ export type EditableSettings = z.infer<typeof settingsSchema>;
 
 export function currentSettings(): EditableSettings {
   return {
+    schemaVersion: SETTINGS_SCHEMA_VERSION,
     allowedIps: [...config.allowedIps],
     hmacSecret: config.hmacSecret,
     hmacEnabled: config.hmacEnabled,
@@ -235,6 +269,7 @@ export function currentSettings(): EditableSettings {
       id: skill.id,
       enabled: skill.enabled,
       trigger: skill.trigger,
+      allowedUsers: [...(skill.allowedUsers ?? [])],
       config: { ...skill.config },
     })),
   };
@@ -313,6 +348,7 @@ function apply(settings: EditableSettings): void {
     id: skill.id,
     enabled: skill.enabled,
     trigger: skill.trigger,
+    allowedUsers: [...(skill.allowedUsers ?? [])],
     config: { ...skill.config },
   }));
   resetMailer();
@@ -327,7 +363,8 @@ export function loadSettings(): void {
 
   try {
     const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    const parsed = settingsSchema.partial().safeParse(raw);
+    const migrated = migrateSettings(raw);
+    const parsed = settingsSchema.partial().safeParse(migrated);
     if (!parsed.success) {
       logger.error("settings.json 格式錯誤，已忽略", {
         issues: parsed.error.issues.map((issue) => issue.path.join(".")),
@@ -371,7 +408,7 @@ export function saveSettings(input: unknown): EditableSettings {
   }
 
   apply(parsed.data);
-  writeFileSync(config.settingsPath, JSON.stringify(parsed.data, null, 2), "utf8");
+  writeFileSync(config.settingsPath, JSON.stringify(parsed.data, null, 2), { mode: 0o600 });
   logger.info("設定已更新並儲存", { path: config.settingsPath });
   return parsed.data;
 }

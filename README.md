@@ -287,11 +287,16 @@ curl -sS -X POST "http://localhost:8090/webhook" \
 | `POST /settings/upload` | 上傳媒體（需登入），raw body + `X-Filename`，回 `{ path, filename, bytes }` |
 | `POST /settings/scheduled/cancel` | 取消排程（需登入），body `{ id, platform? }`（依平台解析，預設 LINE） |
 | `POST /settings/scheduled/update` | 編輯排程（需登入），body `{ id, platform?, delaySec? \| sendAt?, repeat? }` |
-| `GET /messages` | 收到的訊息頁（需登入）：關鍵字搜尋、JSON / CSV 匯出 |
+| `GET /messages` | 收到的訊息頁（需登入）：關鍵字搜尋、JSON / CSV 匯出、一鍵清除 |
 | `GET /messages.json` | 收到的訊息 JSON（需登入或 read token），支援 `?q=` 關鍵字、`?chat=` 對話過濾、`?limit=`（最多 1000） |
+| `POST /messages/purge` | 清除訊息紀錄（需登入，記憶體＋檔案） |
+| `GET /deadletter.json` | 死信列表（需登入或 read token），`?limit=`（最多 500） |
+| `GET /settings/backup?password=` | 完整備份下載（需登入，設定＋登入狀態＋排程，一律加密） |
+| `POST /settings/backup/restore` | 還原備份（需登入），body `{ bundle, password }`；還原前自動備份現況 |
+| `GET /metrics` | Prometheus 文字格式指標（需登入或 read token）：發送數、收訊數、驗證失敗、技能執行、LLM tokens、HTTP 耗時、佇列深度、排程數 |
 | `GET /tokens/usage.json` | API Token 用量統計（需登入或 admin token） |
-| `GET /readme` | README 頁（需登入） |
-| `GET /health` | `{ "status": "ok" \| "bad" }`（依 LINE 登入狀態） |
+| `GET /readme` | README 頁（需登入，輸出經消毒） |
+| `GET /health` | 各平台健康狀態，全部正常才 200（否則 503）：`{ "status": "ok" \| "bad", "services": { line, telegram, ... } }` |
 
 ## 關鍵字自動回覆
 
@@ -635,4 +640,5 @@ tests/                  單元測試（`npm test`）
 - **對外接收 webhook**：本機需用 ngrok / Cloudflare Tunnel 打通道；記得設定 `HMAC_SECRET`。
 - **被擋 403 簽章錯誤**：確認簽章字串為 `${timestamp}.${body}`，且時間戳在誤差範圍內。
 - **某 IM 沒反應**：先看右上角是否切到該平台；停用的平台儀表板會顯示「未啟用」空白狀態。Teams 主動推播前需先讓 Bot 收到該對話一次訊息；WhatsApp Cloud 主動推播受 24 小時視窗限制。
+- **啟動即退出（未啟用任何驗證）**：三種 webhook 驗證全關時服務拒絕啟動；請至少設定一種，或以 `ALLOW_OPEN_WEBHOOK=true` 明確允許（僅測試用）。
 - **部署後 nginx 502**：服務沒起來，先看 `pm2 logs`；常見原因是忘了跑 `npm ci`（新依賴未安裝）。

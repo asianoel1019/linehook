@@ -46,6 +46,7 @@ describe("normalizeWhatsAppWebhook", () => {
       fromName: "小明",
       chatName: "886900000000",
       text: "哈囉",
+      messageId: "wamid.abc",
     });
   });
 
