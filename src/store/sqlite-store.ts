@@ -34,7 +34,8 @@ const DDL: Record<StoreTable, string> = {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       time TEXT NOT NULL,
       platform TEXT DEFAULT '', kind TEXT DEFAULT '',
-      target TEXT DEFAULT '', summary TEXT DEFAULT '', error TEXT DEFAULT ''
+      target TEXT DEFAULT '', summary TEXT DEFAULT '', error TEXT DEFAULT '',
+      payload TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_deadletter_time ON deadletter(time);`,
 };
@@ -45,11 +46,31 @@ function likePattern(value: string): string {
   return `%${value.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
 }
 
+/** 表缺欄位時補上（跨版本升級用）。 */
+function ensureColumn(db: DatabaseSync, table: string, column: string, type: string): void {
+  try {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+      logger.info("SQLite 已加掛欄位", { table, column });
+    }
+  } catch (error) {
+    logger.warn("SQLite 欄位升級失敗", { table, column, error: String(error) });
+  }
+}
+
 function rowToStoreRow(table: StoreTable, row: Record<string, unknown>): StoreRow {
   if (table === "sends") {
+    let to = "";
+    try {
+      const parsed = JSON.parse(String(row.target ?? ""));
+      to = Array.isArray(parsed) ? parsed.join(",") : String(parsed);
+    } catch {
+      to = String(row.target ?? "");
+    }
     return {
       time: String(row.time ?? ""),
-      to: String(row.target ?? ""),
+      to,
       type: String(row.type ?? ""),
       ok: row.ok === 1 || row.ok === true,
       platform: String(row.platform ?? "line"),
@@ -63,6 +84,14 @@ function rowToStoreRow(table: StoreTable, row: Record<string, unknown>): StoreRo
     } catch {
       to = String(row.target ?? "").split("、").filter(Boolean);
     }
+    let payload: unknown;
+    if (typeof row.payload === "string" && row.payload) {
+      try {
+        payload = JSON.parse(row.payload);
+      } catch {
+        payload = undefined;
+      }
+    }
     return {
       time: String(row.time ?? ""),
       platform: String(row.platform ?? ""),
@@ -70,6 +99,7 @@ function rowToStoreRow(table: StoreTable, row: Record<string, unknown>): StoreRo
       to,
       summary: String(row.summary ?? ""),
       error: String(row.error ?? ""),
+      ...(payload !== undefined ? { payload } : {}),
     };
   }
   return {
@@ -100,6 +130,8 @@ export class SqliteStore implements Store {
     const db = new DatabaseSync(config.dbPath);
     db.exec("PRAGMA journal_mode = WAL;");
     for (const table of TABLES) db.exec(DDL[table]);
+    // 既有 DB 的欄位加掛（CREATE TABLE IF NOT EXISTS 不會補欄位）。
+    ensureColumn(db, "deadletter", "payload", "TEXT");
     this.db = db;
     this.migrateFromJsonl(db);
     logger.info("SQLite 儲存層已開啟", { path: config.dbPath, tables: TABLES.length });
@@ -155,8 +187,9 @@ export class SqliteStore implements Store {
         );
         return true;
       }
+      const payloadJson = row.payload === undefined ? null : JSON.stringify(row.payload);
       db.prepare(
-        "INSERT INTO deadletter (time, platform, kind, target, summary, error) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO deadletter (time, platform, kind, target, summary, error, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
       ).run(
         String(row.time ?? ""),
         String(row.platform ?? ""),
@@ -164,6 +197,7 @@ export class SqliteStore implements Store {
         Array.isArray(row.to) ? JSON.stringify(row.to) : JSON.stringify([String(row.to ?? "")]),
         String(row.summary ?? ""),
         String(row.error ?? ""),
+        payloadJson,
       );
       return true;
     } catch (error) {

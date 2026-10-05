@@ -103,6 +103,14 @@ export function renderSettingsHtml() {
     <div class="field"><div class="hint">Adaptive Card 卡片可在 Teams 直接呈現（非降級）。接收端點 <code>POST /teams/messages</code> 會以微軟公開金鑰驗證 Bearer JWT。</div></div>
   </fieldset>
 
+  <fieldset class="fn-panel" data-fn="discord" data-im="discord">
+    <legend data-i18n="legend_discord">Discord</legend>
+    <div class="field"><label data-i18n="lbl_dis_enabled">啟用 Discord Bot</label><input id="dis-enabled" type="checkbox"><div class="hint">與其他平台可同時上線；收訊走 Gateway 長連線（無 webhook 端點），停用後需重啟</div></div>
+    <div class="field"><label data-i18n="lbl_dis_bot_token">Bot Token</label><input id="dis-botToken" type="password" placeholder="••••••••"><div class="hint" data-i18n="hint_dis_bot_token">Developer Portal → Bot → Reset Token 取得；需於 Bot 設定開啟 MESSAGE_CONTENT Intent</div></div>
+    <div class="field"><label data-i18n="lbl_dis_targets">目標對照（名稱=頻道 ID）</label><textarea id="dis-targets" placeholder="每行一筆，例如：客服=123456789012345678"></textarea><div class="hint" data-i18n="hint_dis_targets">每行一筆；頻道/用戶 ID 為 17–20 碼數字（開發者模式右鍵可複製）</div></div>
+    <div class="field"><div class="hint" data-i18n="hint_dis_note">文字/圖片/檔案/影片/語音為原生；貼圖、位置、Flex 會降級（見 /console 能力提示）。發送端點 <code>POST /webhook/discord</code>。</div></div>
+  </fieldset>
+
   <fieldset class="fn-panel" data-fn="send">
     <legend data-i18n="legend_send">發送 / 重試</legend>
     <div class="field"><label data-i18n="lbl_max_retries">最大重試次數</label><input id="send-maxRetries" type="number" min="0"></div>
@@ -186,7 +194,7 @@ export function renderSettingsHtml() {
 </form>
 `;
     const script = `
-  var CONFIG_SECTIONS = ["security", "line", "telegram", "whatsapp", "teams", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
+  var CONFIG_SECTIONS = ["security", "line", "telegram", "whatsapp", "teams", "discord", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
 
   function applySettingsPlatform(platform, jump) {
     Array.prototype.forEach.call(document.querySelectorAll("[data-im]"), function (el) {
@@ -539,6 +547,9 @@ export function renderSettingsHtml() {
     $("teams-tenantId").value = (s.teams && s.teams.tenantId) || "";
     $("teams-serviceUrl").value = (s.teams && s.teams.serviceUrl) || "https://smba.trafficmanager.net/teams";
     $("teams-targets").value = Object.keys((s.teams && s.teams.targets) || {}).map(function (k) { return k + "=" + s.teams.targets[k]; }).join("\\n");
+    $("dis-enabled").checked = !!(s.discord && s.discord.enabled);
+    $("dis-botToken").value = (s.discord && s.discord.botToken) || "";
+    $("dis-targets").value = Object.keys((s.discord && s.discord.targets) || {}).map(function (k) { return k + "=" + s.discord.targets[k]; }).join("\\n");
     $("send-maxRetries").value = s.send.maxRetries;
     $("send-retryBaseMs").value = s.send.retryBaseMs;
     $("send-minIntervalMs").value = s.send.minIntervalMs;
@@ -614,6 +625,14 @@ export function renderSettingsHtml() {
       if (i <= 0) return;
       teamsTargets[t.slice(0, i).trim()] = t.slice(i + 1).trim();
     });
+    var discordTargets = {};
+    $("dis-targets").value.split(/\\r?\\n/).forEach(function (line) {
+      var t = line.trim();
+      if (!t) return;
+      var i = t.indexOf("=");
+      if (i <= 0) return;
+      discordTargets[t.slice(0, i).trim()] = t.slice(i + 1).trim();
+    });
     return {
       allowedIps: $("allowedIps").value.split(/[\\n,]/).map(function (x) { return x.trim(); }).filter(Boolean),
       hmacSecret: $("hmacSecret").value,
@@ -675,6 +694,11 @@ export function renderSettingsHtml() {
         tenantId: $("teams-tenantId").value.trim(),
         serviceUrl: $("teams-serviceUrl").value.trim() || "https://smba.trafficmanager.net/teams",
         targets: teamsTargets
+      },
+      discord: {
+        enabled: $("dis-enabled").checked,
+        botToken: $("dis-botToken").value.trim(),
+        targets: discordTargets
       },
       smtp: {
         host: $("smtp-host").value,
@@ -826,6 +850,7 @@ export function renderSettingsHtml() {
   <button type="button" class="fn-card setting" data-fn="telegram" data-im="telegram">${tr(config.language, "card_telegram")}</button>
   <button type="button" class="fn-card setting" data-fn="whatsapp" data-im="whatsapp">${tr(config.language, "card_whatsapp")}</button>
   <button type="button" class="fn-card setting" data-fn="teams" data-im="teams">${tr(config.language, "card_teams")}</button>
+  <button type="button" class="fn-card setting" data-fn="discord" data-im="discord">${tr(config.language, "card_discord")}</button>
   <button type="button" class="fn-card setting" data-fn="send">${tr(config.language, "card_send")}</button>
   <button type="button" class="fn-card setting" data-fn="monitor">${tr(config.language, "card_monitor")}</button>
   <button type="button" class="fn-card setting" data-fn="targets-config" data-im="line">${tr(config.language, "card_targets_config")}</button>

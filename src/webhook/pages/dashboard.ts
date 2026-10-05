@@ -14,6 +14,11 @@ export function renderDashboardHtml() {
 </div>
 <div id="verify"></div>
 <div id="platform-blocks"></div>
+<div class="glass" id="llm-card" style="display:none">
+  <h2 style="margin-top:0" data-i18n="llm_usage_title">LLM 用量（費用估算）</h2>
+  <table><thead><tr><th data-i18n="llm_th_skill">技能</th><th data-i18n="llm_th_model">模型</th><th data-i18n="llm_th_tokens">Tokens</th><th data-i18n="llm_th_calls">次數</th><th data-i18n="llm_th_cost">估算費用</th></tr></thead><tbody id="llm-rows"></tbody></table>
+  <div class="msg" id="llm-total"></div>
+</div>
 
 <div class="dash-grid">
   <div class="glass">
@@ -220,6 +225,28 @@ export function renderDashboardHtml() {
     refresh();
   };
 
+  // K5：LLM 用量與費用估算（全域，不隨平台切換）。
+  function renderLlm() {
+    fetch("/llm/usage.json", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (d) {
+        var card = $("llm-card");
+        if (!d || !d.rows || d.rows.length === 0) { if (card) card.style.display = "none"; return; }
+        card.style.display = "block";
+        var bodyEl = $("llm-rows");
+        bodyEl.replaceChildren.apply(bodyEl, d.rows.map(function (r) {
+          var tokens = r.promptTokens + r.completionTokens;
+          var cost = r.costUsd === null ? "—" : ("$" + r.costUsd.toFixed(4));
+          return tr(td(r.skill), td(r.model, "mono"), td(String(tokens)), td(String(r.calls)), td(cost));
+        }));
+        var total = $("llm-total");
+        total.textContent = T("llm_usage_total")
+          + " " + d.totalTokens + " tokens"
+          + (d.totalCostUsd !== null ? (" ≈ $" + d.totalCostUsd.toFixed(4)) : "（未列價模型不估算）");
+      })
+      .catch(function () {});
+  }
+
   function refresh() {
     fetch("/dashboard.json?platform=" + encodeURIComponent(dashPlatform), { cache: "no-store" })
       .then(function (res) {
@@ -228,6 +255,7 @@ export function renderDashboardHtml() {
       })
       .then(function (data) { if (data) render(data); })
       .catch(function () {});
+    renderLlm();
   }
 
   refresh();

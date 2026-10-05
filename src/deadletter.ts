@@ -8,6 +8,8 @@ export interface DeadLetter {
   to: string[];
   summary: string;
   error: string;
+  /** 重送所需的原始輸入（SendInput[]）；技能類無 payload（無法單獨重跑）。 */
+  payload?: unknown;
 }
 
 const LIMIT = 500;
@@ -30,5 +32,17 @@ export function readDeadLetters(limit = 100): DeadLetter[] {
     return rows as unknown as DeadLetter[];
   } catch {
     return [];
+  }
+}
+
+/** 清除全部死信（store + 對應流水檔）；回傳清除筆數。 */
+export function purgeDeadLetters(): number {
+  try {
+    const removed = getStore().purge("deadletter");
+    if (removed > 0) logger.info("已清除死信", { removed });
+    return removed;
+  } catch (error) {
+    logger.warn("清除死信失敗", { error: String(error) });
+    return 0;
   }
 }

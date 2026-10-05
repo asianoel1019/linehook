@@ -77,6 +77,7 @@ ${userDock}
         { id: "telegram", label: tr(lang, "platform_telegram"), icon: imIcon("telegram") },
         { id: "whatsapp", label: tr(lang, "platform_whatsapp"), icon: imIcon("whatsapp") },
         { id: "teams", label: tr(lang, "platform_teams"), icon: imIcon("teams") },
+        { id: "discord", label: tr(lang, "platform_discord"), icon: imIcon("discord") },
     ];
     const imSwitch = showNav
         ? `<div class="im-switch" id="im-switch">

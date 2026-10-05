@@ -57,14 +57,14 @@ export const PLATFORM_CAPABILITIES: Record<Platform, Record<Capability, Capabili
     flex: { level: "native", note: "Flex 轉譯為 Adaptive Card 呈現" },
   },
   discord: {
-    text: { level: "unsupported", note: "Discord 尚未實作" },
-    image: { level: "unsupported", note: "Discord 尚未實作" },
-    video: { level: "unsupported", note: "Discord 尚未實作" },
-    audio: { level: "unsupported", note: "Discord 尚未實作" },
-    file: { level: "unsupported", note: "Discord 尚未實作" },
-    sticker: { level: "unsupported", note: "Discord 尚未實作" },
-    location: { level: "unsupported", note: "Discord 尚未實作" },
-    flex: { level: "unsupported", note: "Discord 尚未實作" },
+    text: { level: "native", note: "" },
+    image: { level: "native", note: "" },
+    video: { level: "native", note: "" },
+    audio: { level: "native", note: "" },
+    file: { level: "native", note: "" },
+    sticker: { level: "degraded", note: "貼圖將以降級文字說明送出（Discord 無對應貼圖）" },
+    location: { level: "degraded", note: "位置將以文字 + Google 地圖連結送出" },
+    flex: { level: "degraded", note: "Flex 將轉為 Embed（標題＋文字）送出" },
   },
 };
 

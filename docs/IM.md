@@ -1,8 +1,8 @@
 # 多通訊軟體支援規劃（IM.md）
 
-> 狀態：規劃中 → 實作順序 **Telegram → Teams → WhatsApp → Discord**
+> 狀態：**Telegram → Teams → WhatsApp → Discord 全部已實作**（Discord 於 NEXT4 完成）
 > 已定決策（2026-09-29）：首發 Telegram；LINE＋新平台**同時雙開**；
-> 接收走 Webhook；第一版即開**完整技能**（26 個全上）。
+> 接收走 Webhook（Discord 例外：Gateway 長連線）；第一版即開**完整技能**（26 個全上）。
 > 傳送路由：`POST /webhook` 留給 LINE（向下相容），Telegram 用 `POST /webhook/tg`。
 
 ## 1. 背景
@@ -118,17 +118,24 @@ interface IMessagingService {
 ### 3.4 Discord（Phase 4）
 
 - **前置**：Discord Developer Portal 建 Bot（token），開 MESSAGE_CONTENT intent。
-- **實作**：`src/discord/client.ts`，Gateway WebSocket 收訊（或 interactions webhook）、REST 發送；
-  Embed ≈ Flex 簡版可轉譯。
-- **驗收**：同上。
+- **實作**：`src/discord/client.ts`，Gateway WebSocket 收訊（opcode 10 hello / 2 identify / 0 dispatch，
+  心跳由 hello 的 `heartbeat_interval` 決定）、REST 發送（Node 內建 `fetch`＋`FormData` 上傳，**零新依賴**）；
+  Flex 轉為 Embed、位置附 Google 地圖連結、貼圖降級文字。設定 `DISCORD_ENABLED` / `DISCORD_BOT_TOKEN` / `DISCORD_TARGETS`，
+  或 `/settings` → Discord 卡片。
+- **進度**：`src/discord/client.ts`、`POST /webhook/discord`、設定頁 Discord 區塊、平台切換、能力矩陣、
+  正規化測試**已完成**。
+- **驗收**：typecheck＋build＋全測試；真 Discord 來回（需 Bot 令牌與伺服器）。
+
+> 未做的取捨：Discord rate limit 以 bucket 為單位，本版先沿用 `SendQueue` 的退避重試（429 視為可重試），
+> 未實作 per-bucket 節流（可插拔節流策略列為後續優化）。
 
 ## 4. 共通路由與設定命名
 
 | 用途 | LINE（既有） | Telegram | Teams | WhatsApp | Discord |
 |---|---|---|---|---|---|
-| 發送 | `POST /webhook` | `POST /webhook/tg` | `POST /webhook/teams` ✅ | `POST /webhook/wa` ✅ | `POST /webhook/discord` |
-| 接收 | 長連接（自 bot） | `POST /tg/update` | `POST /teams/messages` ✅ | `GET+POST /wa/webhook` ✅ | Gateway |
-| 目標對照 | `targets` | `tgTargets` | `teams.targets` ✅ | `whatsapp.targets` ✅ | `discordTargets` |
+| 發送 | `POST /webhook` | `POST /webhook/tg` | `POST /webhook/teams` ✅ | `POST /webhook/wa` ✅ | `POST /webhook/discord` ✅ |
+| 接收 | 長連接（自 bot） | `POST /tg/update` | `POST /teams/messages` ✅ | `GET+POST /wa/webhook` ✅ | Gateway 長連線 ✅ |
+| 目標對照 | `targets` | `tgTargets` | `teams.targets` ✅ | `whatsapp.targets` ✅ | `discord.targets` ✅ |
 
 ## 5. 風險總覽
 

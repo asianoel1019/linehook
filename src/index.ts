@@ -19,6 +19,7 @@ import { TelegramService } from "./telegram/client.js";
 import { WhatsAppService } from "./whatsapp/client.js";
 import { WhatsAppWebService } from "./whatsapp/web-client.js";
 import { TeamsService } from "./teams/client.js";
+import { DiscordService } from "./discord/client.js";
 import { registerService } from "./messaging/services.js";
 import { createServer } from "./webhook/server.js";
 import { startHealthMonitor } from "./monitor/token.js";
@@ -118,6 +119,14 @@ async function main(): Promise<void> {
     logger.info("Teams 已啟用");
   }
 
+  // Discord：Gateway 長連線（非 webhook）；需 enabled + botToken。
+  let discord: DiscordService | null = null;
+  if (config.discord.enabled && config.discord.botToken.trim()) {
+    discord = new DiscordService();
+    registerService(discord);
+    logger.info("Discord 已啟用");
+  }
+
   const app = createServer(line);
 
   const server = await new Promise<Server>((resolve) => {
@@ -155,6 +164,12 @@ async function main(): Promise<void> {
     });
   }
 
+  if (discord) {
+    void discord.init().catch((error) => {
+      logger.error("Discord 初始化失敗", { error: String(error) });
+    });
+  }
+
   let shuttingDown = false;
   const shutdown = (signal: string): void => {
     if (shuttingDown) return;
@@ -167,6 +182,7 @@ async function main(): Promise<void> {
     telegram?.stopQueue();
     whatsapp?.stopQueue();
     teams?.stopQueue();
+    discord?.stopQueue();
     closeStore();
 
     const force = setTimeout(() => {

@@ -108,6 +108,13 @@ const settingsSchema = z.object({
       serviceUrl: "https://smba.trafficmanager.net/teams",
       targets: {},
     }),
+  discord: z
+    .object({
+      enabled: z.boolean().default(false),
+      botToken: z.string().trim().default(""),
+      targets: z.record(z.string(), z.string()).default({}),
+    })
+    .default({ enabled: false, botToken: "", targets: {} }),
   templates: z
     .array(
       z.object({
@@ -239,6 +246,11 @@ export function currentSettings(): EditableSettings {
       serviceUrl: config.teams.serviceUrl,
       targets: { ...config.teams.targets },
     },
+    discord: {
+      enabled: config.discord.enabled,
+      botToken: config.discord.botToken,
+      targets: { ...config.discord.targets },
+    },
     templates: config.templates.map((template) => ({ ...template })),
     flexTemplates: config.flexTemplates.map((template) => ({ ...template })),
     healthCheckIntervalSec: config.healthCheckIntervalSec,
@@ -320,6 +332,11 @@ function apply(settings: EditableSettings): void {
     serviceUrl: settings.teams.serviceUrl,
     targets: { ...settings.teams.targets },
   };
+  config.discord = {
+    enabled: settings.discord.enabled,
+    botToken: settings.discord.botToken,
+    targets: { ...settings.discord.targets },
+  };
   config.templates = settings.templates.map((template) => ({ ...template }));
   config.flexTemplates = settings.flexTemplates.map((template) => ({ ...template }));
   config.healthCheckIntervalSec = settings.healthCheckIntervalSec;
@@ -391,6 +408,7 @@ export function loadSettings(): void {
       telegram: { ...base.telegram, ...(data.telegram ?? {}) },
       whatsapp: { ...base.whatsapp, ...(data.whatsapp ?? {}) },
       teams: { ...base.teams, ...(data.teams ?? {}) },
+      discord: { ...base.discord, ...(data.discord ?? {}) },
     });
     logger.info("已載入 settings.json", { path });
   } catch (error) {

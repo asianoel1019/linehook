@@ -425,6 +425,7 @@ export class LineService implements IMessagingService {
           platform: "line",
           kind: "send",
           to: [input.to],
+          payload: [input],
           summary: inputType(input),
           error: error instanceof Error ? error.message : String(error),
         });

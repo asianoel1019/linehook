@@ -34,6 +34,13 @@ export const DICT: Record<string, Entry> = {
   pw_save: { zh: "儲存", en: "Save", ja: "保存" },
 
   title_dashboard: { zh: "儀表板", en: "Dashboard", ja: "ダッシュボード" },
+  llm_usage_title: { zh: "LLM 用量（費用估算）", en: "LLM usage (cost estimate)", ja: "LLM 使用量（コスト概算）" },
+  llm_th_skill: { zh: "技能", en: "Skill", ja: "スキル" },
+  llm_th_model: { zh: "模型", en: "Model", ja: "モデル" },
+  llm_th_tokens: { zh: "Tokens", en: "Tokens", ja: "Tokens" },
+  llm_th_calls: { zh: "次數", en: "Calls", ja: "回数" },
+  llm_th_cost: { zh: "估算費用", en: "Est. cost", ja: "概算コスト" },
+  llm_usage_total: { zh: "合計", en: "Total", ja: "合計" },
   title_console: { zh: "功能", en: "Console", ja: "コンソール" },
   title_skills: { zh: "技能", en: "Skills", ja: "スキル" },
   title_settings: { zh: "設定", en: "Settings", ja: "設定" },
@@ -59,6 +66,7 @@ export const DICT: Record<string, Entry> = {
   card_telegram: { zh: "Telegram", en: "Telegram", ja: "Telegram" },
   card_whatsapp: { zh: "WhatsApp", en: "WhatsApp", ja: "WhatsApp" },
   card_teams: { zh: "Teams", en: "Teams", ja: "Teams" },
+  card_discord: { zh: "Discord", en: "Discord", ja: "Discord" },
   card_send: { zh: "發送 / 重試", en: "Sending / Retry", ja: "送信 / 再試行" },
   card_monitor: { zh: "監控 / Log", en: "Monitor / Log", ja: "監視 / ログ" },
   card_targets_config: { zh: "目標對照", en: "Target mapping", ja: "送信先マッピング" },
@@ -76,6 +84,7 @@ export const DICT: Record<string, Entry> = {
   platform_telegram: { zh: "Telegram", en: "Telegram", ja: "Telegram" },
   platform_whatsapp: { zh: "WhatsApp", en: "WhatsApp", ja: "WhatsApp" },
   platform_teams: { zh: "Teams", en: "Teams", ja: "Teams" },
+  platform_discord: { zh: "Discord", en: "Discord", ja: "Discord" },
   platform_not_enabled: { zh: "此平台未啟用", en: "This platform is not enabled", ja: "このプラットフォームは有効化されていません" },
 
   relogin: { zh: "Line重新登入", en: "Relogin LINE", ja: "LINE 再ログイン" },
@@ -178,6 +187,27 @@ export const DICT: Record<string, Entry> = {
   hint_teams_service_url: { zh: "Bot Connector 服務端點，通常用預設即可；首次收訊後會自動記憶實際值，主動推播建議先讓 Bot 收到一次訊息", en: "Bot Connector endpoint; default usually works. The actual value is remembered after first inbound message; let the bot receive once before proactive pushes", ja: "Bot Connector のエンドポイント。通常は既定値。初回受信後に実際の値を記憶します" },
   lbl_teams_targets: { zh: "目標對照（名稱=conversation id）", en: "Target mapping (name=conversation id)", ja: "送信先（名称=conversation id）" },
   hint_teams_targets: { zh: "每行一筆，例如：客服頻道=19:abc@thread.v2。收到訊息後系統會自動記住對話，無需手填", en: "One per line, e.g. Support=19:abc@thread.v2. Conversations are remembered automatically after inbound messages", ja: "1 行に 1 件（例 Support=19:abc@thread.v2）。受信後に自動記憶されます" },
+
+  // discord
+  legend_discord: { zh: "Discord", en: "Discord", ja: "Discord" },
+  lbl_dis_enabled: { zh: "啟用 Discord Bot", en: "Enable Discord bot", ja: "Discord ボットを有効化" },
+  lbl_dis_bot_token: { zh: "Bot Token", en: "Bot token", ja: "ボットトークン" },
+  hint_dis_bot_token: {
+    zh: "Developer Portal → Bot → Reset Token 取得；需於 Bot 設定開啟 MESSAGE_CONTENT Intent",
+    en: "Get it from Developer Portal → Bot → Reset Token; enable the MESSAGE_CONTENT intent in the bot settings",
+    ja: "Developer Portal → Bot → Reset Token で取得。Bot 設定で MESSAGE_CONTENT インテントを有効化してください",
+  },
+  lbl_dis_targets: { zh: "目標對照（名稱=頻道 ID）", en: "Target mapping (name=channel id)", ja: "送信先（名称=チャンネル ID）" },
+  hint_dis_targets: {
+    zh: "每行一筆，例如：客服=123456789012345678；ID 為 17–20 碼數字（開發者模式右鍵可複製）",
+    en: "One per line, e.g. Support=123456789012345678; IDs are 17–20 digits (copy via right-click in developer mode)",
+    ja: "1 行に 1 件（例 Support=123456789012345678）。ID は 17〜20 桁の数字（開発者モードで右クリックコピー）",
+  },
+  hint_dis_note: {
+    zh: "文字/圖片/檔案/影片/語音為原生；貼圖、位置、Flex 會降級（見 /console 能力提示）。發送端點 POST /webhook/discord；收訊走 Gateway 長連線。",
+    en: "Text/image/file/video/audio are native; sticker, location and flex are degraded (see /console hints). Send endpoint POST /webhook/discord; inbound uses a Gateway connection.",
+    ja: "テキスト/画像/ファイル/動画/音声はネイティブ。スタンプ・位置・Flex は縮退します（/console のヒント参照）。送信先は POST /webhook/discord、受信は Gateway 接続。",
+  },
 
   // send
   legend_send: { zh: "發送 / 重試", en: "Sending / Retry", ja: "送信 / 再試行" },

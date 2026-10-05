@@ -288,6 +288,7 @@ export class SendScheduler {
           to: job.to ?? [],
           summary: job.summary ?? "",
           error: `啟動時已過期超過 24 小時，未補發（原定 ${new Date(job.runAt).toISOString()}）`,
+          payload: job.inputs,
         });
         return false;
       });
@@ -370,6 +371,7 @@ export class SendScheduler {
           to: job.to,
           summary: job.summary,
           error: failed,
+          payload: job.inputs,
         });
       }
 

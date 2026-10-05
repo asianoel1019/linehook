@@ -24,6 +24,11 @@ function escapeLabel(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
 }
 
+/** 取出計數器快照（K5 用量儀表板用）。 */
+export function getCounters(): Array<{ name: string; labels: MetricLabels; value: number }> {
+  return [...counters.values()].map((c) => ({ name: c.name, labels: { ...c.labels }, value: c.value }));
+}
+
 /** Prometheus exposition 文字格式。 */
 export function renderMetrics(): string {
   const lines: string[] = [];

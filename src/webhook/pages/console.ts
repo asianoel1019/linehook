@@ -11,6 +11,7 @@ function capabilityNotes(): Record<string, string[]> {
         telegram: degradedCapabilities("telegram"),
         whatsapp: degradedCapabilities("whatsapp"),
         teams: degradedCapabilities("teams"),
+        discord: degradedCapabilities("discord"),
     };
 }
 
@@ -106,8 +107,8 @@ export function renderConsoleHtml() {
 <h2 style="margin-top:0">死信（發送失敗紀錄）</h2>
 <div class="glass">
 <details open>
-  <summary>清單（<span id="deadletter-count">0</span>）</summary>
-  <table><thead><tr><th>時間</th><th>平台</th><th>種類</th><th>對象</th><th>內容</th><th>錯誤</th></tr></thead><tbody id="deadletter"></tbody></table>
+  <summary>清單（<span id="deadletter-count">0</span>）　<button type="button" id="deadletter-purge" style="color:#fb7185">清除全部</button></summary>
+  <table><thead><tr><th>時間</th><th>平台</th><th>種類</th><th>對象</th><th>內容</th><th>錯誤</th><th>操作</th></tr></thead><tbody id="deadletter"></tbody></table>
 </details>
 </div>
 </div>
@@ -259,15 +260,43 @@ export function renderConsoleHtml() {
         $("deadletter-count").textContent = String(list.length);
         var bodyEl = $("deadletter");
         if (list.length === 0) {
-          bodyEl.replaceChildren(emptyRow(6));
+          bodyEl.replaceChildren(emptyRow(7));
           return;
         }
         bodyEl.replaceChildren.apply(bodyEl, list.slice().reverse().map(function (d) {
-          return tr(td(d.time), td(d.platform), td(d.kind), td((d.to || []).join(", ")), td(d.summary || ""), td(d.error || ""));
+          var actions = document.createElement("td");
+          actions.className = "actions-cell";
+          // K4：有 payload 才可一鍵重送（技能類與舊資料僅供檢視）。
+          if (Array.isArray(d.payload) && d.payload.length > 0 &&
+              (d.kind === "send" || d.kind === "scheduled" || d.kind === "scheduled-misfired")) {
+            var retry = document.createElement("button");
+            retry.type = "button";
+            retry.textContent = "重送";
+            retry.addEventListener("click", function () {
+              retry.disabled = true;
+              post("deadletter/retry", {
+                platform: d.platform, kind: d.kind, to: d.to, summary: d.summary, error: d.error, payload: d.payload
+              }).then(function (r) {
+                alert(r.ok ? "已重送" : ("重送失敗：" + (r.data.error || "")));
+                renderDeadletter();
+                refreshData();
+              });
+            });
+            actions.appendChild(retry);
+          }
+          return tr(td(d.time), td(d.platform), td(d.kind), td((d.to || []).join(", ")), td(d.summary || ""), td(d.error || ""), actions);
         }));
       })
       .catch(function () {});
   }
+
+  $("deadletter-purge").addEventListener("click", function () {
+    if (!window.confirm("確定清除全部死信紀錄？")) return;
+    post("deadletter/purge", {}).then(function (r) {
+      if (!r.ok) { alert("清除失敗：" + (r.data.error || "")); return; }
+      renderDeadletter();
+    });
+  });
 
   function refreshData() {
     fetch("/status.json?platform=" + encodeURIComponent(currentPlatform), { cache: "no-store" })

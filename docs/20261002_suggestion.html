@@ -195,21 +195,22 @@
     4 個 IM 平台、50 條 HTTP 路由、23 個測試檔與全部部署設定。共整理 <strong>95 項建議</strong>：80 項既有功能增強、15 項新功能提案。
   </p>
   <div class="stamp">
-    實作更新 2026-10-05（commit <code>ba44f89</code>）：58 項已處理（34 完整＋24 部分），37 項未排期，各卡均已標記。<br>
+    實作更新 2026-10-06（NEXT4）：<strong>63 項已處理（38 完整＋25 部分），32 項未排期</strong>，各卡均已標記；累計 NEXT1–NEXT4（測試護網、拆 server.ts、sqlite 儲存層、Discord＋重送中心＋成本儀表板）。<br>
+    前次更新 2026-10-05（commit <code>ba44f89</code> 起）：58 項已處理（34 完整＋24 部分），37 項未排期。<br>
     掃描日期 2026-10-02 ・ 基準 commit <code>88381ab</code> ・ 掃描範圍：<code>src/</code> <code>tests/</code> <code>docs/</code> <code>scripts/</code> <code>library/</code> <code>.github/</code> <code>Dockerfile</code> <code>docker-compose.yml</code>
   </div>
 
   <div class="stats">
     <div class="stat"><b>17,153</b><span>src 行數</span><i>80 個 .ts</i></div>
     <div class="stat"><b>4,030</b><span>server.ts</span><i>63.7% 為模板字串</i></div>
-    <div class="stat"><b>4</b><span>IM 平台</span><i>LINE / TG / WA / Teams</i></div>
+    <div class="stat"><b>5</b><span>IM 平台</span><i>LINE / TG / WA / Teams / Discord</i></div>
     <div class="stat"><b>38</b><span>內建技能</span><i>+ zip 熱安裝</i></div>
     <div class="stat"><b>50</b><span>HTTP 路由</span><i>單一 Express 行程</i></div>
     <div class="stat"><b>1,579</b><span>測試行數</span><i>23 檔，僅單元測試</i></div>
     <div class="stat"><b>0</b><span>lint / 覆蓋率</span><i>CI 只跑 tsc+test</i></div>
     <div class="stat"><b>95</b><span>項建議</span><i>15 P0 / 36 P1 / 42 P2 / 2 P3</i></div>
-    <div class="stat"><b>58</b><span>已處理</span><i>34 完整＋24 部分</i></div>
-    <div class="stat"><b>37</b><span>未排期</span><i>見各卡原因</i></div>
+    <div class="stat"><b>63</b><span>已處理</span><i>38 完整＋25 部分</i></div>
+    <div class="stat"><b>32</b><span>未排期</span><i>見各卡原因</i></div>
   </div>
 </header>
 
@@ -852,8 +853,8 @@
 
   <div class="grid">
 
-    <div class="card" data-s="no" data-p="P0">
-      <div class="head"><span class="id">D1</span><h4><code>server.ts</code> 4,030 行單體，63.7% 是模板字串</h4><span class="p P0">P0</span><span class="st no">未實作</span><span class="p E">L</span></div>
+    <div class="card" data-s="done" data-p="P0">
+      <div class="head"><span class="id">D1</span><h4><code>server.ts</code> 4,030 行單體，63.7% 是模板字串</h4><span class="p P0">P0</span><span class="st done">已實作</span><span class="p E">L</span></div>
       <p class="body">整個 Web 應用（Express 設定 + 50 條路由 + 7 個頁面的 HTML/CSS/JS）都在一個檔案。邏輯與視圖已可清楚二分：<strong>2,569 行是模板字串，1,459 才是 TypeScript</strong>。</p>
       <div class="ev"><b>實測</b>
         <code>SETTINGS_STYLE</code>（單一 CSS blob）<code>server.ts:345-598</code> = 254 行；<br>
@@ -870,12 +871,12 @@
         <li>拆完 <code>server.ts</code> 應降到約 1,100 行的純路由</li>
         <li>順帶把 <code>server.ts:601-612</code> 的 <code>imIcon()</code> 改為 <code>&lt;img src="/icons/x.png"&gt;</code>：目前每個頁面載入都重複塞入約 29KB base64，且其 <code>catch { return "" }</code> 讓 J1 變成無聲降級</li>
       </ul>
-      <div class="why"><b>未實作（2026-10-05）：</b>4,030 行拆分風險高，需 D2 先行＋e2e 護網，留待專門重構。</div>
+      <div class="impl"><b>已實作（2026-10-05 · NEXT2）：</b>拆出 <code>webhook/shell.ts</code>（<code>page()</code>、導覽、IM 切換器、i18n 橋接）＋<code>webhook/pages/{dashboard,console,settings,skills,messages,login,readme}.ts</code>，<code>server.ts</code> 4,030 → <strong>1,321 行</strong>純路由；無 view 依賴（維持原判準）。<br>未做：<code>imIcon()</code> 仍以 base64 內嵌（改 <code>&lt;img&gt;</code> 待與 CSP 一併）。</div>
     <div class="gain">同時解鎖 CSP（B8）、前端可測（D4），以及新增第 5 個平台的邊際成本。</div>
     </div>
 
-    <div class="card" data-s="no" data-p="P1">
-      <div class="head"><span class="id">D2</span><h4>CSS / JS 抽成靜態資源</h4><span class="p P1">P1</span><span class="st no">未實作</span><span class="p E">M</span></div>
+    <div class="card" data-s="done" data-p="P1">
+      <div class="head"><span class="id">D2</span><h4>CSS / JS 抽成靜態資源</h4><span class="p P1">P1</span><span class="st done">已實作</span><span class="p E">M</span></div>
       <p class="body">這是 D1 的前置步驟，也是最划算的一次改動：那 1,908 行 client script 是<strong>幾乎不用改寫</strong>的原生 DOM 程式碼。</p>
       <div class="ev"><b>證據</b>四個大 script（settings <code>1421-2008</code>、console <code>2118-2566</code>、skills <code>2621-3070</code>、dashboard <code>1026-1237</code>）合計約 1,565 行，只以 <code>${HELPERS}</code> 做少量內插，語法是可直接搬移的 ES5 相容程式碼。CSS blob（<code>345-598</code>）完全無內插，可整段搬移。</div>
       <ul>
@@ -883,7 +884,7 @@
         <li>得到 gzip／brotli 與瀏覽器快取；HTML 從每頁約 29KB base64 降到數 KB</li>
         <li>得到 CSP 可行性（<code>style-src 'self'</code>）→ B8</li>
       </ul>
-      <div class="why"><b>未實作（2026-10-05）：</b>同上，待與 D1 一併做。</div>
+      <div class="impl"><b>已實作（2026-10-05 · NEXT2）：</b><code>public/app.css</code>（22KB，整份搬移）＋<code>public/js/{helpers,user,session}.js</code>，經 <code>/static</code> 提供（Dockerfile 已 <code>COPY public</code>）；頁面 HTML 從每頁內嵌 29KB CSS 降為數 KB。<br>未做：四個大 client script（settings／console／skills／dashboard，合計約 1,565 行）仍留在頁面模板字串中——隨 D1 一起移會破壞與 <code>${tr()}</code> 的動態內插，故本輪只抽共用層；CSP 仍未開（B8）。</div>
     <div class="gain">約 1,500 行從 server.ts 移出，並讓 CSP 從「不可能」變成「一行設定」。</div>
     </div>
 
@@ -901,8 +902,8 @@
     <div class="gain">成本極低、回收很高：這類專案的 bug 密度與檔案大小成正比。</div>
     </div>
 
-    <div class="card" data-s="no" data-p="P1">
-      <div class="head"><span class="id">D4</span><h4>沒有覆蓋率；高風險模組無測試；無 e2e</h4><span class="p P1">P1</span><span class="st no">未實作</span><span class="p E">L</span></div>
+    <div class="card" data-s="done" data-p="P1">
+      <div class="head"><span class="id">D4</span><h4>沒有覆蓋率；高風險模組無測試；無 e2e</h4><span class="p P1">P1</span><span class="st done">已實作</span><span class="p E">L</span></div>
       <p class="body">目前不知道覆蓋率是多少，也無法得知。風險最高的四個模組幾乎沒有測試，而佔全專案約 23% 行數的管理 UI 完全沒有測試。</p>
       <div class="ev"><b>證據</b>
         23 檔 / 1,579 行，幾乎全是純函式單元測試（cron、time、text、lunar、skill parser、adapter normaliser、crypto）；<br>
@@ -916,7 +917,7 @@
         <li>D2 完成後可用 headless browser 做關鍵頁面煙霧測試；或退一步只做「HTML 產出包含關鍵元素」的斷言測試</li>
         <li>CI 產出覆蓋率報告（不一定要設門檻，先有可見性）</li>
       </ul>
-      <div class="why"><b>未實作（2026-10-05）：</b>覆蓋率／e2e 需基建（真機、docker），本輪先補單元測試。</div>
+      <div class="impl"><b>已實作（2026-10-05 · NEXT1）：</b><code>tests/{queue,scheduler-core,dispatch,e2e}.test.ts</code>（28 個，含 mock fetch 打真 TelegramService、暫存目錄 echo 技能的關鍵路徑 e2e）；<code>npm run test:coverage</code>＋CI coverage 步驟（report-only），全檔基線 <strong>51.78% 行</strong>（NEXT3 後）。順帶修掉測試抓到的真 bug（失敗一次性任務 <code>lastError</code> 空轉重打）。<br>未做：headless 瀏覽器煙霧測試、UI 頁面斷言、覆蓋率門檻。</div>
     <div class="gain">A1–A3 這類可靠性改動若無測試，回歸風險會抵銷掉大部分收益。</div>
     </div>
 
@@ -1028,8 +1029,8 @@
     <div class="gain">把專案從「可能被停權」變成「長期可用」，且不犧牲任何現有功能。這是<strong>單一投入產出比最高</strong>的項目。</div>
     </div>
 
-    <div class="card" data-s="no" data-p="P1">
-      <div class="head"><span class="id">E1</span><h4>Discord（第 4 個規劃中的平台，尚未實作）</h4><span class="p P1">P1</span><span class="st no">未實作</span><span class="p E">L</span></div>
+    <div class="card" data-s="done" data-p="P1">
+      <div class="head"><span class="id">E1</span><h4>Discord（第 4 個規劃中的平台，尚未實作）</h4><span class="p P1">P1</span><span class="st done">已實作</span><span class="p E">L</span></div>
       <p class="body">已在 <code>Platform</code> union 與 <code>docs/IM.md</code> Phase 4 中規劃，但未進入 <code>ALL_PLATFORMS</code>、無 adapter、無 icon、無設定卡、無測試。</p>
       <div class="ev"><b>現況</b>
         <code>messaging/types.ts:4</code> 已含 <code>"discord"</code>；<code>docs/IM.md:118-122</code> 有實作計畫（Bot token、MESSAGE_CONTENT intent、Embed ≈ Flex 簡版可轉譯）；<code>docs/IM.md:129-131</code> 已有路由與 targets 的命名對照表。<br>
@@ -1040,7 +1041,7 @@
         <li>Discord 的 rate limit 以 bucket 為單位（由 response header 回傳），建議在 <code>SendQueue</code> 加可插拔的節流策略介面</li>
         <li>收訊需開 MESSAGE_CONTENT intent，屬部署前置條件，寫入 <code>docs/IM-setup.md</code></li>
       </ul>
-      <div class="why"><b>未實作（2026-10-05）：</b>Discord 為全新 adapter（約 500 行＋測試），大主題，未排期。</div>
+      <div class="impl"><b>已實作（2026-10-06 · NEXT4）：</b><code>src/discord/client.ts</code>（Gateway opcode 10/2/0/1 心跳＋重連、REST <code>fetch</code>＋<code>FormData</code> 上傳，<strong>零新依賴</strong>，Node 內建 WebSocket）、<code>POST /webhook/discord</code>、設定頁 Discord 卡片（<code>DISCORD_ENABLED/BOT_TOKEN/TARGETS</code>）、右上角平台切換＋能力矩陣（sticker/location/flex 降級）、<code>icons/discord.png</code>、<code>docs/IM-setup.md</code> 申請步驟（含 MESSAGE_CONTENT）、<code>tests/discord.test.ts</code> 7 個正規化測試。<br>未做：per-bucket 節流（429 走既有退避）、Discord 訊息編輯/串流。</div>
     <div class="gain">驗證抽象層的第 5 次重用；若順利，等於證明「加平台」的成本真的已降到很低。</div>
     </div>
 
@@ -1804,12 +1805,12 @@
         <li>在 <code>/dashboard</code> 顯示死信數量與最舊一筆的時間；數量異常時告警（接上 C2）</li>
         <li>與排程失敗關聯：顯示「此排程已連續失敗 N 次」並建議檢查（呼應 A4）</li>
       </ul>
-      <div class="impl part"><b>部分實作（2026-10-05）：</b>重送＋死信檢視已做；完整重送中心未做。</div>
+      <div class="impl part"><b>部分實作（2026-10-06 · NEXT4）：</b>死信存 <code>payload</code>（原樣保留 <code>SendInput[]</code>，sqlite <code>ensureColumn</code> 遷移）、<code>POST /deadletter/retry</code>（依 payload 完整重送，skill 類拒 400）、<code>POST /deadletter/purge</code>、console 死信面板加「清除全部」與逐筆「重送」鈕；五個 adapter 與 scheduler（fire／misfired）皆寫入 payload。<br>未做：批次勾選重送、複製為 curl、dashboard 死信數量與告警、排程失敗關聯（A4 呼應）。</div>
     <div class="gain">前置依賴：A3。這是本報告中「工程改善 → 使用者價值」轉換最直接的一項。</div>
     </div>
 
-    <div class="card" data-s="no" data-p="P1">
-      <div class="head"><span class="id">K5</span><h4>LLM 成本儀表板與預算護欄</h4><span class="p P1">P1</span><span class="st no">未實作</span><span class="p E">M</span></div>
+    <div class="card" data-s="part" data-p="P1">
+      <div class="head"><span class="id">K5</span><h4>LLM 成本儀表板與預算護欄</h4><span class="p P1">P1</span><span class="st part">部分實作</span><span class="p E">M</span></div>
       <p class="body">把 C6／G2 的統計做成產品功能，並加上硬性上限，避免「月底收到帳單才發現」。</p>
       <ul>
         <li>卡片：今日／本月 token 與金額、依技能與依會話的 Top 10、平均延遲、失敗率</li>
@@ -1817,7 +1818,7 @@
         <li>依現有 UI 慣例沿用 <code>/dashboard</code> 的長條圖（目前已有 <code>STATS_DAYS</code> 天數視窗的統計圖可直接擴充）</li>
         <li>與 F5 的 per-skill token bucket 聯動：額度用盡時自動暫停該技能並在 UI 顯示原因</li>
       </ul>
-      <div class="why"><b>未實作（2026-10-05）：</b>需 G2 成本換算，未排期。</div>
+      <div class="impl part"><b>部分實作（2026-10-06 · NEXT4）：</b><code>src/llm-usage.ts</code>（<code>llm_tokens_total</code>／<code>llm_calls_total</code> 按 skill×provider×model 聚合＋<code>PRICES</code> 單價表，未知模型 cost 回 <code>null</code> 不亂估）、<code>GET /llm/usage.json</code>（read scope）、dashboard 新增 LLM 成本卡片（token／呼叫數／估計費用，空資料自動隱藏）。<br>未做：預算護欄（額度／超限行為）、依會話 Top 10、平均延遲與失敗率、與 F5 bucket 聯動。</div>
     <div class="gain">前置依賴：C6、G2、F5。是使用付費 LLM 時的必要管理介面。</div>
     </div>
 
@@ -2058,8 +2059,8 @@
 </section>
 
 <section id="done">
-  <h2 class="sec">本次實作結果 <span class="bn">2026-10-05 · commit ba44f89</span></h2>
-  <p class="muted">95 項中 <strong>58 項已處理（34 完整＋24 部分）</strong>，37 項未排期。驗證：typecheck ✅、build ✅、lint 0 errors ✅、<strong>207 tests 全過</strong>（新增 16 個）。以下按原報告章節彙整，細節見各卡片標記。</p>
+  <h2 class="sec">本次實作結果 <span class="bn">2026-10-05 → 2026-10-06 · NEXT1–NEXT4</span></h2>
+  <p class="muted">95 項中 <strong>63 項已處理（38 完整＋25 部分）</strong>，32 項未排期。驗證：typecheck ✅、build ✅、lint 0 errors ✅、<strong>253 tests 全過</strong>（NEXT4 新增 11 個）。以下按原報告章節彙整，細節見各卡片標記。</p>
 
   <div class="tbl-wrap">
     <table>
@@ -2068,14 +2069,14 @@
         <tr><td>A 可靠性</td><td>A1 A2 A3 A4 A5 A6 A7 A8（8/8）</td><td>—（A 全數至少部分處理）</td></tr>
         <tr><td>B 安全</td><td>B1 B3 B4 B6 B7 B11＋B5 B9 部分（8/12）</td><td>B2（沙箱 XL）、B8（待 D1）、B10（breaking）、B12（效益低）</td></tr>
         <tr><td>C 可觀測</td><td>C1 C7＋C2 C3 C4 C5 C6 部分（7/8）</td><td>—（C 全數至少部分處理）</td></tr>
-        <tr><td>D 架構</td><td>D3 D8 D10 D11＋D5 D6 D7 D9 部分（8/11）</td><td>D1 D2（大重構）、D4（需基建）</td></tr>
-        <tr><td>E 平台</td><td>E3 E4（2/8）</td><td>E1 E2 E5 E6 E7 E8</td></tr>
+        <tr><td>D 架構</td><td>D1 D2 D3 D4 D8 D10 D11＋D5 D6 D7 D9 部分（11/11）</td><td>—（D 全數至少部分處理）</td></tr>
+        <tr><td>E 平台</td><td>E1 E3 E4（3/8）</td><td>E2 E5 E6 E7 E8</td></tr>
         <tr><td>F 技能</td><td>F2 F4 F5＋F1 F3 部分（5/8）</td><td>F6 F7 F8</td></tr>
         <tr><td>G LLM</td><td>G4＋G1 G2 G3 G5 部分（5/6）</td><td>G6（需 SSE）</td></tr>
         <tr><td>H 體驗</td><td>H1 H4＋H2 部分（3/7）</td><td>H3 H5 H6 H7</td></tr>
         <tr><td>I 隱私</td><td>I1＋I2 I4 部分（3/5）</td><td>I3（breaking）、I5</td></tr>
         <tr><td>J 維運</td><td>J1 J3 J6 J7 J8＋J2 J4 J5 部分（8/8）</td><td>—（J 全數至少部分處理）</td></tr>
-        <tr><td>K 新功能</td><td>K4 部分（1/15）</td><td>其餘 14 項（產品功能，未排期）</td></tr>
+        <tr><td>K 新功能</td><td>K4 K5 部分（2/15）</td><td>其餘 13 項（產品功能，未排期）</td></tr>
       </tbody>
     </table>
   </div>
@@ -2092,8 +2093,8 @@
     <h4>補測試護網：D4 覆蓋率基線＋關鍵路徑 e2e</h4>
     <div class="when">先有基線，後面動 D1／A6 才知道有沒有弄壞東西</div>
     <ul>
-      <li><strong>D4</strong>：<code>dispatch.ts</code>／<code>queue.ts</code>／<code>scheduler.ts</code> 單元測試＋覆蓋率基線（Node 內建 coverage 即可）</li>
-      <li>關鍵路徑 e2e：webhook 發送→各 adapter（mock fetch）、收訊→dispatch→技能回覆</li>
+      <li><s><strong>D4</strong></s> <strong>已完成（NEXT1）</strong>：<code>dispatch.ts</code>／<code>queue.ts</code>／<code>scheduler.ts</code> 單元測試＋覆蓋率基線（Node 內建 coverage，全檔 51.78% 行）</li>
+      <li><s>關鍵路徑 e2e</s> <strong>已完成（NEXT1）</strong>：webhook 發送→各 adapter（mock fetch）、收訊→dispatch→技能回覆</li>
     </ul>
   </div>
   <div class="phase">
@@ -2101,8 +2102,8 @@
     <h4>拆 server.ts（D1＋D2）</h4>
     <div class="when">測試護網就緒後；先抽靜態資源再切檔案，避免反覆搬移</div>
     <ul>
-      <li><strong>D2</strong>：CSS／JS 抽成靜態資源（此時 CSP 才可行，順帶解 B8 一半）</li>
-      <li><strong>D1</strong>：按頁面切模組（dashboard／console／settings／skills／messages／readme）</li>
+      <li><s><strong>D2</strong></s> <strong>已完成（NEXT2）</strong>：CSS／JS 抽成 <code>public/</code> 靜態資源（CSP 可行性已備，B8 仍待開）</li>
+      <li><s><strong>D1</strong></s> <strong>已完成（NEXT2）</strong>：按頁面切模組（dashboard／console／settings／skills／messages／login／readme），server.ts 4,030 → 1,321 行</li>
     </ul>
   </div>
   <div class="phase">
@@ -2110,7 +2111,7 @@
     <h4>儲存統一（A6）＋技能沙箱（B2／F1）</h4>
     <div class="when">結構穩定後；這是 K2／K3／K13 等上層功能的共同前提</div>
     <ul>
-      <li><strong>A6</strong>：先定義 <code>Store</code> 介面讓 JSONL 實作，再評估 <code>node:sqlite</code>（注意 Node 下限 22）</li>
+      <li><s><strong>A6</strong></s> <strong>已完成（NEXT3）</strong>：<code>Store</code> 介面＋JSONL 實作＋<code>node:sqlite</code>（engines ≥22.13、開機遷移、CI 檢查）</li>
       <li><strong>B2／F1</strong>：簽章＋允許清單 → 權限 manifest → worker 隔離（allowedUsers 白名單已是第一步）</li>
     </ul>
   </div>
@@ -2119,8 +2120,8 @@
     <h4>平台與產品擴張</h4>
     <div class="when">技術債清完後</div>
     <ul>
-      <li><strong>E1</strong> Discord（驗證抽象層第 5 次重用）、<strong>E2</strong> LINE 官方雙軌（法遵決策先行）</li>
-      <li><strong>K4</strong> 完整重送中心（已有死信＋重送鈕）、<strong>K5</strong> 成本儀表板（已有 token 指標，需價格表）</li>
+      <li><s><strong>E1</strong> Discord</s> <strong>已完成（NEXT4）</strong>（驗證抽象層第 5 次重用）；<strong>E2</strong> LINE 官方雙軌（法遵決策先行，需使用者資源）</li>
+      <li><s><strong>K4</strong> 完整重送中心</s> <strong>已完成（NEXT4）</strong>（死信 payload＋重送／清除端點）；<s><strong>K5</strong> 成本儀表板</s> <strong>已完成（NEXT4，儀表板部分）</strong>（護欄待 G2/F5）</li>
       <li>breaking 類（<strong>B10</strong> nonce 必填、<strong>I3</strong> scope 細分）安排遷移期後執行</li>
     </ul>
   </div>

@@ -376,6 +376,7 @@ export class TelegramService implements IMessagingService {
           platform: "telegram",
           kind: "send",
           to: [input.to],
+          payload: [input],
           summary: this.inputType(input),
           error: error instanceof Error ? error.message : String(error),
         });

@@ -1,7 +1,7 @@
 # IM Webhook
 
-接收外部端點傳來的訊息，轉發到多個通訊軟體（目前支援 LINE、Telegram、WhatsApp、Teams，架構可擴充）。
-LINE 透過已登入的個人帳號（selfbot），Telegram 走 Bot API，WhatsApp 可選官方 Cloud API 或個人帳號（WhatsApp Web），Teams 走企業 Bot（Entra + Bot Connector）。
+接收外部端點傳來的訊息，轉發到多個通訊軟體（目前支援 LINE、Telegram、WhatsApp、Teams、Discord，架構可擴充）。
+LINE 透過已登入的個人帳號（selfbot），Telegram 走 Bot API，WhatsApp 可選官方 Cloud API 或個人帳號（WhatsApp Web），Teams 走企業 Bot（Entra + Bot Connector），Discord 走 Bot Gateway 長連線。
 附登入狀態頁（可互動）、Email 通知，登入失效時會自動嘗試重登。
 
 > ⚠️ 本專案使用非官方 LINE API（[`@evex/linejs`](https://github.com/evex/linejs)）模擬個人帳號，屬 selfbot，
@@ -10,15 +10,15 @@ LINE 透過已登入的個人帳號（selfbot），Telegram 走 Bot API，WhatsA
 ## 功能
 
 - Webhook 接收 `{ to, text }` 並轉發到指定好友 / 群組；支援**多訊息類型**（`text` / `file` / `image` / `sticker` / `location` / `flex`）、**訊息模板 + 變數**（`template` / `vars`）、**排程 / 延遲發送**（`sendAt` / `delaySec`）與**多收件人**（`to` 陣列）
-- **多 IM**：LINE、Telegram、WhatsApp（Cloud API／個人帳號雙模式）、Teams，各有獨立發送端點（`POST /webhook`、`/webhook/tg`、`/webhook/wa`、`/webhook/teams`）與接收機制；共用驗證、技能、排程框架
-- **右上角全域 IM 切換**：所有管理頁共用同一個平台切換（LINE／Telegram／WhatsApp／Teams，附各平台 icon），切換後各頁只顯示該平台內容並記住選擇
+- **多 IM**：LINE、Telegram、WhatsApp（Cloud API／個人帳號雙模式）、Teams、Discord，各有獨立發送端點（`POST /webhook`、`/webhook/tg`、`/webhook/wa`、`/webhook/teams`、`/webhook/discord`）與接收機制；共用驗證、技能、排程框架
+- **右上角全域 IM 切換**：所有管理頁共用同一個平台切換（LINE／Telegram／WhatsApp／Teams／Discord，附各平台 icon），切換後各頁只顯示該平台內容並記住選擇
 - **發送佇列**：序列化發送、最小間隔節流、失敗自動退避重試
 - 來源 IP 白名單 + HMAC-SHA256 簽章（含 timestamp / nonce 防重放）+ 速率限制 + **idempotency 去重**（`X-Idempotency-Key`）
 - **管理頁面一律需登入**（`/dashboard`、`/console`、`/skills`、`/settings`、`/messages`、`/readme`），閒置 5 分鐘自動登出並導回登入頁；側欄底部為使用者圓形按鈕（顯示帳號首字，上方顯示**閒置登出倒數**），點擊可**登出**或**變更密碼**；側欄可切換**語言（中文 / English / 日本語）**
 - **儀表板 `/dashboard`**（登入後首頁）：依右上角選擇的平台顯示該平台的狀態摘要與發送統計（總數 / 成功 / 失敗 / 成功率、近 N 日長條圖、類型分佈）；停用的平台顯示「未啟用」空白狀態。另有最近紀錄、登入 QR（LINE／WhatsApp 個人帳號模式依平台顯示不同掃描說明）
 - **功能頁 `/console`**：左側「功能」卡片（依平台過濾的測試發送含媒體上傳、目標清單、最近紀錄、排程中的訊息可改變時間 / 取消）與「操作」（LINE 重新登入 / 重新整理聯絡人，僅 LINE 可見；Flex 可視化編輯僅 LINE）
 - **技能頁 `/skills`**：啟用助理與名稱、每個技能（資料夾）一張卡片可 enable/disable 與設定參數；技能為可下載子專案（見下方「可下載技能」）
-- **設定頁 `/settings`**：左側設定卡片，**線上編輯設定**（存於 `settings.json`，立即生效）；共用設定永遠可見，平台專屬（LINE 登入／目標對照、Telegram Bot、WhatsApp、Teams）只在切到該平台時顯示
+- **設定頁 `/settings`**：左側設定卡片，**線上編輯設定**（存於 `settings.json`，立即生效）；共用設定永遠可見，平台專屬（LINE 登入／目標對照、Telegram Bot、WhatsApp、Teams、Discord）只在切到該平台時顯示
 - **訊息頁 `/messages`**：記錄收到的訊息（唯讀瀏覽；可選持久化到檔案）
 - **關鍵字自動回覆**：收到訊息且內容與關鍵字「完全相符」時，自動回覆文字與／或檔案，含**每聊天冷卻**（於 `/settings` 設定）
 - 登入失效自動重登；失敗時寄 Email 通知
@@ -92,7 +92,7 @@ npm run typecheck
 `SEND_MAX_RETRIES`、`SEND_RETRY_BASE_MS`、`SEND_MIN_INTERVAL_MS`、
 `HEALTH_CHECK_INTERVAL_SEC`、`LOG_LIMIT`、`LOG_MAX_BYTES`、`LOG_MAX_FILES`、`TARGETS`、訊息模板、
 訊息持久化開關、自動回覆（含冷卻秒數）、`SMTP_*`、`MAIL_FROM`、`MAIL_TO`、
-Telegram（`TELEGRAM_*`）、WhatsApp（`WHATSAPP_*`，含 Cloud／個人帳號模式切換）、Teams（`TEAMS_*`）。
+Telegram（`TELEGRAM_*`）、WhatsApp（`WHATSAPP_*`，含 Cloud／個人帳號模式切換）、Teams（`TEAMS_*`）、Discord（`DISCORD_*`）。
 
 > `LINE_DEVICE_NAME` / `LINE_DEVICE` 需重新登入（刪除 `storage.json`）才會反映在 LINE 顯示的裝置名稱。
 > `.env.example` 仍保留這些項目的預設值，可作為啟動初始值。
@@ -117,6 +117,7 @@ Telegram（`TELEGRAM_*`）、WhatsApp（`WHATSAPP_*`，含 Cloud／個人帳號�
 | Telegram | `POST /webhook/tg` | `POST /tg/update`（驗 secret token） | 名稱=chat_id（或 @username） |
 | WhatsApp | `POST /webhook/wa` | Cloud 模式：`GET/POST /wa/webhook`（驗簽章）；個人帳號模式：長連線，無 webhook | 名稱=電話號碼（E.164 不含 +） |
 | Teams | `POST /webhook/teams` | `POST /teams/messages`（驗 Bearer JWT） | 名稱=conversation id（收訊後自動記住） |
+| Discord | `POST /webhook/discord` | Gateway 長連線（無 webhook） | 名稱=頻道/用戶 ID（17–20 碼） |
 
 發送端點共用驗證（HMAC／URL Token／API Token）；未啟用的平台回 `503`。
 
@@ -543,7 +544,7 @@ curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
 
 ## 各平台申請與設定
 
-LINE / Telegram / WhatsApp / Teams 的申請流程、如何產生本系統所需設定值（Bot Token、secret、chat_id / 電話號碼、Entra App、驗證方式等），
+LINE / Telegram / WhatsApp / Teams / Discord 的申請流程、如何產生本系統所需設定值（Bot Token、secret、chat_id / 電話號碼、Entra App、Discord Bot、驗證方式等），
 與各平台端點對照，詳見 [`docs/IM-setup.md`](docs/IM-setup.md)。
 
 ## 部署（更新程式、保留狀態）
@@ -617,6 +618,8 @@ src/
   whatsapp/client.ts    WhatsApp Cloud API 轉接（發送 / webhook 接收驗簽 / 24h 視窗感知）
   whatsapp/web-client.ts WhatsApp 個人帳號轉接（Baileys 長連線，QR 登入；動態載入，缺依賴不影響啟動）
   teams/client.ts       Teams 企業 Bot 轉接（Entra 取 token / Bot Connector REST / JWT 驗簽 / Adaptive Card 轉譯；無新依賴）
+  discord/client.ts     Discord Bot 轉接（Gateway 長連線收訊 / REST 發送 / 媒體上傳 / 貼圖、位置、Flex 降級；Node 內建 WebSocket，無新依賴）
+  llm-usage.ts          LLM token 成本彙總（/llm/usage.json 儀表板資料）
   settings-crypto.ts    設定匯出加密（AES-256-GCM + scrypt）
   icons/                各 IM 去背 icon（右上角切換鈕使用，以 base64 內嵌）
   skills/index.ts       技能對外匯出（loadSkills / getSkill）
@@ -637,7 +640,7 @@ src/
 public/                 靜態資源（app.css、js/helpers.js、js/user.js、js/session.js；經 /static 提供）
 docs/architecture.md    架構圖（含多平台歸屬對照表與新增 IM 檢查清單）
 docs/IM.md              多平台規劃（LINE / Telegram / Teams / WhatsApp / Discord 進度）
-docs/IM-setup.md        LINE / Telegram / WhatsApp / Teams 申請與設定說明
+docs/IM-setup.md        LINE / Telegram / WhatsApp / Teams / Discord 申請與設定說明
 tests/                  單元測試（`npm test`）
 ```
 

@@ -1,6 +1,6 @@
 # IM 申請與設定說明書
 
-本文件說明如何為每個通訊平台（LINE / Telegram / WhatsApp / Teams）申請服務，並產生本系統所需的設定值。
+本文件說明如何為每個通訊平台（LINE / Telegram / WhatsApp / Teams / Discord）申請服務，並產生本系統所需的設定值。
 
 - 設定分兩層：`.env`（bootstrap，無法在網頁改）與 `/settings`（線上編輯，存於 `settings.json`）。
 - 各平台的設定都在 **`/settings` 頁面**對應的卡片中填寫，填完按「儲存設定」。
@@ -15,6 +15,7 @@
 | Telegram | `POST /webhook/tg` | `POST /tg/update` | 設定 → Telegram Bot → 目標對照 |
 | WhatsApp | `POST /webhook/wa` | `GET/POST /wa/webhook` | 設定 → WhatsApp → 目標對照 |
 | Teams | `POST /webhook/teams` | `POST /teams/messages` | 設定 → Microsoft Teams → 目標對照 |
+| Discord | `POST /webhook/discord` | Gateway 長連線（無 webhook） | 設定 → Discord → 目標對照 |
 
 > 對外網址假設為 `https://你的網域`（本專案範例：`https://linehook.asianoel.space`）。所有接收端點都需能被平台伺服器以 HTTPS 呼叫。
 
@@ -224,9 +225,58 @@ Teams **沒有個人帳號模式**（不像 WhatsApp 可選個人帳號）。Tea
 
 ---
 
+## 5. Discord（Bot，Gateway 長連線）
+
+Discord 與 LINE 同屬**長連線**模式：收訊不靠 webhook，由本程式以 WebSocket 連上 Discord Gateway，
+因此**不需要公開網址給 Discord 呼叫**（發送仍走 REST，可由 `/webhook/discord` 呼叫）。
+
+### 需要什麼
+- 一個 Discord 帳號（用來在 Developer Portal 建 Bot）。
+- 若要收「一般文字頻道」訊息，需在伺服器開 **Developer Mode**（使用者設定 → 進階 → 開發者模式），方便右鍵複製頻道 ID。
+
+### 申請步驟
+
+1. 到 [Discord Developer Portal](https://discord.com/developers/applications) → **New Application** 建立應用程式。
+2. 左側 **Bot** → **Add Bot**（或沿用預設 Bot）。
+3. 取得 **Token**（**Reset Token**，只顯示一次）：
+   - 對應 `DISCORD_BOT_TOKEN`（或 `/settings` → Discord → Bot Token）。
+   - ⚠️ Token 等同 Bot 密碼，**不要**提交到 git 或貼到公開處。
+4. 同一頁把 **Privileged Gateway Intents** 的 **MESSAGE CONTENT INTENT** 開啟
+   （不開的話 Bot 收得到事件但 `content` 為空，系統會判定為空訊息忽略）。
+5. **Installation** → **Install Locations** 確認可安裝到伺服器（預設 `bot` scope 即可）。
+6. 把 Bot **邀請進你的伺服器**：
+   - OAuth2 → URL Generator → 勾 `bot` scope（需要讀訊息/發訊息權限）→ 複製 URL 貼到瀏覽器加入。
+7. 取得目標 **頻道 ID**：Discord 開發者模式下，對頻道右鍵 → **複製頻道 ID**（17–20 碼數字）。
+8. `/settings` → 右上角切到 **Discord**：
+   - 勾選**啟用 Discord Bot**、貼上 Bot Token。
+   - 目標對照填 `名稱=頻道ID`，每行一筆，例如 `客服=123456789012345678`。
+9. 按「儲存設定」→ 重啟（Gateway 連線在啟動時建立）。
+
+### 測試是否成功
+- `/dashboard` 右上角切到 Discord，狀態應顯示**已登入**（日誌會出現「Discord Bot 已連線」）。
+- 在伺服器頻道對 Bot 說話（或用 `/console` 發送），應收到回覆／訊息送出。
+- 或呼叫 `POST https://你的網域/webhook/discord` 發送測試（驗證方式同共用驗證）。
+
+#### 常見問題
+- **狀態一直「連線中／需人工」**：確認 Token 正確、Bot 有加入伺服器、網路可連 `wss://gateway.discord.gg`。
+- **收到事件但內容為空**：MESSAGE_CONTENT INTENT 沒開。
+- **發送 403 Missing Access**：Bot 不在該頻道／伺服器，或缺少讀取與發言權限。
+- **發送 429**：觸發 Discord 速率限制，佇列會自動退避重試。
+
+### 端點
+- 發送：`POST https://你的網域/webhook/discord`
+- 接收：Gateway 長連線（`wss://gateway.discord.gg`，**無 webhook 端點**）
+
+### 重要限制
+- 文字 / 圖片 / 檔案 / 影片 / 語音為**原生**；貼圖降級為文字說明、位置附 Google 地圖連結、Flex 轉為 **Embed**（標題＋文字）。
+- 單則訊息上限 2000 字元，超過自動分段。
+- 檔案上傳受 `MAX_BODY_MB` 限制。
+
+---
+
 ## 共用驗證（`/webhook*` 發送端點）
 
-LINE / Telegram / WhatsApp / Teams 的**發送**端點共用同一套驗證（任一通過即可）：
+LINE / Telegram / WhatsApp / Teams / Discord 的**發送**端點共用同一套驗證（任一通過即可）：
 
 | 方式 | 設定 | 呼叫方式 |
 | --- | --- | --- |
@@ -260,3 +310,5 @@ LINE / Telegram / WhatsApp / Teams 的**發送**端點共用同一套驗證（�
 | Teams Tenant ID | Entra 應用程式 → 目錄（租用戶）識別碼 | `TEAMS_TENANT_ID` |
 | Teams 訊息端點 | Azure Bot → 設定 → 訊息端點 | `https://你的網域/teams/messages` |
 | Teams 目標 conversation id | 收到訊息後自動記住（或手填 `19:xxx@thread.v2` / `a:xxx`） | 目標對照 |
+| Discord Bot Token | Developer Portal → Bot → Reset Token | `DISCORD_BOT_TOKEN` |
+| Discord 目標頻道 ID | Discord 開發者模式 → 對頻道右鍵複製 | 目標對照（`名稱=123456789012345678`） |

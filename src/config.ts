@@ -66,6 +66,9 @@ const schema = z.object({
   TEAMS_TENANT_ID: z.string().trim().default(""),
   TEAMS_SERVICE_URL: z.string().trim().default("https://smba.trafficmanager.net/teams"),
   TEAMS_TARGETS: z.string().default(""),
+  DISCORD_ENABLED: boolDefault(false),
+  DISCORD_BOT_TOKEN: z.string().trim().default(""),
+  DISCORD_TARGETS: z.string().default(""),
   HEALTH_CHECK_INTERVAL_SEC: z.coerce.number().int().positive().default(60),
   LOG_LIMIT: z.coerce.number().int().positive().default(200),
   LOG_FILE: z.string().default("./logs/app.log"),
@@ -241,6 +244,11 @@ export interface Config {
     serviceUrl: string;
     targets: Record<string, string>;
   };
+  discord: {
+    enabled: boolean;
+    botToken: string;
+    targets: Record<string, string>;
+  };
   templates: MessageTemplate[];
   flexTemplates: FlexTemplate[];
   healthCheckIntervalSec: number;
@@ -358,6 +366,11 @@ export const config: Config = {
     tenantId: env.TEAMS_TENANT_ID,
     serviceUrl: env.TEAMS_SERVICE_URL,
     targets: parseTargets(env.TEAMS_TARGETS),
+  },
+  discord: {
+    enabled: env.DISCORD_ENABLED,
+    botToken: env.DISCORD_BOT_TOKEN,
+    targets: parseTargets(env.DISCORD_TARGETS),
   },
   templates: [],
   flexTemplates: [],

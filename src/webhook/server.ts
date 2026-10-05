@@ -25,13 +25,14 @@ import { NotLoggedInError, TargetNotFoundError, type FlexInput, type LocationInp
 import type { IMessagingService, Platform } from "../messaging/types.js";
 import { getService, listServices } from "../messaging/services.js";
 import { recordMetric, renderMetrics } from "../metrics.js";
+import { llmUsage } from "../llm-usage.js";
 import { persistInbound } from "../messaging/inbox.js";
 import { verifyWhatsAppSignature } from "../whatsapp/client.js";
 import { verifyTeamsJwt } from "../teams/client.js";
 import { encryptSettings, decryptSettings, isEncryptedEnvelope } from "../settings-crypto.js";
 import { reserveIdempotency, releaseIdempotency, requireSessionOrApi, verifyWebhookAuth, webhookAuthEnabled, type RawBodyRequest } from "../middleware/hmac.js";
 import { getMessages, reloadMessages, searchMessages, purgeMessages } from "../messages.js";
-import { readDeadLetters } from "../deadletter.js";
+import { readDeadLetters, purgeDeadLetters } from "../deadletter.js";
 import { uploadHasRoom, uploadUsage } from "../uploads.js";
 import { clientIp, ipGuard, isPrivateRequest } from "../middleware/ip.js";
 import { loginRateLimit, rateLimit, recordLoginFailure, clearLoginFailures } from "../middleware/rateLimit.js";
@@ -357,7 +358,7 @@ function resolveInputs(body: Record<string, unknown>, targets: string[]): SendIn
         return result;
     return targets.map((to) => buildInputFromMessage(to, result));
 }
-const ALL_PLATFORMS: Platform[] = ["line", "telegram", "whatsapp", "teams"];
+const ALL_PLATFORMS: Platform[] = ["line", "telegram", "whatsapp", "teams", "discord"];
 /** 某平台目前的登入 QR（若需人工掃描）。各服務自行提供 getQr()。 */
 function platformQr(platform: string): string {
     const svc = getService(platform as Platform);
@@ -537,6 +538,11 @@ export function createServer(line: IMessagingService): express.Express {
         }
         res.set("Cache-Control", "no-store");
         res.type("text/plain; version=0.0.4").send(lines.join("\n") + "\n");
+    });
+    // K5：LLM 用量與費用估算（由 metrics counter 聚合，需 read 權限）。
+    app.get("/llm/usage.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
+        res.set("Cache-Control", "no-store");
+        res.json(llmUsage());
     });
     // C1：各在線平台的健康狀態；任一異常即 503（供負載平衡／監控判斷）。
     app.get("/health", async (_req, res) => {
@@ -879,6 +885,44 @@ export function createServer(line: IMessagingService): express.Express {
         const limit = Number(typeof q.limit === "string" ? q.limit : "");
         res.json({ deadletters: readDeadLetters(Number.isFinite(limit) ? limit : 100) });
     });
+    // K4：死信重送（payload 為失敗當下的 SendInput[]；技能類無 payload 不可重送）。
+    app.post("/deadletter/retry", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, async (req, res) => {
+        const body = asRecord(req.body) ?? {};
+        const platform = typeof body.platform === "string" ? body.platform.trim() : "";
+        const kind = typeof body.kind === "string" ? body.kind : "";
+        const payload = Array.isArray(body.payload) ? body.payload : [];
+        if (!platform) {
+            res.status(400).json({ ok: false, error: "platform 必填" });
+            return;
+        }
+        if (kind !== "send" && kind !== "scheduled" && kind !== "scheduled-misfired") {
+            res.status(400).json({ ok: false, error: "此死信無法自動重送（技能類需重查原訊息）" });
+            return;
+        }
+        if (payload.length === 0) {
+            res.status(400).json({ ok: false, error: "舊資料無 payload，無法重送（此筆僅供檢視）" });
+            return;
+        }
+        const svc = platform === "line" ? line : getService(platform as Platform);
+        if (!svc) {
+            res.status(400).json({ ok: false, error: `平台未啟用：${platform}` });
+            return;
+        }
+        try {
+            await svc.sendAdvanced(payload as never);
+            audit(req, "deadletter.retry", `${platform}:${kind}`);
+            res.json({ ok: true });
+        }
+        catch (error) {
+            sendError(res, error);
+        }
+    });
+    // K4：清除全部死信。
+    app.post("/deadletter/purge", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
+        const removed = purgeDeadLetters();
+        audit(req, "deadletter.purge", `removed:${removed}`);
+        res.json({ ok: true, removed });
+    });
     // J3：備份（設定＋登入狀態＋排程），沿用 AES-256-GCM 加密；還原前自動備份現況。
     app.get("/settings/backup", statusAccess, requireSessionOrApi("admin"), (req, res) => {
         const password = typeof req.query.password === "string" ? req.query.password : "";
@@ -1196,6 +1240,8 @@ export function createServer(line: IMessagingService): express.Express {
     app.post("/webhook/wa", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("whatsapp")));
     // Teams 發送端點：語意與 /webhook 相同，走 Teams 服務。
     app.post("/webhook/teams", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("teams")));
+    // Discord 發送端點：語意與 /webhook 相同（收訊走 Gateway 長連線，非 webhook）。
+    app.post("/webhook/discord", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("discord")));
     // Telegram 接收端點：由 Telegram Bot API 推送 update 進來，驗 X-Telegram-Bot-Api-Secret-Token。
     app.post("/tg/update", rateLimit, (req, res) => {
         const service = getService("telegram");

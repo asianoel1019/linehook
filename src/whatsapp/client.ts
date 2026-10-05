@@ -394,6 +394,7 @@ export class WhatsAppService implements IMessagingService {
           platform: "whatsapp",
           kind: "send",
           to: [input.to],
+          payload: [input],
           summary: this.inputType(input),
           error: error instanceof Error ? error.message : String(error),
         });
