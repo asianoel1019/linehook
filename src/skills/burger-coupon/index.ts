@@ -104,7 +104,8 @@ function brandFrom(text: string): Brand | undefined {
 
 function formatReply(brand: Brand, target: number | null, deals: Deal[]): string {
   let list = deals;
-  if (target !== null) {
+  // 筆數少（<5）直接全部顯示，不做價格過濾；筆數多才依目標價格篩選。
+  if (target !== null && deals.length >= 5) {
     const low = target * 0.7;
     const high = target * 1.3;
     list = deals

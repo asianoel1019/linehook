@@ -45,19 +45,19 @@ function setHealth(name: string, ok: boolean, detail: string, count = 0): void {
   health[name] = { ok, detail, count, at: Date.now() };
 }
 
-async function fetchText(url: string): Promise<string> {
+async function fetchText(url: string, maxBytes = 2 * 1024 * 1024): Promise<string> {
   return netFetchText(
     url,
     {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; LineHook/1.0)" },
     },
-    { timeoutMs: 15_000, maxBytes: 2 * 1024 * 1024 },
+    { timeoutMs: 15_000, maxBytes },
   );
 }
 
-/** 來源一：KCouper 的 coupon.js（結構化 JSON）。 */
+/** 來源一：KCouper 的 coupon.js（結構化 JSON；檔案已超過 2MB，需放寬上限）。 */
 async function loadFromKCouper(url: string): Promise<Coupon[]> {
-  const text = await fetchText(url);
+  const text = await fetchText(url, 8 * 1024 * 1024);
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0 || end < 0) throw new Error("找不到資料");
