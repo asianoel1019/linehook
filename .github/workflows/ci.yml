@@ -34,5 +34,8 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Coverage baseline (report only, no thresholds)
+        run: npm run test:coverage
+
       - name: Security audit (high and above)
         run: node .github/audit-gate.mjs

@@ -325,7 +325,11 @@ export class SendScheduler {
     }
     if (this.jobs.length === 0) return;
 
-    const next = Math.min(...this.jobs.map((job) => job.runAt));
+    // 有 lastError 的失敗任務等手動重送，不參與自動排程，避免空轉。
+    const pending = this.jobs.filter((job) => !job.lastError);
+    if (pending.length === 0) return;
+
+    const next = Math.min(...pending.map((job) => job.runAt));
     const wait = Math.max(0, Math.min(next - Date.now(), MAX_WAIT_MS));
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -337,7 +341,8 @@ export class SendScheduler {
   private async fire(): Promise<void> {
     if (this.stopped) return;
     const now = Date.now();
-    const due = this.jobs.filter((job) => job.runAt <= now);
+    // 有 lastError 的等手動重送（update 會清除標記），這裡跳過。
+    const due = this.jobs.filter((job) => job.runAt <= now && !job.lastError);
 
     for (const job of due) {
       let failed: string | undefined;
