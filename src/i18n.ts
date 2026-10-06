@@ -62,8 +62,7 @@ export const DICT: Record<string, Entry> = {
   card_logs: { zh: "最近紀錄", en: "Recent logs", ja: "最近のログ" },
   card_scheduled: { zh: "排程中的訊息", en: "Scheduled", ja: "予約メッセージ" },
   card_security: { zh: "安全 / 來源", en: "Security / Source", ja: "セキュリティ / 送信元" },
-  card_line: { zh: "LINE 登入", en: "LINE login", ja: "LINE ログイン" },
-  "card_line-official": { zh: "LINE 官方", en: "LINE official", ja: "LINE 公式" },
+  card_line: { zh: "LINE", en: "LINE", ja: "LINE" },
   card_telegram: { zh: "Telegram", en: "Telegram", ja: "Telegram" },
   card_whatsapp: { zh: "WhatsApp", en: "WhatsApp", ja: "WhatsApp" },
   card_teams: { zh: "Teams", en: "Teams", ja: "Teams" },
@@ -82,7 +81,6 @@ export const DICT: Record<string, Entry> = {
   section_settings: { zh: "設定", en: "Settings", ja: "設定" },
   section_platform: { zh: "通訊平台", en: "Platform", ja: "プラットフォーム" },
   platform_line: { zh: "LINE", en: "LINE", ja: "LINE" },
-  "platform_line-official": { zh: "LINE 官方", en: "LINE official", ja: "LINE 公式" },
   platform_telegram: { zh: "Telegram", en: "Telegram", ja: "Telegram" },
   platform_whatsapp: { zh: "WhatsApp", en: "WhatsApp", ja: "WhatsApp" },
   platform_teams: { zh: "Teams", en: "Teams", ja: "Teams" },
@@ -134,23 +132,29 @@ export const DICT: Record<string, Entry> = {
   lbl_rate_max: { zh: "每 IP 最大請求數", en: "Max requests per IP", ja: "IP あたりの最大リクエスト数" },
 
   // line
-  legend_line: { zh: "LINE 登入", en: "LINE login", ja: "LINE ログイン" },
+  legend_line: { zh: "LINE", en: "LINE", ja: "LINE" },
+  lbl_line_mode: { zh: "帳號模式", en: "Account mode", ja: "アカウントモード" },
+  line_mode_personal: { zh: "個人帳號（selfbot）", en: "Personal (selfbot)", ja: "個人アカウント（セルフボット）" },
+  line_mode_official: { zh: "官方（Messaging API）", en: "Official (Messaging API)", ja: "公式（Messaging API）" },
+  hint_line_mode: {
+    zh: "兩種模式擇一啟用（同一時間只會有一個 LINE 服務，與 WhatsApp 的 Cloud／個人帳號相同）。selfbot 違反 LINE 條款有停權風險；官方版合規但有每月訊息額度與較多限制。切換後需重啟生效。",
+    en: "Choose one mode — only one LINE service runs at a time (same as WhatsApp Cloud / Personal). The selfbot violates LINE's terms (ban risk); the official channel is compliant but has a monthly message quota and more limits. Restart after switching.",
+    ja: "どちらか一方のみ有効（WhatsApp のクラウド／個人と同じく LINE サービスは 1 つのみ）。セルフボットは LINE 規約違反（停止リスク）、公式は合规だが月間送信数の制限あり。切替後に再起動が必要。",
+  },
   lbl_device: { zh: "裝置類型", en: "Device type", ja: "端末タイプ" },
   lbl_device_name: { zh: "顯示名稱（systemName）", en: "Display name (systemName)", ja: "表示名（systemName）" },
   lbl_model_name: { zh: "機型（modelName）", en: "Model (modelName)", ja: "機種（modelName）" },
   hint_relogin_needed: { zh: "顯示名稱需重新登入才生效", en: "Display name takes effect after re-login", ja: "表示名は再ログイン後に有効" },
 
-  // line-official（E2：Messaging API 雙軌）
-  "legend_line-official": { zh: "LINE 官方（Messaging API）", en: "LINE official (Messaging API)", ja: "LINE 公式（Messaging API）" },
-  hint_lo_dual: {
-    zh: "與 selfbot 的 LINE（左側「LINE 登入」）雙軌並存：兩者是獨立平台、獨立統計與排程，可同時上線。官方版本是合規路線，無停權風險。",
-    en: "Runs alongside the selfbot LINE (\"LINE login\" on the left): two independent platforms with separate stats and schedules. The official channel is the compliant path with no ban risk.",
-    ja: "セルフボット版 LINE（左の「LINE ログイン」とは独立したプラットフォーム）と並行稼働できます。統計・予約も別々。公式チャネルは停止リスクのない合规ルートです。",
+  // line official mode（E2：Messaging API，由 line.mode 擇一啟用）
+  hint_lo_personal_targets: {
+    zh: "目標對照（名稱=mid）在左側「目標對照」卡片，僅在個人帳號模式顯示。",
+    en: "Target mapping (name=mid) lives in the \"Target mapping\" card and only appears in personal mode.",
+    ja: "送信先マッピング（名称=mid）は左の「送信先マッピング」カードにあり、個人アカウントモードでのみ表示されます。",
   },
-  lbl_lo_enabled: { zh: "啟用 LINE 官方", en: "Enable LINE official", ja: "LINE 公式を有効化" },
   lbl_lo_token: { zh: "Channel access token", en: "Channel access token", ja: "チャネルアクセストークン" },
   hint_lo_token: {
-    zh: "LINE Developers Console → Messaging API → Channel access token (long-lived) 產生；留空 = 停用",
+    zh: "LINE Developers Console → Messaging API → Channel access token (long-lived) 產生；留空 = 發送回 503",
     en: "Create it in LINE Developers Console → Messaging API → Channel access token (long-lived); empty = disabled",
     ja: "LINE Developers Console → Messaging API → Channel access token (long-lived) で取得。空欄 = 無効",
   },

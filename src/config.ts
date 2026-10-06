@@ -44,6 +44,8 @@ const schema = z.object({
   LINE_DEVICE: z.enum(DEVICES).default("DESKTOPWIN"),
   LINE_DEVICE_NAME: z.string().default("IM Webhook"),
   LINE_MODEL_NAME: z.string().default("IM Webhook"),
+  // E2：LINE 帳號模式擇一（仿 WhatsApp 的 cloud/web）。personal = selfbot 個人帳號，official = Messaging API。
+  LINE_MODE: z.enum(["personal", "official"]).default("personal"),
   STORAGE_PATH: z.string().default("./storage.json"),
   TARGETS: z.string().default(""),
   TELEGRAM_ENABLED: boolDefault(false),
@@ -69,8 +71,7 @@ const schema = z.object({
   DISCORD_ENABLED: boolDefault(false),
   DISCORD_BOT_TOKEN: z.string().trim().default(""),
   DISCORD_TARGETS: z.string().default(""),
-  // E2：LINE 官方 Messaging API（與 selfbot 的 LINE 並存的雙軌模式）。
-  LINE_OFFICIAL_ENABLED: boolDefault(false),
+  // E2：LINE 官方 Messaging API（`line.mode = "official"` 時才會用到）。
   LINE_OFFICIAL_CHANNEL_ACCESS_TOKEN: z.string().trim().default(""),
   LINE_OFFICIAL_CHANNEL_SECRET: z.string().trim().default(""),
   // 對外 webhook 網址；設定後啟動時自動註冊（PUT /v2/bot/channel/webhook/endpoint）。
@@ -240,10 +241,19 @@ export interface Config {
   language: import("./i18n.js").Lang;
   timezone: string;
   line: {
+    /** 帳號模式擇一（仿 WhatsApp）：personal = selfbot，official = Messaging API。 */
+    mode: "personal" | "official";
     device: Device;
     deviceName: string;
     modelName: string;
     storagePath: string;
+    /** 官方模式專屬設定（personal 模式不使用）。 */
+    official: {
+      channelAccessToken: string;
+      channelSecret: string;
+      webhookUrl: string;
+      targets: Record<string, string>;
+    };
   };
   targets: Record<string, string>;
   telegram: {
@@ -275,13 +285,6 @@ export interface Config {
   discord: {
     enabled: boolean;
     botToken: string;
-    targets: Record<string, string>;
-  };
-  lineOfficial: {
-    enabled: boolean;
-    channelAccessToken: string;
-    channelSecret: string;
-    webhookUrl: string;
     targets: Record<string, string>;
   };
   /** 本服務對外網址（https://…）；本機媒體轉公開連結時用。 */
@@ -373,10 +376,17 @@ export const config: Config = {
   language: env.LANGUAGE,
   timezone: env.TIMEZONE,
   line: {
+    mode: env.LINE_MODE,
     device: env.LINE_DEVICE,
     deviceName: env.LINE_DEVICE_NAME,
     modelName: env.LINE_MODEL_NAME,
     storagePath: env.STORAGE_PATH,
+    official: {
+      channelAccessToken: env.LINE_OFFICIAL_CHANNEL_ACCESS_TOKEN,
+      channelSecret: env.LINE_OFFICIAL_CHANNEL_SECRET,
+      webhookUrl: env.LINE_OFFICIAL_WEBHOOK_URL,
+      targets: parseTargets(env.LINE_OFFICIAL_TARGETS),
+    },
   },
   targets: parseTargets(env.TARGETS),
   telegram: {
@@ -409,13 +419,6 @@ export const config: Config = {
     enabled: env.DISCORD_ENABLED,
     botToken: env.DISCORD_BOT_TOKEN,
     targets: parseTargets(env.DISCORD_TARGETS),
-  },
-  lineOfficial: {
-    enabled: env.LINE_OFFICIAL_ENABLED,
-    channelAccessToken: env.LINE_OFFICIAL_CHANNEL_ACCESS_TOKEN,
-    channelSecret: env.LINE_OFFICIAL_CHANNEL_SECRET,
-    webhookUrl: env.LINE_OFFICIAL_WEBHOOK_URL,
-    targets: parseTargets(env.LINE_OFFICIAL_TARGETS),
   },
   mediaPublicUrl: env.MEDIA_PUBLIC_URL,
   templates: [],

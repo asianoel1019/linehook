@@ -8,7 +8,6 @@ import { page } from "../shell.js";
 function capabilityNotes(): Record<string, string[]> {
     return {
         line: degradedCapabilities("line"),
-        "line-official": degradedCapabilities("line-official"),
         telegram: degradedCapabilities("telegram"),
         whatsapp: degradedCapabilities("whatsapp"),
         teams: degradedCapabilities("teams"),

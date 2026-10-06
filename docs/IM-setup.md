@@ -1,6 +1,7 @@
 # IM 申請與設定說明書
 
-本文件說明如何為每個通訊平台（LINE、LINE 官方 Messaging API、Telegram、WhatsApp、Teams、Discord）申請服務，並產生本系統所需的設定值。
+本文件說明如何為每個通訊平台（LINE、Telegram、WhatsApp、Teams、Discord）申請服務，並產生本系統所需的設定值。
+LINE 與 WhatsApp 一樣是**單一平台、模式擇一**：`LINE_MODE=personal`（個人帳號 selfbot）或 `official`（Messaging API），同一時間只會有一個 LINE 服務。
 
 - 設定分兩層：`.env`（bootstrap，無法在網頁改）與 `/settings`（線上編輯，存於 `settings.json`）。
 - 各平台的設定都在 **`/settings` 頁面**對應的卡片中填寫，填完按「儲存設定」。
@@ -11,8 +12,7 @@
 
 | 平台 | 發送端點 | 接收端點 | 目標對照欄位 |
 | --- | --- | --- | --- |
-| LINE | `POST /webhook` | 長連線（自 bot，無 webhook） | 設定 → 目標對照（名稱=mid） |
-| LINE 官方 | `POST /webhook/line-official` | `POST /line-official/webhook` | 設定 → LINE 官方 → 目標對照 |
+| LINE | `POST /webhook` | personal：長連線／official：`POST /line-official/webhook` | 設定 → 目標對照（名稱=mid 或 userId） |
 | Telegram | `POST /webhook/tg` | `POST /tg/update` | 設定 → Telegram Bot → 目標對照 |
 | WhatsApp | `POST /webhook/wa` | `GET/POST /wa/webhook` | 設定 → WhatsApp → 目標對照 |
 | Teams | `POST /webhook/teams` | `POST /teams/messages` | 設定 → Microsoft Teams → 目標對照 |
@@ -47,10 +47,14 @@
 
 ---
 
-## 1B. LINE 官方（Messaging API，合規雙軌）
+## 1B. LINE 官方（Messaging API 模式）
 
-與第 1 節的 selfbot **雙軌並存**：兩者是獨立平台（`line` 與 `line-official`），統計、排程、目標對照都分開，可同時上線。
+`/settings` → LINE → **帳號模式**選「官方（Messaging API）」（或 `.env` 設 `LINE_MODE=official`），
+**擇一啟用**——與 WhatsApp 的 Cloud／個人帳號相同，同一時間只會有一個 LINE 服務。
 官方版本走 LINE 官方 Messaging API，**沒有 selfbot 的停權風險**，也是長期唯一合規的做法。
+
+> 兩種模式共用同一個「LINE」平台：目標對照分開（personal 用 `名稱=mid`，official 用 `名稱=userId`）、
+> 排程檔與統計共用；切換模式後**需重啟**，且原本的目標 ID 格式不同，切換後要重新填。
 
 ### 需要什麼
 - 一個 **LINE 帳號**（用來建立 LINE 官方帳號）。
@@ -69,24 +73,24 @@
 4. **Webhook URL** 填 `https://<你的網域>/line-official/webhook`，或把網址填進 `LINE_OFFICIAL_WEBHOOK_URL`（系統啟動時會用 `PUT /v2/bot/channel/webhook/endpoint` 自動註冊）。填完按 **Verify** 應顯示成功。
 5. 邀請 Bot：把官方帳號加為好友（一對一）或加入群組（群組需在 LINE 官方帳號管理後台開啟「允許加入群組」）。
 6. `.env` 或 `/settings` 設定：
-   - `LINE_OFFICIAL_ENABLED=1`
+   - `LINE_MODE=official`（或在 `/settings` → LINE 把**帳號模式**切到「官方（Messaging API）」）
    - Channel access token / Channel secret / Webhook URL
    - **`MEDIA_PUBLIC_URL=https://<你的網域>`**（本機檔案要送給 LINE 必需，見下方「重要限制」）
-7. `/settings` → 右上角切到 **LINE 官方**，按「儲存設定」→ 重啟。
-8. 對 Bot 傳一則訊息，到 `/messages` 頁找到 **chatMid**（`U…`／`c…`／`Ra…`），填入「目標對照」即可主動推播。
+7. `/settings` → 右上角切到 **LINE** → 帳號模式選「官方」，按「儲存設定」→ **重啟**。
+8. 對 Bot 傳一則訊息，到 `/messages` 頁找到 **chatMid**（`U…`／`c…`／`Ra…`），填入 LINE 卡片內的「目標對照（名稱=userId／groupId）」即可主動推播。
    （收到訊息的對話也會自動記住，僅供名稱對照顯示用。）
 
 ### 端點 / API 呼叫
-- 發送：`POST https://你的網域/webhook/line-official`（驗證方式見文末「共用驗證」）。
+- 發送：`POST https://你的網域/webhook`（**與個人帳號模式共用同一個端點**；驗證方式見文末「共用驗證」）。
 - 接收：`POST https://你的網域/line-official/webhook`（驗 `X-Line-Signature`，**channel secret 未設定一律 503 拒絕**）。
 
 ### 測試是否成功
-1. `/dashboard` 右上角切到 **LINE 官方**，狀態應顯示**已登入**（日誌會出現「LINE 官方 Bot 已連線」）。
-2. 對官方帳號傳訊息，本系統應回覆；或呼叫 `POST /webhook/line-official` 主動發送。
+1. `/dashboard` 右上角切到 **LINE**，狀態應顯示**已登入**（日誌會出現「LINE 官方 Bot 已連線」）。
+2. 對官方帳號傳訊息，本系統應回覆；或呼叫 `POST /webhook` 主動發送。
 
 #### 常見問題
 - **webhook 403**：簽章不符 → 確認 `Channel secret` 正確，且**不要**讓 proxy 重新編碼 body（需保留原始 bytes）。
-- **webhook 503**：channel access token 或 channel secret 沒設，或未啟用。
+- **webhook 503**：帳號模式不是 `official`、channel access token 沒設，或 channel secret 沒設。
 - **本機圖片送不出去（400 / 要求 HTTPS）**：`MEDIA_PUBLIC_URL` 沒設或不是 `https://`。
 - **429 Too Many Requests**：佇列會自動退避重試；也可調大 `SEND_MIN_INTERVAL_MS`。
 - **額度用盡**：push／multicast／broadcast 佔每月額度（free 方案依地區 200～500 則），**回覆（reply）不佔**。系統會在收到訊息後 1 分鐘內自動改用 replyToken，逾時才退回 push。
@@ -331,7 +335,7 @@ Discord 與 LINE 同屬**長連線**模式：收訊不靠 webhook，由本程式
 
 ## 共用驗證（`/webhook*` 發送端點）
 
-LINE（selfbot）、LINE 官方 Messaging API、Telegram、WhatsApp、Teams、Discord 的**發送**端點共用同一套驗證（任一通過即可）：
+LINE（個人帳號／官方兩種模式擇一）、Telegram、WhatsApp、Teams、Discord 的**發送**端點共用同一套驗證（任一通過即可）：
 
 | 方式 | 設定 | 呼叫方式 |
 | --- | --- | --- |

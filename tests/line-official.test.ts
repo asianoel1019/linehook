@@ -4,7 +4,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "../src/config.js";
+import { capabilitiesFor, degradedCapabilities } from "../src/messaging/capabilities.js";
 import {
+  LineOfficialService,
   buildLineMessages,
   mediaDurationMs,
   normalizeLineEvent,
@@ -207,5 +209,67 @@ describe("buildLineMessages", () => {
 
   it("空輸入回空陣列（呼叫端跳過）", () => {
     assert.deepEqual(buildLineMessages({ to: "U1" }, resolver), []);
+  });
+});
+
+describe("line 單一平台模式（仿 WhatsApp 擇一登入）", () => {
+  const originalMode = config.line.mode;
+  const originalSchedules = config.schedulesPath;
+  let dir = "";
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "line-mode-"));
+    config.schedulesPath = join(dir, "schedules.json");
+  });
+
+  afterEach(() => {
+    config.line.mode = originalMode;
+    config.schedulesPath = originalSchedules;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("官方 adapter 也使用 platform = 'line'（不拆成第二個 channel）", () => {
+    const svc = new LineOfficialService();
+    try {
+      assert.equal(svc.platform, "line");
+      assert.equal(svc.loginStatus(), "未登入");
+      assert.equal(svc.listTargets().length, 0);
+    } finally {
+      svc.stopQueue();
+    }
+  });
+
+  it("personal 模式：LINE 能力全原生（無降級提示）", () => {
+    config.line.mode = "personal";
+    assert.deepEqual(degradedCapabilities("line"), []);
+    assert.equal(capabilitiesFor("line")?.sticker.level, "native");
+  });
+
+  it("official 模式：音訊／貼圖降級，其餘維持原生", () => {
+    config.line.mode = "official";
+    const notes = degradedCapabilities("line");
+    assert.ok(notes.some((n) => n.startsWith("audio")), notes.join(" | "));
+    assert.ok(notes.some((n) => n.startsWith("sticker")), notes.join(" | "));
+    const table = capabilitiesFor("line");
+    assert.equal(table?.image.level, "native", "圖片仍是原生（只是需公開連結）");
+    assert.equal(table?.sticker.level, "degraded");
+    assert.equal(table?.flex.level, "native");
+  });
+
+  it("官方 adapter 在 personal 模式下不初始化", async () => {
+    config.line.mode = "personal";
+    const svc = new LineOfficialService();
+    try {
+      await svc.init();
+      assert.equal(svc.loginStatus(), "未登入", "personal 模式不該連線");
+      assert.equal(await svc.healthCheck(), false);
+    } finally {
+      svc.stopQueue();
+    }
+  });
+
+  it("未知平台回 undefined", () => {
+    assert.equal(capabilitiesFor("nope"), undefined);
+    assert.deepEqual(degradedCapabilities("nope"), ["未知平台：nope"]);
   });
 });

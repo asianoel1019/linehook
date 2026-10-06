@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import type { Platform } from "./types.js";
 
 /** 訊息能力種類。 */
@@ -25,16 +26,6 @@ export const PLATFORM_CAPABILITIES: Record<Platform, Record<Capability, Capabili
     sticker: { level: "native", note: "" },
     location: { level: "native", note: "" },
     flex: { level: "native", note: "" },
-  },
-  "line-official": {
-    text: { level: "native", note: "單則上限 5000 字元，超過自動分段" },
-    image: { level: "native", note: "來源需為 HTTPS；本機檔案會自動轉為有時效的簽章公開連結" },
-    video: { level: "native", note: "來源需為 HTTPS；本機檔案會自動轉為有時效的簽章公開連結" },
-    audio: { level: "degraded", note: "需長度資訊；抓不到長度（如遠端音訊）會改以檔案附件送出" },
-    file: { level: "native", note: "來源需為 HTTPS；本機檔案會自動轉為有時效的簽章公開連結" },
-    sticker: { level: "degraded", note: "以 LINE 官方貼圖送出；無效或非官方貼圖 ID 會降級為文字說明" },
-    location: { level: "native", note: "" },
-    flex: { level: "native", note: "Flex 原生呈現（非降級）" },
   },
   telegram: {
     text: { level: "native", note: "" },
@@ -78,9 +69,33 @@ export const PLATFORM_CAPABILITIES: Record<Platform, Record<Capability, Capabili
   },
 };
 
+/** LINE 官方模式（`line.mode = "official"`）的能力差異；其餘平台與 selfbot 一致。 */
+const LINE_OFFICIAL_NOTES: Partial<Record<Capability, CapabilityInfo>> = {
+  text: { level: "native", note: "單則上限 5000 字元，超過自動分段" },
+  image: { level: "native", note: "來源需為 HTTPS；本機檔案會自動轉為有時效的簽章公開連結" },
+  video: { level: "native", note: "來源需為 HTTPS；本機檔案會自動轉為有時效的簽章公開連結" },
+  file: { level: "native", note: "來源需為 HTTPS；本機檔案會自動轉為有時效的簽章公開連結" },
+  audio: { level: "degraded", note: "需長度資訊；抓不到長度（如遠端音訊）會改以檔案附件送出" },
+  sticker: { level: "degraded", note: "以 LINE 官方貼圖送出；無效或非官方貼圖 ID 會降級為文字說明" },
+  flex: { level: "native", note: "Flex 原生呈現（非降級）" },
+};
+
+/**
+ * 取得平台**目前實際**的能力表。
+ * LINE 只有一個 platform id、但有兩種帳號模式擇一（仿 WhatsApp），因此能力必須依模式決定。
+ */
+export function capabilitiesFor(platform: string): Record<Capability, CapabilityInfo> | undefined {
+  const table = (PLATFORM_CAPABILITIES as Record<string, Record<Capability, CapabilityInfo>>)[platform];
+  if (!table) return undefined;
+  if (platform === "line" && config.line.mode === "official") {
+    return { ...table, ...LINE_OFFICIAL_NOTES };
+  }
+  return table;
+}
+
 /** 列出某平台上非原生（降級/不支援）的能力說明，供 /console 送出前提示。 */
 export function degradedCapabilities(platform: string): string[] {
-  const table = (PLATFORM_CAPABILITIES as Record<string, Record<Capability, CapabilityInfo>>)[platform];
+  const table = capabilitiesFor(platform);
   if (!table) return [`未知平台：${platform}`];
   const out: string[] = [];
   for (const [kind, info] of Object.entries(table) as Array<[Capability, CapabilityInfo]>) {

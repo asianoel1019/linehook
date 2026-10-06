@@ -84,8 +84,20 @@ async function main(): Promise<void> {
   }
   logger.info("服務啟動中", { port: config.port });
 
-  const line = new LineService();
+  // LINE：`line.mode` 擇一（仿 WhatsApp 的 cloud/web）——**單一 platform id**，
+  // 同一時間只註冊其中一個 adapter，設定／目標／排程／統計都屬於同一個「LINE」。
+  const line: LineService | LineOfficialService =
+    config.line.mode === "official" ? new LineOfficialService() : new LineService();
   registerService(line);
+  if (config.line.mode === "official") {
+    if (config.line.official.channelAccessToken.trim()) {
+      logger.info("LINE 已啟用（官方 Messaging API 模式）");
+    } else {
+      logger.warn("LINE 模式為 official 但未設定 channel access token，發送會回 503（請於 /settings 設定）");
+    }
+  } else {
+    logger.info("LINE 已啟用（個人帳號 / selfbot 模式）");
+  }
 
   // Telegram 與 LINE 可同時上線；未設定 botToken 時不註冊（/webhook/tg、/tg/update 回 503）。
   let telegram: TelegramService | null = null;
@@ -128,14 +140,6 @@ async function main(): Promise<void> {
     logger.info("Discord 已啟用");
   }
 
-  // E2：LINE 官方 Messaging API（與 selfbot 的 LINE 雙軌並存）；需 enabled + channel access token。
-  let lineOfficial: LineOfficialService | null = null;
-  if (config.lineOfficial.enabled && config.lineOfficial.channelAccessToken.trim()) {
-    lineOfficial = new LineOfficialService();
-    registerService(lineOfficial);
-    logger.info("LINE 官方已啟用（Messaging API）");
-  }
-
   const app = createServer(line);
 
   const server = await new Promise<Server>((resolve) => {
@@ -151,6 +155,10 @@ async function main(): Promise<void> {
   const monitor = startHealthMonitor();
 
   void line.init().catch((error) => {
+    if (config.line.mode === "official") {
+      logger.error("LINE 官方初始化失敗", { error: String(error) });
+      return;
+    }
     logger.error("LINE 登入失敗，可至狀態頁查看", { error: String(error) });
     setState({ status: "需人工", lastError: String(error) });
   });
@@ -179,12 +187,6 @@ async function main(): Promise<void> {
     });
   }
 
-  if (lineOfficial) {
-    void lineOfficial.init().catch((error) => {
-      logger.error("LINE 官方初始化失敗", { error: String(error) });
-    });
-  }
-
   let shuttingDown = false;
   const shutdown = (signal: string): void => {
     if (shuttingDown) return;
@@ -198,8 +200,6 @@ async function main(): Promise<void> {
     whatsapp?.stopQueue();
     teams?.stopQueue();
     discord?.stopQueue();
-    lineOfficial?.stopListening();
-    lineOfficial?.stopQueue();
     closeStore();
 
     const force = setTimeout(() => {

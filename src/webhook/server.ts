@@ -360,7 +360,7 @@ function resolveInputs(body: Record<string, unknown>, targets: string[]): SendIn
         return result;
     return targets.map((to) => buildInputFromMessage(to, result));
 }
-const ALL_PLATFORMS: Platform[] = ["line", "line-official", "telegram", "whatsapp", "teams", "discord"];
+const ALL_PLATFORMS: Platform[] = ["line", "telegram", "whatsapp", "teams", "discord"];
 /** 某平台目前的登入 QR（若需人工掃描）。各服務自行提供 getQr()。 */
 function platformQr(platform: string): string {
     const svc = getService(platform as Platform);
@@ -1250,17 +1250,16 @@ export function createServer(line: IMessagingService): express.Express {
     app.post("/webhook/teams", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("teams")));
     // Discord 發送端點：語意與 /webhook 相同（收訊走 Gateway 長連線，非 webhook）。
     app.post("/webhook/discord", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("discord")));
-    // E2：LINE 官方發送端點：語意與 /webhook 相同，走 Messaging API。
-    app.post("/webhook/line-official", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("line-official")));
-    // E2：LINE 官方接收端點（Messaging API webhook）。驗 X-Line-Signature = base64(HMAC-SHA256(rawBody, channelSecret))。
+    // E2：LINE 官方接收端點（Messaging API webhook；路徑維持不變，因它已填在 LINE Console）。
+    // 驗 X-Line-Signature = base64(HMAC-SHA256(rawBody, channelSecret))。
     // channel secret 未設定就直接拒絕——這是該端點唯一的來源驗證，不做「未設定就放行」。
     app.post("/line-official/webhook", rateLimit, (req, res) => {
-        const service = getService("line-official");
-        if (!service || !config.lineOfficial.enabled || !config.lineOfficial.channelAccessToken.trim()) {
-            res.status(503).json({ ok: false, error: "LINE 官方未啟用" });
+        const service = getService("line");
+        if (!service || config.line.mode !== "official" || !config.line.official.channelAccessToken.trim()) {
+            res.status(503).json({ ok: false, error: "LINE 官方模式未啟用（line.mode 需為 official）" });
             return;
         }
-        const secret = config.lineOfficial.channelSecret.trim();
+        const secret = config.line.official.channelSecret.trim();
         if (!secret) {
             logger.error("LINE 官方 webhook 拒絕：未設定 channel secret（LINE_OFFICIAL_CHANNEL_SECRET）");
             res.status(503).json({ ok: false, error: "未設定 channel secret，無法驗證來源" });
@@ -1274,7 +1273,7 @@ export function createServer(line: IMessagingService): express.Express {
             return;
         }
         // 先落地再回 200：崩潰時仍可追溯（見 messaging/inbox.ts）。
-        persistInbound("line-official", req.body);
+        persistInbound("line", req.body);
         // LINE 要求盡快回 200，否則會重送；實際處理非同步進行。
         res.json({ ok: true });
         void Promise.resolve(service.handleIncoming?.(req.body)).catch((error: unknown) => {

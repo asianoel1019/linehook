@@ -74,7 +74,6 @@ ${userDock}
     // 右上角全域 IM 切換：所有管理頁共用（localStorage: lw_platform）。
     const imOptions = [
         { id: "line", label: tr(lang, "platform_line"), icon: imIcon("line") },
-        { id: "line-official", label: tr(lang, "platform_line-official"), icon: imIcon("line-official") },
         { id: "telegram", label: tr(lang, "platform_telegram"), icon: imIcon("telegram") },
         { id: "whatsapp", label: tr(lang, "platform_whatsapp"), icon: imIcon("whatsapp") },
         { id: "teams", label: tr(lang, "platform_teams"), icon: imIcon("teams") },

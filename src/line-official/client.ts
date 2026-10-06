@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename } from "node:path";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { recordMessage } from "../messages.js";
@@ -262,8 +262,15 @@ function timingSafeEqualLocal(a: Buffer, b: Buffer): boolean {
   return timingSafeEqual(a, b);
 }
 
+/**
+ * LINE 官方（Messaging API）adapter。
+ *
+ * 與 selfbot 的 `LineService` **共用同一個 platform id `line`**，由 `line.mode` 擇一啟用
+ * （仿 WhatsApp 的 cloud/web）：同一時間只會註冊其中一個，設定、目標對照、排程檔、
+ * 統計都屬於同一個「LINE」平台。官方模式合規、無停權風險，但有每月訊息額度與較多限制。
+ */
 export class LineOfficialService implements IMessagingService {
-  readonly platform = "line-official" as const;
+  readonly platform = "line" as const;
   private readonly queue: SendQueue;
   private readonly scheduler: SendScheduler;
   private nameToChat = new Map<string, string>();
@@ -302,20 +309,16 @@ export class LineOfficialService implements IMessagingService {
   }
 
   private schedulesPath(): string {
-    const dir = dirname(config.schedulesPath);
-    const file = basename(config.schedulesPath);
-    const dot = file.lastIndexOf(".");
-    const stem = dot >= 0 ? file.slice(0, dot) : file;
-    const ext = dot >= 0 ? file.slice(dot) : ".json";
-    return join(dir, `${stem}-line-official${ext}`);
+    // 與 selfbot 共用同一份排程檔（line.mode 擇一啟用，同一時間只會有一個 LINE adapter 存在）。
+    return config.schedulesPath;
   }
 
   private get token(): string {
-    return config.lineOfficial.channelAccessToken.trim();
+    return config.line.official.channelAccessToken.trim();
   }
 
   private get secret(): string {
-    return config.lineOfficial.channelSecret.trim();
+    return config.line.official.channelSecret.trim();
   }
 
   // ---------- REST ----------
@@ -383,12 +386,12 @@ export class LineOfficialService implements IMessagingService {
   // ---------- 生命週期 ----------
 
   async init(): Promise<void> {
-    if (!config.lineOfficial.enabled) {
-      logger.info("LINE 官方未啟用，略過初始化");
+    if (config.line.mode !== "official") {
+      logger.info("LINE 模式為 personal（selfbot），略過官方 adapter 初始化");
       return;
     }
     if (!this.token) {
-      logger.warn("LINE 官方已啟用但未設定 channel access token，略過");
+      logger.warn("LINE 模式為 official 但未設定 channel access token，略過");
       return;
     }
     this.state = "連線中";
@@ -408,7 +411,7 @@ export class LineOfficialService implements IMessagingService {
 
   /** 設定 LINE_OFFICIAL_WEBHOOK_URL 時自動註冊；沒設就提示到 Console 手動設定。 */
   private async ensureWebhook(): Promise<void> {
-    const url = config.lineOfficial.webhookUrl.trim();
+    const url = config.line.official.webhookUrl.trim();
     if (!url) {
       logger.warn("未設定 LINE_OFFICIAL_WEBHOOK_URL，請到 LINE Developers Console 把 Webhook URL 設為 https://<你的網域>/line-official/webhook");
       return;
@@ -425,7 +428,7 @@ export class LineOfficialService implements IMessagingService {
   }
 
   async healthCheck(): Promise<boolean> {
-    if (!config.lineOfficial.enabled || !this.token) return false;
+    if (config.line.mode !== "official" || !this.token) return false;
     try {
       await this.api("/v2/bot/info");
       this.state = "已登入";
@@ -458,7 +461,7 @@ export class LineOfficialService implements IMessagingService {
   refreshContacts(): Promise<void> {
     const nameToChat = new Map<string, string>();
     const chatToName = new Map<string, string>();
-    for (const [name, id] of Object.entries(config.lineOfficial.targets)) {
+    for (const [name, id] of Object.entries(config.line.official.targets)) {
       nameToChat.set(name, id);
       if (!chatToName.has(id)) chatToName.set(id, name);
     }
@@ -505,7 +508,7 @@ export class LineOfficialService implements IMessagingService {
     for (const event of events) {
       const msg = normalizeLineEvent(event);
       if (!msg) continue;
-      if (seenInbound("line-official", msg.messageId)) continue;
+      if (seenInbound("line", msg.messageId)) continue;
       if (event.replyToken) this.pendingReply.set(msg.chat, { token: event.replyToken, at: Date.now() });
       const name = await this.displayNameOf(msg.fromId);
       msg.fromName = name;
@@ -515,7 +518,7 @@ export class LineOfficialService implements IMessagingService {
         fromMid: msg.fromId,
         fromName: msg.fromName,
         chatMid: msg.chat,
-        chatType: "line-official",
+        chatType: "line",
         text: msg.text,
       });
       await dispatchIncoming(msg, this.dispatchDeps());
@@ -524,7 +527,7 @@ export class LineOfficialService implements IMessagingService {
 
   private dispatchDeps(): DispatchDeps {
     return {
-      platform: "line-official",
+      platform: "line",
       replyTo: (chat, text) => this.replyTo(chat, text),
       sendAdvanced: (inputs) => this.sendAdvanced(inputs),
       sendMedia: (chat, source, kind, filename) => this.sendMedia(chat, source, kind, filename),
@@ -551,7 +554,7 @@ export class LineOfficialService implements IMessagingService {
     if (!id) throw new TargetNotFoundError(chat);
     const messages: LineMessage[] = chunkReplyText(text, LINE_TEXT_LIMIT).map((part) => ({ type: "text", text: part }));
     await this.replyOrPush(id, messages);
-    recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: true, platform: "line-official" });
+    recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: true, platform: "line" });
     setState({ lastSendAt: new Date().toISOString(), lastSendTo: this.chatToName.get(id) ?? id });
   }
 
@@ -559,7 +562,7 @@ export class LineOfficialService implements IMessagingService {
     try {
       await this.rawSend(chat, text);
     } catch (error) {
-      recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: false, platform: "line-official" });
+      recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: false, platform: "line" });
       throw error;
     }
   }
@@ -573,9 +576,9 @@ export class LineOfficialService implements IMessagingService {
       } catch (error) {
         errors.push(error);
         messages.push(`${input.to}: ${error instanceof Error ? error.message : String(error)}`);
-        recordSend({ time: new Date().toISOString(), to: input.to, type: inputType(input), ok: false, platform: "line-official" });
+        recordSend({ time: new Date().toISOString(), to: input.to, type: inputType(input), ok: false, platform: "line" });
         writeDeadLetter({
-          platform: "line-official",
+          platform: "line",
           kind: "send",
           to: [input.to],
           payload: [input],
@@ -606,7 +609,7 @@ export class LineOfficialService implements IMessagingService {
         throw error;
       }
     }
-    recordSend({ time: new Date().toISOString(), to: input.to, type: inputType(input), ok: true, platform: "line-official" });
+    recordSend({ time: new Date().toISOString(), to: input.to, type: inputType(input), ok: true, platform: "line" });
     setState({ lastSendAt: new Date().toISOString(), lastSendTo: this.chatToName.get(id) ?? id });
   }
 

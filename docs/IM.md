@@ -4,7 +4,7 @@
 > 已定決策（2026-09-29）：首發 Telegram；LINE＋新平台**同時雙開**；
 > 接收走 Webhook（例外：Discord 走 Gateway 長連線；LINE 官方走 Messaging API webhook 驗 `X-Line-Signature`）；
 > 第一版即開**完整技能**（26 個全上）。
-> 傳送路由：`POST /webhook` 留給 LINE（向下相容），LINE 官方用 `POST /webhook/line-official`，Telegram 用 `POST /webhook/tg`。
+> 傳送路由：`POST /webhook` 給 LINE（personal／official 兩種模式共用，向下相容），Telegram 用 `POST /webhook/tg`。
 
 ## 1. 背景
 
@@ -130,33 +130,39 @@ interface IMessagingService {
 > 未做的取捨：Discord rate limit 以 bucket 為單位，本版先沿用 `SendQueue` 的退避重試（429 視為可重試），
 > 未實作 per-bucket 節流（可插拔節流策略列為後續優化）。
 
-### 3.5 LINE 官方 Messaging API（E2，雙軌）
+### 3.5 LINE 官方 Messaging API（E2，`line.mode = official`）
 
+- **決策（依使用者）**：LINE **只有一個 platform id `line`**，personal（selfbot）與 official（Messaging API）
+  以 `line.mode` **擇一啟用**——與 WhatsApp 的 `cloud`／`web` 完全同構：
+  同一時間只會 `registerService()` 其中一個 adapter，因此設定、目標對照、排程檔、統計都屬於同一個「LINE」。
+  代價是稽核 D6 指出的取捨：**兩種模式共用 `platform: "line"`**，切換模式後統計合併計算、
+  目標 ID 格式不同（mid ↔ userId）需重填。
 - **前置**：LINE Developers Provider + Messaging API channel；取得 channel access token 與 channel secret；
   Console 開 **Use webhook**、建議關閉 Auto-reply messages。
-- **實作**：`src/line-official/client.ts`，**獨立平台 id `line-official`**（與 selfbot 的 `line` 不互撞，見 D6）；
+- **實作**：`src/line-official/client.ts`（`platform: "line"`）；
   收訊 `POST /line-official/webhook` 驗 `X-Line-Signature`（base64 HMAC-SHA256，**channel secret 未設定一律 503 拒絕**）；
-  發送 `POST /webhook/line-official` → `v2/bot/message/push`，回覆優先走 `reply`。
+  發送 **`POST /webhook`**（與 personal 共用）→ `v2/bot/message/push`，回覆優先走 `reply`。
 - **配額關鍵**：**reply 不佔每月訊息額度，push／multicast／broadcast 佔**（free 方案依地區 200～500 則/月）。
   因此 adapter 記住事件的 `replyToken`（一次性、1 分鐘內有效），`replyTo` 優先用 reply，失效或逾時自動退回 push。
 - **媒體**：LINE 只收 HTTPS URL（無二進位上傳 API）→ `src/media-url.ts` 把本機檔案轉成
   HMAC 簽章＋24 小時時效的 `/media/:exp/:sig/:name`（需 `MEDIA_PUBLIC_URL`）。
 - **能力**：Flex／位置**原生**；文字自動分段（5000）；貼圖原生但無效 ID 降級文字；
   音訊需長度（解析 WAV／MP4／MP3，抓不到就降級檔案附件）。
-- **進度**：adapter、雙端點、設定卡、平台切換、能力矩陣、`icons/line-official.png`、
-  正規化／簽章／訊息轉譯／媒體簽章測試**已完成**。
+  這些差異由 `capabilitiesFor("line")` 依模式動態套用（personal 模式全原生）。
+- **進度**：adapter、模式擇一、接收端點、設定頁模式切換、能力矩陣（模式感知）、
+  正規化／簽章／訊息轉譯／媒體簽章／模式測試**已完成**。
 - **驗收**：typecheck＋build＋全測試；真 LINE 官方帳號來回（需 channel 憑證與對外 HTTPS）。
 
 ## 4. 共通路由與設定命名
 
-| 用途 | LINE（selfbot） | LINE 官方 | Telegram | Teams | WhatsApp | Discord |
-|---|---|---|---|---|---|---|
-| 發送 | `POST /webhook` | `POST /webhook/line-official` ✅ | `POST /webhook/tg` | `POST /webhook/teams` ✅ | `POST /webhook/wa` ✅ | `POST /webhook/discord` ✅ |
-| 接收 | 長連接（自 bot） | `POST /line-official/webhook` ✅ | `POST /tg/update` | `POST /teams/messages` ✅ | `GET+POST /wa/webhook` ✅ | Gateway 長連線 ✅ |
-| 目標對照 | `targets` | `lineOfficial.targets` ✅ | `tgTargets` | `teams.targets` ✅ | `whatsapp.targets` ✅ | `discord.targets` ✅ |
+| 用途 | LINE（personal ／ official 擇一） | Telegram | Teams | WhatsApp | Discord |
+|---|---|---|---|---|---|
+| 發送 | `POST /webhook` ✅ | `POST /webhook/tg` | `POST /webhook/teams` ✅ | `POST /webhook/wa` ✅ | `POST /webhook/discord` ✅ |
+| 接收 | personal：長連線／official：`POST /line-official/webhook` ✅ | `POST /tg/update` | `POST /teams/messages` ✅ | `GET+POST /wa/webhook` ✅ | Gateway 長連線 ✅ |
+| 目標對照 | `targets`（mid）／`line.official.targets`（userId） | `tgTargets` | `teams.targets` ✅ | `whatsapp.targets` ✅ | `discord.targets` ✅ |
 
 ## 5. 風險總覽
 
-1. LINE（selfbot）是違反 ToS 的路線，**LINE 官方 Messaging API（3.5）是合規替代**，兩者可同時上線——建議逐步把流量遷到官方。
+1. LINE selfbot 是違反 ToS 的路線；`line.mode = official` 是合規替代，**擇一切換**（不可同時上線）——建議逐步把流量遷到官方。
 2. 平台能力差異（Flex／貼圖／模板／24h 視窗）一律「降級＋寫進 README」，不假裝支援。
 3. `POST /webhook` 的驗證與 scope 機制各平台共用，不另起爐灶。

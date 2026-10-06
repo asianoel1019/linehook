@@ -10,15 +10,15 @@ LINE 透過已登入的個人帳號（selfbot），Telegram 走 Bot API，WhatsA
 ## 功能
 
 - Webhook 接收 `{ to, text }` 並轉發到指定好友 / 群組；支援**多訊息類型**（`text` / `file` / `image` / `sticker` / `location` / `flex`）、**訊息模板 + 變數**（`template` / `vars`）、**排程 / 延遲發送**（`sendAt` / `delaySec`）與**多收件人**（`to` 陣列）
-- **多 IM**：LINE（selfbot）、**LINE 官方 Messaging API（雙軌並存）**、Telegram、WhatsApp（Cloud API／個人帳號雙模式）、Teams、Discord，各有獨立發送端點（`POST /webhook`、`/webhook/line-official`、`/webhook/tg`、`/webhook/wa`、`/webhook/teams`、`/webhook/discord`）與接收機制；共用驗證、技能、排程框架
-- **右上角全域 IM 切換**：所有管理頁共用同一個平台切換（LINE／LINE 官方／Telegram／WhatsApp／Teams／Discord，附各平台 icon），切換後各頁只顯示該平台內容並記住選擇
+- **多 IM**：LINE（**個人帳號／官方 Messaging API 擇一**，同 WhatsApp 的雙模式）、Telegram、WhatsApp（Cloud API／個人帳號雙模式）、Teams、Discord，各有獨立發送端點（`POST /webhook`、`/webhook/tg`、`/webhook/wa`、`/webhook/teams`、`/webhook/discord`）與接收機制；共用驗證、技能、排程框架
+- **右上角全域 IM 切換**：所有管理頁共用同一個平台切換（LINE／Telegram／WhatsApp／Teams／Discord，附各平台 icon），切換後各頁只顯示該平台內容並記住選擇
 - **發送佇列**：序列化發送、最小間隔節流、失敗自動退避重試
 - 來源 IP 白名單 + HMAC-SHA256 簽章（含 timestamp / nonce 防重放）+ 速率限制 + **idempotency 去重**（`X-Idempotency-Key`）
 - **管理頁面一律需登入**（`/dashboard`、`/console`、`/skills`、`/settings`、`/messages`、`/readme`），閒置 5 分鐘自動登出並導回登入頁；側欄底部為使用者圓形按鈕（顯示帳號首字，上方顯示**閒置登出倒數**），點擊可**登出**或**變更密碼**；側欄可切換**語言（中文 / English / 日本語）**
 - **儀表板 `/dashboard`**（登入後首頁）：依右上角選擇的平台顯示該平台的狀態摘要與發送統計（總數 / 成功 / 失敗 / 成功率、近 N 日長條圖、類型分佈）；停用的平台顯示「未啟用」空白狀態。另有最近紀錄、登入 QR（LINE／WhatsApp 個人帳號模式依平台顯示不同掃描說明）
 - **功能頁 `/console`**：左側「功能」卡片（依平台過濾的測試發送含媒體上傳、目標清單、最近紀錄、排程中的訊息可改變時間 / 取消）與「操作」（LINE 重新登入 / 重新整理聯絡人，僅 LINE 可見；Flex 可視化編輯僅 LINE）
 - **技能頁 `/skills`**：啟用助理與名稱、每個技能（資料夾）一張卡片可 enable/disable 與設定參數；技能為可下載子專案（見下方「可下載技能」）
-- **設定頁 `/settings`**：左側設定卡片，**線上編輯設定**（存於 `settings.json`，立即生效）；共用設定永遠可見，平台專屬（LINE 登入／LINE 官方、Telegram Bot、WhatsApp、Teams、Discord）只在切到該平台時顯示
+- **設定頁 `/settings`**：左側設定卡片，**線上編輯設定**（存於 `settings.json`，立即生效）；共用設定永遠可見，平台專屬（LINE 帳號模式／裝置、Telegram Bot、WhatsApp、Teams、Discord）只在切到該平台時顯示
 - **訊息頁 `/messages`**：記錄收到的訊息（唯讀瀏覽；可選持久化到檔案）
 - **關鍵字自動回覆**：收到訊息且內容與關鍵字「完全相符」時，自動回覆文字與／或檔案，含**每聊天冷卻**（於 `/settings` 設定）
 - 登入失效自動重登；失敗時**多通道告警**（Email ＋ Slack/Discord/ntfy webhook ＋ dead-man ping），含去抖重發與恢復通知
@@ -93,8 +93,8 @@ npm run typecheck
 `HEALTH_CHECK_INTERVAL_SEC`、`LOG_LIMIT`、`LOG_MAX_BYTES`、`LOG_MAX_FILES`、`TARGETS`、訊息模板、
 訊息持久化開關、自動回覆（含冷卻秒數）、`SMTP_*`、`MAIL_FROM`、`MAIL_TO`、
 `ALERT_WEBHOOK_URLS`、`ALERT_DEADMAN_URL`、`ALERT_DEADLETTER_THRESHOLD`、`ALERT_RESEND_MINUTES`、
-Telegram（`TELEGRAM_*`）、WhatsApp（`WHATSAPP_*`，含 Cloud／個人帳號模式切換）、Teams（`TEAMS_*`）、Discord（`DISCORD_*`）、
-LINE 官方（`LINE_OFFICIAL_*`：access token、channel secret、webhook URL、targets）。
+LINE（`LINE_MODE` 擇一：`personal` 自己申請的個人帳號 selfbot ／ `official` 官方 Messaging API，含 `LINE_OFFICIAL_*`：access token、channel secret、webhook URL、targets）、
+Telegram（`TELEGRAM_*`）、WhatsApp（`WHATSAPP_*`，含 Cloud／個人帳號模式切換）、Teams（`TEAMS_*`）、Discord（`DISCORD_*`）。
 
 > `LINE_DEVICE_NAME` / `LINE_DEVICE` 需重新登入（刪除 `storage.json`）才會反映在 LINE 顯示的裝置名稱。
 > `.env.example` 仍保留這些項目的預設值，可作為啟動初始值。
@@ -115,8 +115,7 @@ LINE 官方（`LINE_OFFICIAL_*`：access token、channel secret、webhook URL、
 
 | 平台 | 發送 | 接收 | 目標對照 |
 | --- | --- | --- | --- |
-| LINE | `POST /webhook` | 長連線（無 webhook） | 名稱=mid |
-| LINE 官方 | `POST /webhook/line-official` | `POST /line-official/webhook`（驗 `X-Line-Signature`） | 名稱=userId／groupId |
+| LINE | `POST /webhook` | 個人帳號：長連線／官方：`POST /line-official/webhook`（驗 `X-Line-Signature`） | 名稱=mid 或 userId／groupId |
 | Telegram | `POST /webhook/tg` | `POST /tg/update`（驗 secret token） | 名稱=chat_id（或 @username） |
 | WhatsApp | `POST /webhook/wa` | Cloud 模式：`GET/POST /wa/webhook`（驗簽章）；個人帳號模式：長連線，無 webhook | 名稱=電話號碼（E.164 不含 +） |
 | Teams | `POST /webhook/teams` | `POST /teams/messages`（驗 Bearer JWT） | 名稱=conversation id（收訊後自動記住） |
@@ -562,7 +561,7 @@ curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
 
 ## 各平台申請與設定
 
-LINE / LINE 官方 / Telegram / WhatsApp / Teams / Discord 的申請流程、如何產生本系統所需設定值（Bot Token、secret、chat_id / 電話號碼、Entra App、Discord Bot、LINE Channel access token、驗證方式等），
+LINE（個人帳號 selfbot ／ 官方 Messaging API 擇一）、Telegram / WhatsApp / Teams / Discord 的申請流程、如何產生本系統所需設定值（Bot Token、secret、chat_id / 電話號碼、Entra App、Discord Bot、LINE Channel access token、驗證方式等），
 與各平台端點對照，詳見 [`docs/IM-setup.md`](docs/IM-setup.md)。
 
 ## 部署（更新程式、保留狀態）
@@ -646,7 +645,7 @@ src/
   logger.ts             log（console + 檔案 + 記憶體 + 輪替）
   rotate.ts             檔案輪替工具
   line/client.ts        LINE 登入 / 聯絡人 / 發送（文字 / 檔案 / 圖片 / 影片 / 語音 / 貼圖 / 位置 / Flex）/ 自動回覆 / 重登
-  line-official/client.ts LINE 官方 Messaging API（push/reply、X-Line-Signature 驗簽、Flex/位置原生、音訊長度解析）
+  line-official/client.ts LINE 官方 Messaging API adapter（line.mode=official 時使用；push/reply、X-Line-Signature 驗簽、Flex/位置原生、音訊長度解析）
   media-url.ts          本機媒體 → 簽章公開連結（LINE 只收 HTTPS URL）
   line/queue.ts         發送佇列（重試 + 節流）
   line/scheduler.ts     排程 / 延遲 / 重複發送（持久化）

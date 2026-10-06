@@ -115,16 +115,6 @@ const settingsSchema = z.object({
       targets: z.record(z.string(), z.string()).default({}),
     })
     .default({ enabled: false, botToken: "", targets: {} }),
-  // E2：LINE 官方 Messaging API（與 selfbot 雙軌並存）。
-  lineOfficial: z
-    .object({
-      enabled: z.boolean().default(false),
-      channelAccessToken: z.string().trim().default(""),
-      channelSecret: z.string().trim().default(""),
-      webhookUrl: z.string().trim().default(""),
-      targets: z.record(z.string(), z.string()).default({}),
-    })
-    .default({ enabled: false, channelAccessToken: "", channelSecret: "", webhookUrl: "", targets: {} }),
   templates: z
     .array(
       z.object({
@@ -158,9 +148,19 @@ const settingsSchema = z.object({
   }),
   replyMaxChars: z.coerce.number().int().nonnegative().default(4000),
   line: z.object({
+    // E2：帳號模式擇一（仿 WhatsApp）；官方模式只用底下的 official 區塊。
+    mode: z.enum(["personal", "official"]).default("personal"),
     device: z.enum(DEVICES).default("DESKTOPWIN"),
     deviceName: z.string().default("IM Webhook"),
     modelName: z.string().default("IM Webhook"),
+    official: z
+      .object({
+        channelAccessToken: z.string().trim().default(""),
+        channelSecret: z.string().trim().default(""),
+        webhookUrl: z.string().trim().default(""),
+        targets: z.record(z.string(), z.string()).default({}),
+      })
+      .default({ channelAccessToken: "", channelSecret: "", webhookUrl: "", targets: {} }),
   }),
   smtp: z.object({
     host: z.string().default(""),
@@ -270,13 +270,6 @@ export function currentSettings(): EditableSettings {
       botToken: config.discord.botToken,
       targets: { ...config.discord.targets },
     },
-    lineOfficial: {
-      enabled: config.lineOfficial.enabled,
-      channelAccessToken: config.lineOfficial.channelAccessToken,
-      channelSecret: config.lineOfficial.channelSecret,
-      webhookUrl: config.lineOfficial.webhookUrl,
-      targets: { ...config.lineOfficial.targets },
-    },
     templates: config.templates.map((template) => ({ ...template })),
     flexTemplates: config.flexTemplates.map((template) => ({ ...template })),
     healthCheckIntervalSec: config.healthCheckIntervalSec,
@@ -288,9 +281,16 @@ export function currentSettings(): EditableSettings {
     rateLimit: { ...config.rateLimit },
     replyMaxChars: config.replyMaxChars,
     line: {
+      mode: config.line.mode,
       device: config.line.device,
       deviceName: config.line.deviceName,
       modelName: config.line.modelName,
+      official: {
+        channelAccessToken: config.line.official.channelAccessToken,
+        channelSecret: config.line.official.channelSecret,
+        webhookUrl: config.line.official.webhookUrl,
+        targets: { ...config.line.official.targets },
+      },
     },
     smtp: { ...config.smtp },
     alert: {
@@ -369,13 +369,6 @@ function apply(settings: EditableSettings): void {
     botToken: settings.discord.botToken,
     targets: { ...settings.discord.targets },
   };
-  config.lineOfficial = {
-    enabled: settings.lineOfficial.enabled,
-    channelAccessToken: settings.lineOfficial.channelAccessToken,
-    channelSecret: settings.lineOfficial.channelSecret,
-    webhookUrl: settings.lineOfficial.webhookUrl,
-    targets: { ...settings.lineOfficial.targets },
-  };
   config.templates = settings.templates.map((template) => ({ ...template }));
   config.flexTemplates = settings.flexTemplates.map((template) => ({ ...template }));
   config.healthCheckIntervalSec = settings.healthCheckIntervalSec;
@@ -386,9 +379,16 @@ function apply(settings: EditableSettings): void {
   config.send = { ...settings.send };
   config.rateLimit = { ...settings.rateLimit };
   config.replyMaxChars = settings.replyMaxChars;
+  config.line.mode = settings.line.mode;
   config.line.device = settings.line.device;
   config.line.deviceName = settings.line.deviceName;
   config.line.modelName = settings.line.modelName;
+  config.line.official = {
+    channelAccessToken: settings.line.official.channelAccessToken,
+    channelSecret: settings.line.official.channelSecret,
+    webhookUrl: settings.line.official.webhookUrl,
+    targets: { ...settings.line.official.targets },
+  };
   config.smtp = { ...settings.smtp };
   config.alert = {
     webhookUrls: [...settings.alert.webhookUrls],
@@ -454,7 +454,6 @@ export function loadSettings(): void {
       whatsapp: { ...base.whatsapp, ...(data.whatsapp ?? {}) },
       teams: { ...base.teams, ...(data.teams ?? {}) },
       discord: { ...base.discord, ...(data.discord ?? {}) },
-      lineOfficial: { ...base.lineOfficial, ...(data.lineOfficial ?? {}) },
     });
     logger.info("已載入 settings.json", { path });
   } catch (error) {

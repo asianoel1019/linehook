@@ -49,22 +49,30 @@ export function renderSettingsHtml() {
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="line" data-im="line">
-    <legend data-i18n="legend_line">LINE 登入</legend>
-    <div class="field"><label data-i18n="lbl_device">裝置類型</label><select id="line-device">${deviceOptions}</select></div>
-    <div class="field"><label data-i18n="lbl_device_name">顯示名稱（systemName）</label><input id="line-deviceName" type="text"></div>
-    <div class="field"><label data-i18n="lbl_model_name">機型（modelName）</label><input id="line-modelName" type="text"><div class="hint" data-i18n="hint_relogin_needed">顯示名稱需重新登入才生效</div></div>
-  </fieldset>
+    <legend data-i18n="legend_line">LINE</legend>
+    <div class="field"><label data-i18n="lbl_line_mode">帳號模式</label>
+      <span style="display:flex;gap:16px;flex-wrap:wrap">
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="line-mode" value="personal" id="line-mode-personal" style="width:auto"><span data-i18n="line_mode_personal">個人帳號（selfbot）</span></label>
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="line-mode" value="official" id="line-mode-official" style="width:auto"><span data-i18n="line_mode_official">官方（Messaging API）</span></label>
+      </span>
+      <div class="hint" data-i18n="hint_line_mode">兩種模式<strong>擇一啟用</strong>（同一時間只會有一個 LINE 服務，與 WhatsApp 的 Cloud／個人帳號相同）。selfbot 違反 LINE 條款有停權風險；官方版合規但有每月訊息額度與較多限制。<strong>切換後需重啟生效。</strong></div>
+    </div>
 
-  <fieldset class="fn-panel" data-fn="line-official" data-im="line-official">
-    <legend data-i18n="legend_line-official">LINE 官方（Messaging API）</legend>
-    <div class="field"><div class="hint" data-i18n="hint_lo_dual">與 selfbot 的 LINE（左側「LINE 登入」）<strong>雙軌並存</strong>：兩者是獨立平台、獨立統計與排程，可同時上線。官方版本是合規路線，無停權風險。</div></div>
-    <div class="field"><label data-i18n="lbl_lo_enabled">啟用 LINE 官方</label><input id="lo-enabled" type="checkbox"><div class="hint">停用後 <code>/webhook/line-official</code>、<code>/line-official/webhook</code> 回 503</div></div>
-    <div class="field"><label data-i18n="lbl_lo_token">Channel access token</label><input id="lo-channelAccessToken" type="password" placeholder=" long-lived 或短期 token"><div class="hint" data-i18n="hint_lo_token">LINE Developers Console → Messaging API → Channel access token (long-lived) 產生；留空 = 停用</div></div>
-    <div class="field"><label data-i18n="lbl_lo_secret">Channel secret</label><input id="lo-channelSecret" type="password" placeholder="••••••••"><div class="hint" data-i18n="hint_lo_secret">Basic settings → Channel secret；<strong>未設定會直接拒絕接收 webhook</strong>（這是該端點唯一的來源驗證）</div></div>
-    <div class="field"><label data-i18n="lbl_lo_webhook">Webhook URL（自動註冊）</label><input id="lo-webhookUrl" type="text" placeholder="https://example.com/line-official/webhook"><div class="hint" data-i18n="hint_lo_webhook">設定後重啟會以 <code>PUT /v2/bot/channel/webhook/endpoint</code> 自動註冊；也可到 Console 手動填 <code>https://&lt;你的網域&gt;/line-official/webhook</code></div></div>
-    <div class="field"><label data-i18n="lbl_lo_targets">目標對照（名稱=userId／groupId）</label><textarea id="lo-targets" placeholder="每行一筆，例如：我=U1234abcd…32hex"></textarea><div class="hint" data-i18n="hint_lo_targets">每行一筆；用戶 <code>U…</code>、群組 <code>c…</code>、多人房 <code>Ra…</code>。收到訊息後會自動記住，可不填</div></div>
-    <div class="field"><div class="hint" data-i18n="hint_lo_media">本機檔案要送給 LINE 需先變成<strong>公開連結</strong>（LINE 只收 HTTPS URL）：請在 <code>.env</code> 設定 <code>MEDIA_PUBLIC_URL=https://&lt;你的網域&gt;</code>，檔案會以 HMAC 簽章＋24 小時時效的路徑（<code>/media/…</code>）提供。</div></div>
-    <div class="field"><div class="hint" data-i18n="hint_lo_quota">配額：回覆（reply）<strong>不佔</strong>每月訊息額度，push／multicast／broadcast 佔。系統會在 1 分鐘內的回覆自動改用 replyToken，逾時才退回 push。</div></div>
+    <div data-line-mode="personal">
+      <div class="field"><label data-i18n="lbl_device">裝置類型</label><select id="line-device">${deviceOptions}</select></div>
+      <div class="field"><label data-i18n="lbl_device_name">顯示名稱（systemName）</label><input id="line-deviceName" type="text"></div>
+      <div class="field"><label data-i18n="lbl_model_name">機型（modelName）</label><input id="line-modelName" type="text"><div class="hint" data-i18n="hint_relogin_needed">顯示名稱需重新登入才生效</div></div>
+      <div class="field"><div class="hint" data-i18n="hint_lo_personal_targets">目標對照（名稱=mid）在左側「目標對照」卡片，僅在個人帳號模式顯示。</div></div>
+    </div>
+
+    <div data-line-mode="official">
+      <div class="field"><label data-i18n="lbl_lo_token">Channel access token</label><input id="lo-channelAccessToken" type="password" placeholder=" long-lived 或短期 token"><div class="hint" data-i18n="hint_lo_token">LINE Developers Console → Messaging API → Channel access token (long-lived) 產生；留空 = 發送回 503</div></div>
+      <div class="field"><label data-i18n="lbl_lo_secret">Channel secret</label><input id="lo-channelSecret" type="password" placeholder="••••••••"><div class="hint" data-i18n="hint_lo_secret">Basic settings → Channel secret；<strong>未設定會直接拒絕接收 webhook</strong>（這是該端點唯一的來源驗證）</div></div>
+      <div class="field"><label data-i18n="lbl_lo_webhook">Webhook URL（自動註冊）</label><input id="lo-webhookUrl" type="text" placeholder="https://example.com/line-official/webhook"><div class="hint" data-i18n="hint_lo_webhook">設定後重啟會以 <code>PUT /v2/bot/channel/webhook/endpoint</code> 自動註冊；也可到 Console 手動填 <code>https://&lt;你的網域&gt;/line-official/webhook</code></div></div>
+      <div class="field"><label data-i18n="lbl_lo_targets">目標對照（名稱=userId／groupId）</label><textarea id="lo-targets" placeholder="每行一筆，例如：我=U1234abcd…32hex"></textarea><div class="hint" data-i18n="hint_lo_targets">每行一筆；用戶 <code>U…</code>、群組 <code>c…</code>、多人房 <code>Ra…</code>。收到訊息後會自動記住，可不填</div></div>
+      <div class="field"><div class="hint" data-i18n="hint_lo_media">本機檔案要送給 LINE 需先變成<strong>公開連結</strong>（LINE 只收 HTTPS URL）：請在 <code>.env</code> 設定 <code>MEDIA_PUBLIC_URL=https://&lt;你的網域&gt;</code>，檔案會以 HMAC 簽章＋24 小時時效的路徑（<code>/media/…</code>）提供。</div></div>
+      <div class="field"><div class="hint" data-i18n="hint_lo_quota">配額：回覆（reply）<strong>不佔</strong>每月訊息額度，push／multicast／broadcast 佔。系統會在 1 分鐘內的回覆自動改用 replyToken，逾時才退回 push。</div></div>
+    </div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="telegram" data-im="telegram">
@@ -146,7 +154,7 @@ export function renderSettingsHtml() {
     <div class="field"><label data-i18n="lbl_alert_resend">告警重發間隔（分鐘）</label><input id="alert-resendMinutes" type="number" min="1"><div class="hint" data-i18n="hint_alert_resend">同一事由的最短重發間隔（首次立即，之後每 N 分鐘）；恢復時另發「已恢復」通知</div></div>
   </fieldset>
 
-  <fieldset class="fn-panel" data-fn="targets-config" data-im="line">
+  <fieldset class="fn-panel" data-fn="targets-config" data-im="line" data-line-mode="personal">
     <legend data-i18n="legend_targets">目標對照（TARGETS）</legend>
     <div class="field"><label data-i18n="lbl_name_mid">名稱=mid</label><textarea id="targets" placeholder="每行一筆，例如：小明=u1234567890abcdef"></textarea></div>
   </fieldset>
@@ -211,19 +219,35 @@ export function renderSettingsHtml() {
 </form>
 `;
     const script = `
-  var CONFIG_SECTIONS = ["security", "line", "line-official", "telegram", "whatsapp", "teams", "discord", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
+  var CONFIG_SECTIONS = ["security", "line", "telegram", "whatsapp", "teams", "discord", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
+
+  // LINE 兩種帳號模式擇一（仿 WhatsApp）：帶 data-line-mode 的區塊依模式顯示／隱藏。
+  var currentLineMode = "personal";
 
   function applySettingsPlatform(platform, jump) {
-    Array.prototype.forEach.call(document.querySelectorAll("[data-im]"), function (el) {
-      el.classList.toggle("plat-off", el.getAttribute("data-im") !== platform);
+    Array.prototype.forEach.call(document.querySelectorAll("[data-im],[data-line-mode]"), function (el) {
+      var imOk = !el.hasAttribute("data-im") || el.getAttribute("data-im") === platform;
+      var modeOk = !el.hasAttribute("data-line-mode") || el.getAttribute("data-line-mode") === currentLineMode;
+      el.classList.toggle("plat-off", !(imOk && modeOk));
     });
     if (jump) showSection(platform, CONFIG_SECTIONS);
+  }
+
+  function readLineMode() {
+    var official = $("line-mode-official");
+    return official && official.checked ? "official" : "personal";
   }
 
   window.onPlatformChange = function (platform) {
     applySettingsPlatform(platform, true);
   };
   applySettingsPlatform(window.LW_PLATFORM || "line", false);
+  Array.prototype.forEach.call(document.querySelectorAll("input[name=line-mode]"), function (radio) {
+    radio.addEventListener("change", function () {
+      currentLineMode = readLineMode();
+      applySettingsPlatform(window.LW_PLATFORM || "line", false);
+    });
+  });
 
   function addForwardRow(rule) {
     rule = rule || {};
@@ -542,11 +566,15 @@ export function renderSettingsHtml() {
     $("line-device").value = s.line.device;
     $("line-deviceName").value = s.line.deviceName || "";
     $("line-modelName").value = s.line.modelName || "";
-    $("lo-enabled").checked = !!(s.lineOfficial && s.lineOfficial.enabled);
-    $("lo-channelAccessToken").value = (s.lineOfficial && s.lineOfficial.channelAccessToken) || "";
-    $("lo-channelSecret").value = (s.lineOfficial && s.lineOfficial.channelSecret) || "";
-    $("lo-webhookUrl").value = (s.lineOfficial && s.lineOfficial.webhookUrl) || "";
-    $("lo-targets").value = Object.keys((s.lineOfficial && s.lineOfficial.targets) || {}).map(function (k) { return k + "=" + s.lineOfficial.targets[k]; }).join("\\n");
+    var loMode = (s.line && s.line.mode) === "official" ? "official" : "personal";
+    $("line-mode-personal").checked = loMode !== "official";
+    $("line-mode-official").checked = loMode === "official";
+    currentLineMode = loMode;
+    $("lo-channelAccessToken").value = (s.line && s.line.official && s.line.official.channelAccessToken) || "";
+    $("lo-channelSecret").value = (s.line && s.line.official && s.line.official.channelSecret) || "";
+    $("lo-webhookUrl").value = (s.line && s.line.official && s.line.official.webhookUrl) || "";
+    $("lo-targets").value = Object.keys((s.line && s.line.official && s.line.official.targets) || {}).map(function (k) { return k + "=" + s.line.official.targets[k]; }).join("\\n");
+    applySettingsPlatform(window.LW_PLATFORM || "line", false);
     $("tg-enabled").checked = !!(s.telegram && s.telegram.enabled);
     $("tg-botToken").value = (s.telegram && s.telegram.botToken) || "";
     $("tg-secretToken").value = (s.telegram && s.telegram.secretToken) || "";
@@ -699,16 +727,16 @@ export function renderSettingsHtml() {
       },
       replyMaxChars: Number($("replyMaxChars").value),
       line: {
+        mode: readLineMode(),
         device: $("line-device").value,
         deviceName: $("line-deviceName").value,
-        modelName: $("line-modelName").value
-      },
-      lineOfficial: {
-        enabled: $("lo-enabled").checked,
-        channelAccessToken: $("lo-channelAccessToken").value.trim(),
-        channelSecret: $("lo-channelSecret").value.trim(),
-        webhookUrl: $("lo-webhookUrl").value.trim(),
-        targets: loTargets
+        modelName: $("line-modelName").value,
+        official: {
+          channelAccessToken: $("lo-channelAccessToken").value.trim(),
+          channelSecret: $("lo-channelSecret").value.trim(),
+          webhookUrl: $("lo-webhookUrl").value.trim(),
+          targets: loTargets
+        }
       },
       telegram: {
         enabled: $("tg-enabled").checked,
@@ -894,14 +922,13 @@ export function renderSettingsHtml() {
 <div class="fn-list">
   <button type="button" class="fn-card setting active" data-fn="security">${tr(config.language, "card_security")}</button>
   <button type="button" class="fn-card setting" data-fn="line" data-im="line">${tr(config.language, "card_line")}</button>
-  <button type="button" class="fn-card setting" data-fn="line-official" data-im="line-official">${tr(config.language, "card_line-official")}</button>
   <button type="button" class="fn-card setting" data-fn="telegram" data-im="telegram">${tr(config.language, "card_telegram")}</button>
   <button type="button" class="fn-card setting" data-fn="whatsapp" data-im="whatsapp">${tr(config.language, "card_whatsapp")}</button>
   <button type="button" class="fn-card setting" data-fn="teams" data-im="teams">${tr(config.language, "card_teams")}</button>
   <button type="button" class="fn-card setting" data-fn="discord" data-im="discord">${tr(config.language, "card_discord")}</button>
   <button type="button" class="fn-card setting" data-fn="send">${tr(config.language, "card_send")}</button>
   <button type="button" class="fn-card setting" data-fn="monitor">${tr(config.language, "card_monitor")}</button>
-  <button type="button" class="fn-card setting" data-fn="targets-config" data-im="line">${tr(config.language, "card_targets_config")}</button>
+  <button type="button" class="fn-card setting" data-fn="targets-config" data-im="line" data-line-mode="personal">${tr(config.language, "card_targets_config")}</button>
   <button type="button" class="fn-card setting" data-fn="templates">${tr(config.language, "card_templates")}</button>
   <button type="button" class="fn-card setting" data-fn="forward">${tr(config.language, "card_forward")}</button>
   <button type="button" class="fn-card setting" data-fn="commands">${tr(config.language, "card_commands")}</button>
