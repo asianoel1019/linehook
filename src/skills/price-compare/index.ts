@@ -18,7 +18,7 @@ interface SourceConfig {
   parse: (html: string, baseUrl: string) => ProductResult[];
 }
 
-function decode(s: string): string {
+export function decode(s: string): string {
   return s
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
@@ -30,13 +30,13 @@ function decode(s: string): string {
     .trim();
 }
 
-function extractPrice(text: string): number | null {
+export function extractPrice(text: string): number | null {
   const cleaned = text.replace(/[^\d.]/g, "");
   const n = Number(cleaned);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function yahooParse(html: string, baseUrl: string): ProductResult[] {
+export function yahooParse(html: string, baseUrl: string): ProductResult[] {
   const results: ProductResult[] = [];
   const blocks = html.split(/<li[^>]*class="[^"]*GridItem[^"]*"/i).slice(1);
   for (const block of blocks.slice(0, 10)) {
@@ -59,7 +59,7 @@ function yahooParse(html: string, baseUrl: string): ProductResult[] {
   return results;
 }
 
-function pchomeParse(html: string, baseUrl: string): ProductResult[] {
+export function pchomeParse(html: string, baseUrl: string): ProductResult[] {
   const results: ProductResult[] = [];
   const blocks = html.split(/<li[^>]*class="[^"]*prod_item[^"]*"/i).slice(1);
   for (const block of blocks.slice(0, 10)) {
@@ -97,7 +97,7 @@ const SOURCES: SourceConfig[] = [
   },
 ];
 
-function fmtPrice(n: number): string {
+export function fmtPrice(n: number): string {
   return "$" + n.toLocaleString("en-US");
 }
 

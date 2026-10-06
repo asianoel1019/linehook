@@ -30,7 +30,7 @@ function genId(): string {
   return Date.now().toString(36).slice(-5);
 }
 
-function extractTitle(html: string): string {
+export function extractTitle(html: string): string {
   const m = /<title[^>]*>([^<]+)<\/title>/i.exec(html);
   return m ? m[1].replace(/\s+/g, " ").trim().slice(0, 80) : "";
 }
@@ -46,7 +46,7 @@ async function fetchTitle(url: string): Promise<string> {
   }
 }
 
-function renderList(items: Bookmark[]): string {
+export function renderList(items: Bookmark[]): string {
   return items.map((b, i) => {
     const tag = b.tag ? ` #${b.tag}` : "";
     return `${i + 1}. ${b.title || b.url}${tag}\n   ${b.url}`;
