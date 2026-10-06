@@ -544,6 +544,12 @@ export function createServer(line: IMessagingService): express.Express {
         res.set("Cache-Control", "no-store");
         res.json(llmUsage());
     });
+    // C1／J2：liveness——只要行程活著就 200，不呼叫任何平台（供 Docker HEALTHCHECK 與
+    // 負載平衡器使用；平台掛掉時不該被重啟，那是 /health 的責任）。
+    app.get("/healthz", (_req, res) => {
+        res.set("Cache-Control", "no-store");
+        res.json({ status: "ok", uptimeSec: Math.round(process.uptime()) });
+    });
     // C1：各在線平台的健康狀態；任一異常即 503（供負載平衡／監控判斷）。
     app.get("/health", async (_req, res) => {
         const services = listServices();

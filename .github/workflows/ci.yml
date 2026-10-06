@@ -19,6 +19,10 @@ jobs:
       - name: Versions
         run: node --version && npm --version
 
+      # J4：secret scanning（自製高信心 pattern，可在本機用同一支指令重跑）。
+      - name: Secret scanning
+        run: node .github/scripts/secret-scan.mjs
+
       - name: Node runtime requirements (engines + node:sqlite)
         run: node -e "const [maj,min]=process.versions.node.split('.').map(Number); if(maj<22||(maj===22&&min<13)){console.error('需要 Node >= 22.13');process.exit(1)}; console.log('node:sqlite', typeof require('node:sqlite').DatabaseSync)"
 
@@ -42,3 +46,13 @@ jobs:
 
       - name: Security audit (high and above)
         run: node .github/audit-gate.mjs
+
+  # J4：Docker build 每次 push 驗一次（J1 那類「COPY 少一行」的 bug 只有 build 過才會發現）。
+  docker:
+    needs: check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker build
+        run: docker build -t im-webhook:ci .

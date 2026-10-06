@@ -227,6 +227,33 @@ export const DICT: Record<string, Entry> = {
   lbl_log_max_files: { zh: "Log 保留檔數", en: "Log files to keep", ja: "ログ保持ファイル数" },
   lbl_messages_persist: { zh: "持久化收到的訊息", en: "Persist received messages", ja: "受信メッセージを保存" },
 
+  // alert (C2)
+  hint_alert_section: {
+    zh: "告警：平台失效、死信積壓會送至此處設定的通道；各通道獨立送出，單一失敗不影響其他通道。",
+    en: "Alerts: platform failures and dead-letter backlog go to the channels below; each channel is independent, one failure does not affect the others.",
+    ja: "アラート：プラットフォーム障害やデッドレター滞留は下記のチャネルへ送信。各チャネルは独立し、1 つの失敗は他に影響しません。",
+  },
+  lbl_alert_webhooks: { zh: "告警 Webhook（每行一筆）", en: "Alert webhooks (one per line)", ja: "アラート Webhook（1 行に 1 件）" },
+  hint_alert_webhooks: {
+    zh: "Email（SMTP）以外的告警通道；同一份 JSON 相容 Slack / Discord / ntfy。兩者都沒設 = 告警只寫 log（視為設定缺失）",
+    en: "Alert channels besides Email (SMTP); one JSON payload works with Slack / Discord / ntfy. If neither is set, alerts only go to the log (treated as misconfiguration).",
+    ja: "SMTP 以外のアラートチャネル。1 つの JSON で Slack / Discord / ntfy に対応。未設定時はログのみ（設定漏れとして扱う）。",
+  },
+  lbl_alert_deadman: { zh: "dead-man ping URL", en: "Dead-man ping URL", ja: "デッドマン ping URL" },
+  hint_alert_deadman: {
+    zh: "每輪健康檢查打一次；程序掛掉就不會 ping，由外部 uptime 服務（healthchecks.io 等）在逾時後告警。留空 = 關閉",
+    en: "Pinged every health-check cycle; if the process dies the pings stop and an external uptime service (healthchecks.io etc.) alerts after its timeout. Empty = off",
+    ja: "各ヘルスチェック周期で 1 回 ping。プロセスが落ちると ping が止まり、外部 uptime サービスがタイムアウト後に通知。空欄 = 無効",
+  },
+  lbl_alert_deadletter: { zh: "死信告警閾值（筆）", en: "Dead-letter alert threshold", ja: "デッドレター通知しきい値" },
+  hint_alert_deadletter: { zh: "死信累積超過此數即告警；0 = 關閉", en: "Alert once dead letters exceed this count; 0 = off", ja: "この件数を超えると通知。0 = 無効" },
+  lbl_alert_resend: { zh: "告警重發間隔（分鐘）", en: "Alert resend interval (min)", ja: "アラート再送間隔（分）" },
+  hint_alert_resend: {
+    zh: "同一事由的最短重發間隔（首次立即，之後每 N 分鐘）；恢復時另發「已恢復」通知",
+    en: "Minimum gap between repeats of the same alert (first is immediate, then every N minutes); a separate \"recovered\" notice is sent on recovery",
+    ja: "同一事由の再送最小間隔（初回は即時、以降は N 分ごと）。回復時は別途「回復」通知。",
+  },
+
   // targets config
   legend_targets: { zh: "目標對照（TARGETS）", en: "Target mapping (TARGETS)", ja: "送信先マッピング（TARGETS）" },
   lbl_name_mid: { zh: "名稱=mid", en: "name=mid", ja: "名前=mid" },

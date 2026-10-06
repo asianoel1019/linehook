@@ -161,6 +161,15 @@ const settingsSchema = z.object({
     from: z.string().default(""),
     to: z.string().default(""),
   }),
+  // C2：告警通道（Email 之外的 webhook fan-out）與 dead-man ping。
+  alert: z
+    .object({
+      webhookUrls: z.array(z.string().trim()).default([]),
+      deadmanUrl: z.string().trim().default(""),
+      deadletterThreshold: z.coerce.number().int().min(0).default(10),
+      resendMinutes: z.coerce.number().int().positive().default(30),
+    })
+    .default({ webhookUrls: [], deadmanUrl: "", deadletterThreshold: 10, resendMinutes: 30 }),
   forward: z
     .array(
       z.object({
@@ -267,6 +276,12 @@ export function currentSettings(): EditableSettings {
       modelName: config.line.modelName,
     },
     smtp: { ...config.smtp },
+    alert: {
+      webhookUrls: [...config.alert.webhookUrls],
+      deadmanUrl: config.alert.deadmanUrl,
+      deadletterThreshold: config.alert.deadletterThreshold,
+      resendMinutes: config.alert.resendMinutes,
+    },
     forward: config.forward.map((rule) => ({ ...rule })),
     commands: {
       enabled: config.commands.enabled,
@@ -351,6 +366,12 @@ function apply(settings: EditableSettings): void {
   config.line.deviceName = settings.line.deviceName;
   config.line.modelName = settings.line.modelName;
   config.smtp = { ...settings.smtp };
+  config.alert = {
+    webhookUrls: [...settings.alert.webhookUrls],
+    deadmanUrl: settings.alert.deadmanUrl,
+    deadletterThreshold: settings.alert.deadletterThreshold,
+    resendMinutes: settings.alert.resendMinutes,
+  };
   config.forward = settings.forward.map((rule) => ({ ...rule }));
   config.commands = {
     enabled: settings.commands.enabled,

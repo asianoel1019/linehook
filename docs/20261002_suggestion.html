@@ -195,7 +195,7 @@
     4 個 IM 平台、50 條 HTTP 路由、23 個測試檔與全部部署設定。共整理 <strong>95 項建議</strong>：80 項既有功能增強、15 項新功能提案。
   </p>
   <div class="stamp">
-    實作更新 2026-10-06（NEXT4）：<strong>63 項已處理（38 完整＋25 部分），32 項未排期</strong>，各卡均已標記；累計 NEXT1–NEXT4（測試護網、拆 server.ts、sqlite 儲存層、Discord＋重送中心＋成本儀表板）。<br>
+    實作更新 2026-10-06（NEXT4＋NEXT5）：<strong>64 項已處理（41 完整＋23 部分），31 項未排期</strong>，各卡均已標記；累計 NEXT1–NEXT5（測試護網、拆 server.ts、sqlite 儲存層、Discord＋重送中心＋成本儀表板、告警泛化＋Docker 硬化＋CI 補強）。<br>
     前次更新 2026-10-05（commit <code>ba44f89</code> 起）：58 項已處理（34 完整＋24 部分），37 項未排期。<br>
     掃描日期 2026-10-02 ・ 基準 commit <code>88381ab</code> ・ 掃描範圍：<code>src/</code> <code>tests/</code> <code>docs/</code> <code>scripts/</code> <code>library/</code> <code>.github/</code> <code>Dockerfile</code> <code>docker-compose.yml</code>
   </div>
@@ -207,10 +207,10 @@
     <div class="stat"><b>38</b><span>內建技能</span><i>+ zip 熱安裝</i></div>
     <div class="stat"><b>50</b><span>HTTP 路由</span><i>單一 Express 行程</i></div>
     <div class="stat"><b>1,579</b><span>測試行數</span><i>23 檔，僅單元測試</i></div>
-    <div class="stat"><b>0</b><span>lint / 覆蓋率</span><i>CI 只跑 tsc+test</i></div>
+    <div class="stat"><b>8</b><span>CI 步驟</span><i>typecheck / lint / build / test / coverage / secret scan / audit / docker build</i></div>
     <div class="stat"><b>95</b><span>項建議</span><i>15 P0 / 36 P1 / 42 P2 / 2 P3</i></div>
-    <div class="stat"><b>63</b><span>已處理</span><i>38 完整＋25 部分</i></div>
-    <div class="stat"><b>32</b><span>未排期</span><i>見各卡原因</i></div>
+    <div class="stat"><b>64</b><span>已處理</span><i>41 完整＋23 部分</i></div>
+    <div class="stat"><b>31</b><span>未排期</span><i>見各卡原因</i></div>
   </div>
 </header>
 
@@ -745,12 +745,12 @@
         <li>回應加上 uptime、版本、各平台狀態明細與 startedAt（<code>state.ts:5</code> 已有但從未回傳）</li>
         <li>Dockerfile 加 <code>HEALTHCHECK</code>、compose 加 <code>healthcheck</code>（見 J2）</li>
       </ul>
-      <div class="impl"><b>已實作（2026-10-05）：</b><code>/health</code> 逐平台 <code>healthCheck()</code>，任一異常回 503＋明细。</div>
+      <div class="impl"><b>已實作（2026-10-05 · NEXT1；2026-10-06 補齊）：</b><code>/health</code> 逐平台 <code>healthCheck()</code>，任一異常回 503＋明細；<strong>NEXT5 補 <code>GET /healthz</code></strong>（liveness：行程活著就 200、不呼叫任何平台），供 Docker HEALTHCHECK 與負載平衡器使用——平台掛掉不該重啟容器。<br>未做：<code>/readyz</code>（就緒：loginStatus／排程器／佇列）與版本欄位。</div>
     <div class="gain">這是「故障能不能被自動發現」的分水嶺，成本只有數行。</div>
     </div>
 
-    <div class="card" data-s="part" data-p="P0">
-      <div class="head"><span class="id">C2</span><h4>告警只覆蓋 LINE、只寄一次，且目前 SMTP 未設定 → 等於沒有告警</h4><span class="p P0">P0</span><span class="st part">部分實作</span><span class="p E">M</span></div>
+    <div class="card" data-s="done" data-p="P0">
+      <div class="head"><span class="id">C2</span><h4>告警只覆蓋 LINE、只寄一次，且目前 SMTP 未設定 → 等於沒有告警</h4><span class="p P0">P0</span><span class="st done">已實作</span><span class="p E">M</span></div>
       <p class="body">全專案唯一的通知機制是登入失效時寄一封 Email。其他三個平台完全沒有監控；而「登入中／待驗證」這些狀態還會<strong>抑制</strong>告警。</p>
       <div class="ev"><b>證據</b>
         <code>monitor/token.ts:13</code> 簽章只接受 LINE 服務，<code>index.ts:96</code> 只傳 line；<br>
@@ -765,7 +765,7 @@
         <li>通知通道改為<strong>多通道 + 至少一個必得</strong>：Email（既有）、ntfy／Telegram 推播自己（見 K15）、webhook 到 Slack／Discord</li>
         <li>加 <strong>dead-man's switch</strong>：定時對外報活，逾時未報即告警——解決「SMTP 壞了所以沒人知道 SMTP 壞了」</li>
       </ul>
-      <div class="impl part"><b>部分實作（2026-10-05）：</b>監控改吃 <code>listServices()</code>；「需人工」納入告警；首次＋30 分鐘重發＋恢復通知。多通道／dead-man 未做。</div>
+      <div class="impl"><b>已實作（2026-10-05 起 · 2026-10-06 NEXT5 補完）：</b>監控改吃 <code>listServices()</code>（所有平台）；「需人工」納入告警；首次＋N 分鐘去抖重發（<code>ALERT_RESEND_MINUTES</code>）＋恢復通知；<strong>多通道</strong>：<code>notify/alert.ts</code> 把 Email（<code>sendMailChecked</code> 回報送達）與 webhook fan-out（<code>ALERT_WEBHOOK_URLS</code>，一份 JSON 相容 Slack／Discord／ntfy）<strong>彼此獨立送出</strong>，全部失敗會記 error、兩者都沒設＝設定缺失；<strong>dead-man</strong>：<code>ALERT_DEADMAN_URL</code> 每輪 ping 一次（<code>pingDeadman</code>）；另加<strong>死信閾值告警</strong>（<code>ALERT_DEADLETTER_THRESHOLD</code>）。設定可於 /settings 線上改。<br>未做：Telegram 推播自己／ntfy App 體驗（K15）、告警分級與通道路由、「必得」的外部保證（只能靠 dead-man 補捉全部失敗）。</div>
     <div class="gain">從「壞了要自己去看 dashboard」變成「壞了會被通知」，這是運維成熟度最大的一步跳。</div>
     </div>
 
@@ -1634,8 +1634,8 @@
     <div class="gain">一行 Dockerfile 就能修好一個每次 Docker 部署都會發生、卻沒有人發現的缺陷。</div>
     </div>
 
-    <div class="card" data-s="part" data-p="P0">
-      <div class="head"><span class="id">J2</span><h4>容器以 root 執行、無 healthcheck、無資源限制</h4><span class="p P0">P0</span><span class="st part">部分實作</span><span class="p E">S</span></div>
+    <div class="card" data-s="done" data-p="P0">
+      <div class="head"><span class="id">J2</span><h4>容器以 root 執行、無 healthcheck、無資源限制</h4><span class="p P0">P0</span><span class="st done">已實作</span><span class="p E">S</span></div>
       <p class="body">行程掛掉不會被重啟（疊加 C1 的「<code>/health</code> 永遠 200」），且以最高權限執行、無記憶體上限。</p>
       <div class="ev"><b>證據</b>
         <code>Dockerfile</code>：無 <code>USER</code> 指令 → 以 root（uid 0）執行；無 <code>HEALTHCHECK</code>；<code>node:24-bookworm-slim</code> 為浮動 tag 未鎖 digest；
@@ -1650,7 +1650,7 @@
         <li>設定 <code>logging</code> 輪替（<code>max-size</code>／<code>max-file</code>）</li>
         <li>把這些設定納入文件，說明「單一實例」的原因（見 D5）</li>
       </ul>
-      <div class="impl part"><b>部分實作（2026-10-05）：</b>HEALTHCHECK＋kill_timeout＋memory restart 已做；維持 root（volume 屬主，見原因）。</div>
+      <div class="impl"><b>已實作（2026-10-06 · NEXT5）：</b>Dockerfile <code>USER node</code>（uid 1000）＋<code>chown -R node:node /app</code>（storage／settings／log／sqlite 都要可寫）、<code>HEALTHCHECK</code> 指向 <code>/healthz</code>（存活探針，不呼叫平台，平台掛掉不重啟）；compose 加 <code>no-new-privileges</code>、<code>cap_drop: ALL</code>、<code>pids_limit: 256</code>、<code>mem_limit: 1g</code>、log 輪替（10MB×3）、<code>init</code>＋<code>stop_grace_period: 15s</code>（對齊 index.ts 的 10 秒強制關閉）；README 說明資料目錄須 <code>chown 1000:1000</code>。<br>未做：base image 仍為浮動 tag（未鎖 digest）、<code>read_only</code>／<code>tmpfs</code> 以註解提供（需先確認所有路徑都在 /app/data 下）。</div>
     <div class="gain">讓「壞掉的行程」與「記憶體洩漏」這兩類最常見的線上事故能被自動處理。</div>
     </div>
 
@@ -1675,8 +1675,8 @@
     <div class="gain">目前「伺服器掛掉」的成本不只是服務中斷，而是可能需要重新掃 QR、重新設定所有技能。</div>
     </div>
 
-    <div class="card" data-s="part" data-p="P1">
-      <div class="head"><span class="id">J4</span><h4>CI 不建 Docker、沒有 Dependabot、沒有 secret scanning、沒有 lint</h4><span class="p P1">P1</span><span class="st part">部分實作</span><span class="p E">S</span></div>
+    <div class="card" data-s="done" data-p="P1">
+      <div class="head"><span class="id">J4</span><h4>CI 不建 Docker、沒有 Dependabot、沒有 secret scanning、沒有 lint</h4><span class="p P1">P1</span><span class="st done">已實作</span><span class="p E">S</span></div>
       <p class="body">CI 只有五個步驟。這直接解釋了為什麼 J1（Docker 缺 icons）可以長期存活。</p>
       <div class="ev"><b>證據</b>
         <code>.github/workflows/ci.yml</code>：<code>npm ci → typecheck → build → test → node .github/audit-gate.mjs</code>，單一 <code>ubuntu-24.04</code> / Node 24；
@@ -1692,7 +1692,7 @@
         <li>audit allowlist 加上 <code>expires</code> 與 <code>reviewedAt</code> 欄位並在過期時 fail</li>
         <li>移除或填入 <code>.github/scripts/</code> 空目錄</li>
       </ul>
-      <div class="impl part"><b>部分實作（2026-10-05）：</b>lint 已做；docker build／Dependabot／secret scanning 未做。</div>
+      <div class="impl"><b>已實作（2026-10-05 lint；2026-10-06 · NEXT5 補完）：</b>CI 加 <strong>secret scanning</strong>（<code>.github/scripts/secret-scan.mjs</code>：11 條高信心憑證 pattern、零相依、可本機重跑，規則由 <code>tests/secret-scan.test.ts</code> 護著「每條規則都要認得自己的正例」）、<strong>docker build</strong> job（擋 J1 這類 COPY 遺漏）、<code>.github/dependabot.yml</code>（npm＋github-actions 每週，linejs／baileys 人工審閱）；<strong>audit allowlist</strong> 改為限期豁免（<code>reviewedAt</code>＋<code>expires</code>，過期即 fail、30 天內到期先 warning），<code>.github/scripts/</code> 空目錄已填入。<br>未做：CodeQL／Semgrep SAST、多版本 Node 矩陣。</div>
     <div class="gain">CI 是唯一能「在問題變大之前免費發現問題」的地方；目前它對部署與供應鏈兩層都沒有覆蓋。</div>
     </div>
 
@@ -1940,8 +1940,8 @@
     <div class="gain">前置依賴：F8（測試 harness，遷移才安全）、A7、A8、I1（保留政策）。是讓技能數量能持續成長而不失控的架構。</div>
     </div>
 
-    <div class="card" data-s="no" data-p="P2">
-      <div class="head"><span class="id">K15</span><h4>手機推播與 PWA 通知</h4><span class="p P2">P2</span><span class="st no">未實作</span><span class="p E">M</span></div>
+    <div class="card" data-s="part" data-p="P2">
+      <div class="head"><span class="id">K15</span><h4>手機推播與 PWA 通知</h4><span class="p P2">P2</span><span class="st part">部分實作</span><span class="p E">M</span></div>
       <p class="body">C2 的告警通道目前只有 Email，而 Email 容易被過濾、也不夠即時。「推播給自己」是成本最低、感受最好的通道。</p>
       <ul>
         <li><strong>ntfy</strong>：最簡單（純 HTTP 發布 + 官方 App），可設定為優先級與標籤，且不需要額外服務</li>
@@ -1950,7 +1950,7 @@
         <li>與 H5（PWA）合併：加入主畫面後用 Web Push</li>
         <li>告警分級（資訊／警告／緊急）對應不同通道與是否喚醒通知</li>
       </ul>
-      <div class="why"><b>未實作（2026-10-05）：</b>推播通道，未排期。</div>
+      <div class="impl part"><b>部分實作（2026-10-06 · NEXT5）：</b>告警 webhook 通道已上線（<code>ALERT_WEBHOOK_URLS</code>，一份 JSON 相容 ntfy／Slack／Discord）——ntfy 推播已可用（手機裝 App 訂閱同一個 topic 即可）。<br>未做：Telegram 推播自己（複用既有 adapter）、LINE 官方通知（待 E2）、Web Push／PWA（待 H5）、告警分級與通道路由。</div>
     <div class="gain">前置依賴：C2。低成本、高價值——把「壞了沒人知道」變成「手機震動」。</div>
     </div>
 
@@ -2060,7 +2060,7 @@
 
 <section id="done">
   <h2 class="sec">本次實作結果 <span class="bn">2026-10-05 → 2026-10-06 · NEXT1–NEXT4</span></h2>
-  <p class="muted">95 項中 <strong>63 項已處理（38 完整＋25 部分）</strong>，32 項未排期。驗證：typecheck ✅、build ✅、lint 0 errors ✅、<strong>253 tests 全過</strong>（NEXT4 新增 11 個）。以下按原報告章節彙整，細節見各卡片標記。</p>
+  <p class="muted">95 項中 <strong>64 項已處理（41 完整＋23 部分）</strong>，31 項未排期。驗證：typecheck ✅、build ✅、lint 0 errors ✅、<strong>269 tests 全過</strong>（NEXT5 新增 16 個）。以下按原報告章節彙整，細節見各卡片標記。</p>
 
   <div class="tbl-wrap">
     <table>
@@ -2068,15 +2068,15 @@
       <tbody>
         <tr><td>A 可靠性</td><td>A1 A2 A3 A4 A5 A6 A7 A8（8/8）</td><td>—（A 全數至少部分處理）</td></tr>
         <tr><td>B 安全</td><td>B1 B3 B4 B6 B7 B11＋B5 B9 部分（8/12）</td><td>B2（沙箱 XL）、B8（待 D1）、B10（breaking）、B12（效益低）</td></tr>
-        <tr><td>C 可觀測</td><td>C1 C7＋C2 C3 C4 C5 C6 部分（7/8）</td><td>—（C 全數至少部分處理）</td></tr>
+        <tr><td>C 可觀測</td><td>C1 C2 C7＋C3 C4 C5 C6 部分（7/7）</td><td>—（C 全數至少部分處理）</td></tr>
         <tr><td>D 架構</td><td>D1 D2 D3 D4 D8 D10 D11＋D5 D6 D7 D9 部分（11/11）</td><td>—（D 全數至少部分處理）</td></tr>
         <tr><td>E 平台</td><td>E1 E3 E4（3/8）</td><td>E2 E5 E6 E7 E8</td></tr>
         <tr><td>F 技能</td><td>F2 F4 F5＋F1 F3 部分（5/8）</td><td>F6 F7 F8</td></tr>
         <tr><td>G LLM</td><td>G4＋G1 G2 G3 G5 部分（5/6）</td><td>G6（需 SSE）</td></tr>
         <tr><td>H 體驗</td><td>H1 H4＋H2 部分（3/7）</td><td>H3 H5 H6 H7</td></tr>
         <tr><td>I 隱私</td><td>I1＋I2 I4 部分（3/5）</td><td>I3（breaking）、I5</td></tr>
-        <tr><td>J 維運</td><td>J1 J3 J6 J7 J8＋J2 J4 J5 部分（8/8）</td><td>—（J 全數至少部分處理）</td></tr>
-        <tr><td>K 新功能</td><td>K4 K5 部分（2/15）</td><td>其餘 13 項（產品功能，未排期）</td></tr>
+        <tr><td>J 維運</td><td>J1 J2 J3 J4 J6 J7 J8＋J5 部分（8/8）</td><td>—（J 全數至少部分處理）</td></tr>
+        <tr><td>K 新功能</td><td>K4 K5 K15 部分（3/15）</td><td>其餘 12 項（產品功能，未排期）</td></tr>
       </tbody>
     </table>
   </div>
@@ -2123,6 +2123,17 @@
       <li><s><strong>E1</strong> Discord</s> <strong>已完成（NEXT4）</strong>（驗證抽象層第 5 次重用）；<strong>E2</strong> LINE 官方雙軌（法遵決策先行，需使用者資源）</li>
       <li><s><strong>K4</strong> 完整重送中心</s> <strong>已完成（NEXT4）</strong>（死信 payload＋重送／清除端點）；<s><strong>K5</strong> 成本儀表板</s> <strong>已完成（NEXT4，儀表板部分）</strong>（護欄待 G2/F5）</li>
       <li>breaking 類（<strong>B10</strong> nonce 必填、<strong>I3</strong> scope 細分）安排遷移期後執行</li>
+    </ul>
+  </div>
+  <div class="phase">
+    <div class="lbl">Next 5</div>
+    <h4>運維告警硬化（C2 ＋ J2 ＋ J4）</h4>
+    <div class="when">已完成（2026-10-06）· 讓「壞了會被通知」與「CI 擋得住」同時成立</div>
+    <ul>
+      <li><s><strong>C2</strong> 告警泛化</s> <strong>已完成</strong>：所有平台逐個檢查、去抖重發、多通道（Email ＋ Slack/Discord/ntfy webhook）、dead-man ping、死信閾值</li>
+      <li><s><strong>J2</strong> Docker 硬化</s> <strong>已完成</strong>：非 root（uid 1000）、HEALTHCHECK → <code>/healthz</code>、cap_drop／pids／mem／log 輪替</li>
+      <li><s><strong>J4</strong> CI 補強</s> <strong>已完成</strong>：secret scanning、docker build、Dependabot、audit 豁免限期化</li>
+      <li><strong>下一輪建議</strong>：<strong>B2／F1</strong> 技能沙箱（P0 的最後一塊，XL）、<strong>B8</strong> CSP（D2 已就緒）、<strong>E2</strong> LINE 官方雙軌（需使用者資源）</li>
     </ul>
   </div>
 </section>

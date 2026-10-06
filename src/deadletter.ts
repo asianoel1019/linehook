@@ -35,6 +35,15 @@ export function readDeadLetters(limit = 100): DeadLetter[] {
   }
 }
 
+/** 死信總筆數（C2 佇列積壓告警用）。 */
+export function countDeadLetters(): number {
+  try {
+    return getStore().count("deadletter").total;
+  } catch {
+    return 0;
+  }
+}
+
 /** 清除全部死信（store + 對應流水檔）；回傳清除筆數。 */
 export function purgeDeadLetters(): number {
   try {

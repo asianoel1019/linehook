@@ -120,11 +120,23 @@ X-Signature: <HMAC-SHA256(body, secret)>   # 或 ?token=<WEBHOOK_TOKEN> / Author
   - 最後一次發送時間與目標
   - 最近 N 筆 log（時間、來源 IP、目標、成功/失敗、錯誤原因）
 
-## Email 通知
+## 告警通知（C2）
 
-- 觸發時機：登入狀態由「正常 → 過期」時寄送一次（狀態去重，避免重複轟炸）
-- 內容：目前登入狀態、需人工處理提示、狀態頁連結
-- SMTP 設定放於 config
+- 觸發時機：任一平台 `healthCheck()` 失敗（含「需人工」）、恢復、死信累積超過閾值。
+- **去抖重發**：同一事由首次立即、之後每 `ALERT_RESEND_MINUTES`（預設 30）分鐘；恢復另發「已恢復」通知。
+- **通道（彼此獨立，單一失敗不影響其他）**：
+  - Email（`SMTP_*`，`notify/mailer.ts` 的 `sendMailChecked` 回報是否送達）
+  - Webhook（`ALERT_WEBHOOK_URLS`，`notify/alert.ts`）——同一份 JSON 相容 Slack（`text`）／Discord（`content`）／ntfy（`title`＋`message`）
+  - 兩者都沒設定 → 只寫 log 並記 error（`sendAlert` 會在「全部失敗」時記 error）
+- **dead-man's switch**：`ALERT_DEADMAN_URL`，每輪健康檢查 ping 一次；程序掛掉就不會 ping，由外部 uptime 服務逾時告警——解決「SMTP 壞了所以沒人知道 SMTP 壞了」。
+- 監控主體：`monitor/token.ts` 走 `listServices()`（所有平台），依賴可注入（`MonitorDeps`）供測試。
+- 設定可於 `/settings` →「監控 / Log」線上修改（`settings.json` 的 `alert` 區塊）。
+
+## 健康探針
+
+- `GET /healthz`：**liveness**，行程活著就 200（不呼叫任何平台）；Docker `HEALTHCHECK` 與負載平衡器用這個。
+- `GET /health`：**readiness**，逐平台 `healthCheck()`，任一異常回 503；供監控判斷「平台是否可用」。
+- 平台掛掉時不應重啟容器（那是 recover 的責任），所以 HEALTHCHECK 指向 `/healthz`。
 
 ## 注意事項
 

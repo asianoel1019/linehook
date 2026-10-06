@@ -1,0 +1,18 @@
+# 依賴與 GitHub Actions 的每週版本更新（J4）。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # linejs / baileys 屬登入關鍵依賴，升級可能要重掃 QR，一律人工審閱。
+    ignore:
+      - dependency-name: "@evex/linejs"
+      - dependency-name: "@whiskeysockets/baileys"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

@@ -127,6 +127,11 @@ export function renderSettingsHtml() {
     <div class="field"><label data-i18n="lbl_log_max_bytes">Log 輪替大小（bytes）</label><input id="logMaxBytes" type="number" min="1"></div>
     <div class="field"><label data-i18n="lbl_log_max_files">Log 保留檔數</label><input id="logMaxFiles" type="number" min="1"></div>
     <div class="field"><label data-i18n="lbl_messages_persist">持久化收到的訊息</label><input id="messagesPersist" type="checkbox"><div class="hint">開啟後將收到的訊息寫入檔案（路徑：<code>${config.messagesPath}</code>，於 .env 設定）</div></div>
+    <div class="field"><div class="hint" data-i18n="hint_alert_section">告警（C2）：平台失效、死信積壓會送至此處設定的通道；各通道獨立送出，單一失敗不影響其他通道。</div></div>
+    <div class="field"><label data-i18n="lbl_alert_webhooks">告警 Webhook（每行一筆）</label><textarea id="alert-webhookUrls" placeholder="https://hooks.slack.com/services/… 或 Discord webhook URL"></textarea><div class="hint" data-i18n="hint_alert_webhooks">Email（SMTP）以外的告警通道；同一份 JSON 相容 Slack / Discord / ntfy。兩者都沒設 = 告警只寫 log（視為設定缺失）</div></div>
+    <div class="field"><label data-i18n="lbl_alert_deadman">dead-man ping URL</label><input id="alert-deadmanUrl" type="text" placeholder="https://hc-ping.com/your-uuid"><div class="hint" data-i18n="hint_alert_deadman">每輪健康檢查打一次；程序掛掉就不會 ping，由外部 uptime 服務（healthchecks.io 等）在逾時後告警。留空 = 關閉</div></div>
+    <div class="field"><label data-i18n="lbl_alert_deadletter">死信告警閾值（筆）</label><input id="alert-deadletterThreshold" type="number" min="0"><div class="hint" data-i18n="hint_alert_deadletter">死信累積超過此數即告警；0 = 關閉</div></div>
+    <div class="field"><label data-i18n="lbl_alert_resend">告警重發間隔（分鐘）</label><input id="alert-resendMinutes" type="number" min="1"><div class="hint" data-i18n="hint_alert_resend">同一事由的最短重發間隔（首次立即，之後每 N 分鐘）；恢復時另發「已恢復」通知</div></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="targets-config" data-im="line">
@@ -559,6 +564,10 @@ export function renderSettingsHtml() {
     $("logMaxBytes").value = s.logMaxBytes;
     $("logMaxFiles").value = s.logMaxFiles;
     $("messagesPersist").checked = !!s.messagesPersist;
+    $("alert-webhookUrls").value = ((s.alert && s.alert.webhookUrls) || []).join("\\n");
+    $("alert-deadmanUrl").value = (s.alert && s.alert.deadmanUrl) || "";
+    $("alert-deadletterThreshold").value = s.alert && typeof s.alert.deadletterThreshold === "number" ? s.alert.deadletterThreshold : 10;
+    $("alert-resendMinutes").value = s.alert && typeof s.alert.resendMinutes === "number" ? s.alert.resendMinutes : 30;
     $("timezone").value = s.timezone || "Asia/Taipei";
     $("targets").value = Object.keys(s.targets || {}).map(function (k) { return k + "=" + s.targets[k]; }).join("\\n");
     $("smtp-host").value = s.smtp.host || "";
@@ -708,6 +717,12 @@ export function renderSettingsHtml() {
         pass: $("smtp-pass").value,
         from: $("smtp-from").value,
         to: $("smtp-to").value
+      },
+      alert: {
+        webhookUrls: $("alert-webhookUrls").value.split(/\\r?\\n/).map(function (x) { return x.trim(); }).filter(Boolean),
+        deadmanUrl: $("alert-deadmanUrl").value.trim(),
+        deadletterThreshold: Math.max(0, Number($("alert-deadletterThreshold").value) || 0),
+        resendMinutes: Math.max(1, Number($("alert-resendMinutes").value) || 30)
       },
       commands: {
         enabled: $("commands-enabled").checked,

@@ -70,6 +70,13 @@ const schema = z.object({
   DISCORD_BOT_TOKEN: z.string().trim().default(""),
   DISCORD_TARGETS: z.string().default(""),
   HEALTH_CHECK_INTERVAL_SEC: z.coerce.number().int().positive().default(60),
+  // C2：告警通道（Email 之外的 webhook fan-out）與 dead-man ping。
+  ALERT_WEBHOOK_URLS: z.string().default(""),
+  ALERT_DEADMAN_URL: z.string().trim().default(""),
+  // 死信筆數超過此值即告警（0 = 關閉）。
+  ALERT_DEADLETTER_THRESHOLD: z.coerce.number().int().min(0).default(10),
+  // 同一事由的告警最短重發間隔（分鐘）。
+  ALERT_RESEND_MINUTES: z.coerce.number().int().positive().default(30),
   LOG_LIMIT: z.coerce.number().int().positive().default(200),
   LOG_FILE: z.string().default("./logs/app.log"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
@@ -111,7 +118,7 @@ const schema = z.object({
 
 function parseList(value: string): string[] {
   return value
-    .split(",")
+    .split(/[\n,]/)
     .map((item) => item.trim())
     .filter(Boolean);
 }
@@ -136,6 +143,18 @@ export interface SmtpConfig {
   pass: string;
   from: string;
   to: string;
+}
+
+/** C2 告警設定：Email（smtp）之外的 fan-out 通道。 */
+export interface AlertConfig {
+  /** Slack／Discord／ntfy 等接收告警的 webhook URL（可多筆）。 */
+  webhookUrls: string[];
+  /** dead-man ping URL（外部 uptime 服務）；每輪監控打一次，程序掛掉就不會 ping。 */
+  deadmanUrl: string;
+  /** 死信筆數告警閾值；0 = 關閉。 */
+  deadletterThreshold: number;
+  /** 同一事由的告警最短重發間隔（分鐘）。 */
+  resendMinutes: number;
 }
 
 export interface ForwardRule {
@@ -286,6 +305,7 @@ export interface Config {
   };
   replyMaxChars: number;
   smtp: SmtpConfig;
+  alert: AlertConfig;
   forward: ForwardRule[];
   commands: CommandConfig;
   assistant: AssistantConfig;
@@ -416,6 +436,12 @@ export const config: Config = {
     pass: env.SMTP_PASS,
     from: env.MAIL_FROM,
     to: env.MAIL_TO,
+  },
+  alert: {
+    webhookUrls: parseList(env.ALERT_WEBHOOK_URLS),
+    deadmanUrl: env.ALERT_DEADMAN_URL,
+    deadletterThreshold: env.ALERT_DEADLETTER_THRESHOLD,
+    resendMinutes: env.ALERT_RESEND_MINUTES,
   },
   forward: [],
   commands: {

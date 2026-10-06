@@ -2,10 +2,14 @@ services:
   line-webhook:
     build: .
     restart: unless-stopped
+    # 優雅關閉：index.ts 的強制關閉逾時是 10 秒，給它 15 秒。
+    init: true
+    stop_grace_period: 15s
     ports:
       - "8090:8090"
     env_file:
       - .env
+    # 這些路徑都指向 /app/data（可寫的 bind mount），讓 rootfs 可以保持唯讀。
     environment:
       STORAGE_PATH: /app/data/storage.json
       LOG_FILE: /app/data/logs/app.log
@@ -13,3 +17,23 @@ services:
       MESSAGES_PATH: /app/data/messages.jsonl
     volumes:
       - ./data:/app/data
+    # J2：鏡像內已 USER node（uid 1000）。首次啟動前請確認 ./data 可被 uid 1000 寫入：
+    #   mkdir -p data && sudo chown -R 1000:1000 data
+    # 注意：綁定 ./data 會讓檔案在主機上以 uid 1000 擁有（不再是 root）。
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 1g
+    # 根檔案系統唯讀（加分項）：先確認 .env 沒有把任何路徑寫到 /app/data 之外
+    # （uploads / skills / cache / db 預設都在 data/ 下），有疑慮就拿掉這兩行。
+    # read_only: true
+    # tmpfs:
+    #   - /tmp
+    # healthcheck 由 Dockerfile 的 HEALTHCHECK 繼承（interval 30s / timeout 5s / retries 3）。
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

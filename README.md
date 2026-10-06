@@ -21,7 +21,7 @@ LINE 透過已登入的個人帳號（selfbot），Telegram 走 Bot API，WhatsA
 - **設定頁 `/settings`**：左側設定卡片，**線上編輯設定**（存於 `settings.json`，立即生效）；共用設定永遠可見，平台專屬（LINE 登入／目標對照、Telegram Bot、WhatsApp、Teams、Discord）只在切到該平台時顯示
 - **訊息頁 `/messages`**：記錄收到的訊息（唯讀瀏覽；可選持久化到檔案）
 - **關鍵字自動回覆**：收到訊息且內容與關鍵字「完全相符」時，自動回覆文字與／或檔案，含**每聊天冷卻**（於 `/settings` 設定）
-- 登入失效自動重登；失敗時寄 Email 通知
+- 登入失效自動重登；失敗時**多通道告警**（Email ＋ Slack/Discord/ntfy webhook ＋ dead-man ping），含去抖重發與恢復通知
 - **log 輪替**（依大小）
 - 啟動時驗證 `.env`（zod），缺必填直接報錯
 - Graceful shutdown（SIGINT / SIGTERM）
@@ -92,6 +92,7 @@ npm run typecheck
 `SEND_MAX_RETRIES`、`SEND_RETRY_BASE_MS`、`SEND_MIN_INTERVAL_MS`、
 `HEALTH_CHECK_INTERVAL_SEC`、`LOG_LIMIT`、`LOG_MAX_BYTES`、`LOG_MAX_FILES`、`TARGETS`、訊息模板、
 訊息持久化開關、自動回覆（含冷卻秒數）、`SMTP_*`、`MAIL_FROM`、`MAIL_TO`、
+`ALERT_WEBHOOK_URLS`、`ALERT_DEADMAN_URL`、`ALERT_DEADLETTER_THRESHOLD`、`ALERT_RESEND_MINUTES`、
 Telegram（`TELEGRAM_*`）、WhatsApp（`WHATSAPP_*`，含 Cloud／個人帳號模式切換）、Teams（`TEAMS_*`）、Discord（`DISCORD_*`）。
 
 > `LINE_DEVICE_NAME` / `LINE_DEVICE` 需重新登入（刪除 `storage.json`）才會反映在 LINE 顯示的裝置名稱。
@@ -532,12 +533,27 @@ curl -sS -X POST "http://localhost:8090/webhook?token=$WEBHOOK_TOKEN" \
 - 檔案超過 5MB 會自動輪替（保留 3 個舊檔）。
 - 只記錄文字；圖片 / 檔案訊息的內容不記錄。
 
+## 告警（多通道 + dead-man）
+
+平台連線失效、死信積壓時會送出告警，**各通道彼此獨立**（單一通道失敗不影響其他通道）：
+
+| 通道 | 設定 | 說明 |
+| --- | --- | --- |
+| Email | `SMTP_*` / `MAIL_FROM` / `MAIL_TO` | 既有通道 |
+| Webhook | `ALERT_WEBHOOK_URLS`（每行一筆） | 同一份 JSON 相容 Slack Incoming Webhook（`text`）、Discord Webhook（`content`）、ntfy（`title` + `message`） |
+| dead-man ping | `ALERT_DEADMAN_URL` | 每輪健康檢查打一次；**程序掛掉就不會 ping**，由外部 uptime 服務（healthchecks.io / hc-ping.com 等）在逾時後告警 |
+
+- 兩者（SMTP 與 webhook）都沒設定時，告警只會寫入 log 並記 **error**——「告警寄不出去」不會再被靜默吞掉。
+- **去抖重發**：同一事由首次立即發，之後每 `ALERT_RESEND_MINUTES`（預設 30）分鐘重發一次；恢復時另發「已恢復」。
+- **死信閾值**：死信累積超過 `ALERT_DEADLETTER_THRESHOLD`（預設 10，0 = 關閉）即告警，提示到 `/console` 的「死信」處理。
+- 監控每輪走 `listServices()`，**所有平台**都會被檢查（不是只有 LINE）；設定可在 `/settings` →「監控 / Log」線上修改。
+
 ## 運作流程
 
 1. 啟動 HTTP server
 2. 背景登入 LINE：優先使用 `storage.json` 的 token，失效則改用 QR（終端機與狀態頁會顯示可掃描的 QR 圖）
 3. 登入後抓取好友與群組，建立名稱→mid 對照表
-4. 定時健康檢查；失效時寄信 + 自動重登，狀態顯示於 `/dashboard`
+4. 定時健康檢查（所有平台）；失效時**多通道告警**（Email / Webhook / dead-man ping）+ 自動重登，狀態顯示於 `/dashboard`
 5. Webhook 發送進入佇列：節流 → 失敗退避重試 → 回應結果
 
 詳見 [`docs/architecture.md`](docs/architecture.md)。
@@ -595,6 +611,25 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
+### 容器硬化
+
+- 容器內以 **uid 1000（`node`）**執行，不是 root。首次啟動前請讓資料目錄可寫：
+  ```sh
+  mkdir -p data && sudo chown -R 1000:1000 data
+  ```
+  否則 `storage.json`／`settings.json`／sqlite 寫入會失敗；綁定 `./data` 之後檔案會以 uid 1000 擁有（不再變成 root 擁有）。
+- `HEALTHCHECK` 打 **`GET /healthz`**（存活探針，不呼叫任何平台）：平台掛掉時**不該**被容器重啟，那是 `/health`（任一平台異常回 503）的責任。
+- 其餘硬化：`no-new-privileges`、`cap_drop: ALL`、`pids_limit: 256`、`mem_limit: 1g`、log 輪替（10MB × 3）、`stop_grace_period: 15s`。
+- `read_only`（rootfs 唯讀）以註解提供：先確認 `.env` 沒有把任何路徑寫到 `/app/data` 之外（uploads / skills / cache / db 預設都在 `data/` 下）再打開。
+
+## CI
+
+`.github/workflows/ci.yml` 每次 push 跑：`typecheck → lint → build → test → coverage（report-only）→ secret scanning → npm audit gate`，通過後再 `docker build`。
+
+- **secret scanning**（`.github/scripts/secret-scan.mjs`）：少數高信心憑證 pattern（AWS／GitHub／Slack／Google／Stripe／OpenAI／Telegram／Discord／私鑰），零相依、可在本機用同一支指令重跑；規則本身有 `tests/secret-scan.test.ts` 護著（含「每條規則都要認得自己的正例」）。
+- **npm audit gate**：high/critical 才擋，豁免必須帶 `reviewedAt` + `expires`（過期即失效）。
+- **Dependabot**（`.github/dependabot.yml`）：npm 與 github-actions 每週；`linejs`／`baileys` 這兩個登入關鍵依賴一律人工審閱。
+
 ## 專案結構
 
 ```
@@ -632,8 +667,9 @@ src/
   middleware/hmac.ts    HMAC 簽章 + 防重放 + idempotency
   middleware/ip.ts      IP 白名單
   middleware/rateLimit.ts 接收端速率限制
-  notify/mailer.ts      Email 通知
-  monitor/token.ts      健康檢查與重登
+  notify/mailer.ts      Email 通知（sendMailChecked 回報是否送達）
+  notify/alert.ts       多通道告警 fan-out（Email + webhook）+ dead-man ping
+  monitor/token.ts      健康檢查、去抖重發告警、死信閾值、dead-man ping
   webhook/server.ts     HTTP server（路由 + 中介層 + webhook 處理；頁面見 pages/）
   webhook/shell.ts      管理頁外殼（page()、導覽、IM 切換器、i18n 橋接）
   webhook/pages/        各頁渲染（dashboard / console / settings / skills / messages / login / readme）
@@ -642,6 +678,8 @@ docs/architecture.md    架構圖（含多平台歸屬對照表與新增 IM 檢�
 docs/IM.md              多平台規劃（LINE / Telegram / Teams / WhatsApp / Discord 進度）
 docs/IM-setup.md        LINE / Telegram / WhatsApp / Teams / Discord 申請與設定說明
 tests/                  單元測試（`npm test`）
+.github/workflows/ci.yml CI（typecheck / lint / build / test / coverage / secret scan / audit gate / docker build）
+.github/scripts/secret-scan.mjs secret 掃描（零相依，可本機重跑）
 ```
 
 ## 疑難排解
@@ -649,6 +687,8 @@ tests/                  單元測試（`npm test`）
 - **一直顯示「待驗證」**：用 LINE 內建掃描器掃終端機或 `/dashboard` 上的 QR 圖，或點儀表板的驗證連結在手機開啟。
 - **找不到目標（404）**：名稱需與顯示名稱完全相同；建議改用原生 ID（LINE 用 mid、Telegram 用 chat_id、WhatsApp 用電話號碼、Teams 用 conversation id），或在設定頁目標對照設定。
 - **收不到 Email**：確認 `SMTP_*` 與 `MAIL_FROM` / `MAIL_TO` 都已設定。
+- **收不到告警**：`SMTP` 與 `ALERT_WEBHOOK_URLS` **至少要有一個**（都沒設時只寫 log 並記 error）；死信告警閾值 0 = 關閉；同一事由每 `ALERT_RESEND_MINUTES` 分鐘才重發一次。
+- **Docker 容器寫檔失敗（EACCES）**：容器以 uid 1000 執行，請 `sudo chown -R 1000:1000 data`；容器反覆重啟時先 `docker inspect` 看 healthcheck 是否打 `/healthz`。
 - **對外接收 webhook**：本機需用 ngrok / Cloudflare Tunnel 打通道；記得設定 `HMAC_SECRET`。
 - **被擋 403 簽章錯誤**：確認簽章字串為 `${timestamp}.${body}`，且時間戳在誤差範圍內。
 - **某 IM 沒反應**：先看右上角是否切到該平台；停用的平台儀表板會顯示「未啟用」空白狀態。Teams 主動推播前需先讓 Bot 收到該對話一次訊息；WhatsApp Cloud 主動推播受 24 小時視窗限制。
