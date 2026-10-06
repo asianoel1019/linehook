@@ -7,4 +7,6 @@ data/
 logs/
 library/
 scripts/
+# 例外：CI 的 secret scanning 放在 .github/scripts/（專案根的 scripts/ 仍忽略）
+!.github/scripts/
 *.log
