@@ -62,6 +62,11 @@ export function renderSettingsHtml() {
       <div class="field"><label data-i18n="lbl_device">裝置類型</label><select id="line-device">${deviceOptions}</select></div>
       <div class="field"><label data-i18n="lbl_device_name">顯示名稱（systemName）</label><input id="line-deviceName" type="text"></div>
       <div class="field"><label data-i18n="lbl_model_name">機型（modelName）</label><input id="line-modelName" type="text"><div class="hint" data-i18n="hint_relogin_needed">顯示名稱需重新登入才生效</div></div>
+      <div class="field"><label data-i18n="lbl_line_storage">Session 儲存目錄</label><input id="line-storagePath" type="text" placeholder="./storage.json"><div class="hint" data-i18n="hint_line_storage">登入憑證（authToken）儲存位置；改完路徑按下方「重新登入」即以新位置重新登入，舊檔不會自動搬移</div></div>
+      <div class="field"><label data-i18n="lbl_line_relogin">重新登入</label>
+        <span style="display:flex;gap:8px;align-items:center"><button type="button" id="line-relogin">${tr(config.language, "btn_line_relogin")}</button><span id="line-relogin-msg" class="msg"></span></span>
+        <div class="hint" data-i18n="hint_line_relogin">會先儲存目前設定再觸發重新登入；掃 QR 或輸入 PIN，狀態與 QR 顯示於 <code>/dashboard</code></div>
+      </div>
       <div class="field"><div class="hint" data-i18n="hint_lo_personal_targets">目標對照（名稱=mid）在左側「目標對照」卡片，僅在個人帳號模式顯示。</div></div>
     </div>
 
@@ -566,6 +571,7 @@ export function renderSettingsHtml() {
     $("line-device").value = s.line.device;
     $("line-deviceName").value = s.line.deviceName || "";
     $("line-modelName").value = s.line.modelName || "";
+    $("line-storagePath").value = (s.line && s.line.storagePath) || "./storage.json";
     var loMode = (s.line && s.line.mode) === "official" ? "official" : "personal";
     $("line-mode-personal").checked = loMode !== "official";
     $("line-mode-official").checked = loMode === "official";
@@ -728,6 +734,7 @@ export function renderSettingsHtml() {
       replyMaxChars: Number($("replyMaxChars").value),
       line: {
         mode: readLineMode(),
+        storagePath: $("line-storagePath").value.trim() || "./storage.json",
         device: $("line-device").value,
         deviceName: $("line-deviceName").value,
         modelName: $("line-modelName").value,
@@ -813,6 +820,25 @@ export function renderSettingsHtml() {
   $("api-token-generate").addEventListener("click", function () {
     $("apiToken").value = randomHex(32);
     $("settings-msg").textContent = "已產生新 API Token，請按「儲存設定」";
+  });
+
+  // LINE 個人帳號重新登入（原在 /console「操作」，改放設定頁）。會先儲存目前設定再觸發，
+  // 讓「改 Session 儲存目錄 → 立即以新路徑重登」只需按一次。
+  $("line-relogin").addEventListener("click", function () {
+    var msg = $("line-relogin-msg");
+    msg.textContent = "儲存中…";
+    post("settings", collectForm()).then(function (r) {
+      if (!r.ok) {
+        msg.textContent = "儲存失敗：" + ((r.data && r.data.error) || "");
+        return null;
+      }
+      msg.textContent = "重登中…";
+      return post("settings/relogin").then(function (q) {
+        msg.textContent = q.ok ? "已觸發重新登入（狀態與 QR 見 /dashboard）" : ("失敗：" + ((q.data && q.data.error) || ""));
+      });
+    }).catch(function () {
+      msg.textContent = "請求失敗";
+    });
   });
 
   $("tg-secret-generate").addEventListener("click", function () {

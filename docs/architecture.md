@@ -164,7 +164,7 @@ X-Signature: <HMAC-SHA256(body, secret)>   # 或 ?token=<WEBHOOK_TOKEN> / Author
 | 歸屬 | 設定欄位 / UI |
 | --- | --- |
 | **共用** | 安全/來源（allowedIps、hmac*、webhookToken*、apiToken*、adminPrivateOnly、rateLimit*）；發送/重試（send.*、replyMaxChars）；監控/Log（timezone、healthCheckIntervalSec、log*、messagesPersist）；訊息模板 `templates`（純文字）；訊息轉發規則 `forward`；指令 `commands`；Email `smtp.*`；匯出/匯入；語言；技能頁 `assistant` + `skills`；Console 的測試發送、目標清單、最近紀錄、排程；Dashboard 的狀態摘要與發送統計 |
-| **LINE 專屬** | 設定：`line.device` / `deviceName` / `modelName`、`targets`（mid）、**Flex 樣板 `flexTemplates`**；Console：Flex 可視化編輯器、操作（重新登入 / 重新整理聯絡人）；Dashboard：QR / PIN |
+| **LINE 專屬** | 設定：`line.mode`（personal／official 擇一）/ `storagePath`（session 檔，個人帳號）/ `device` / `deviceName` / `modelName`、`targets`（mid）、**Flex 樣板 `flexTemplates`**；「儲存並重新登入」按鈕（原在 Console 操作）；Console：Flex 可視化編輯器、操作（重新整理聯絡人）；Dashboard：QR / PIN |
 | **LINE 官方模式** | 同一個 platform id `line`，由 `line.mode` 與 selfbot **擇一啟用**（仿 WhatsApp cloud/web）：`line.official.*`（`channelAccessToken` / `channelSecret` / `webhookUrl` / `targets`，userId・groupId）。接收 `POST /line-official/webhook` 驗 `X-Line-Signature`；本機媒體需 `MEDIA_PUBLIC_URL` 才能變成 LINE 可抓取的簽章連結（`/media/:exp/:sig/:name`）。取捨：兩模式共用統計與排程檔，切換後目標 ID 需重填 |
 | **Telegram 專屬** | 設定：`telegram.enabled` / `botToken` / `secretToken` / `webhookUrl` / `telegram.targets`（chat_id） |
 | **WhatsApp 專屬** | 設定：`whatsapp.enabled` / `mode`（cloud\|web）/ `phoneNumberId` / `accessToken` / `verifyToken` / `appSecret` / `apiVersion` / `webAuthPath` / `whatsapp.targets`（E.164）。Cloud 走 `/wa/webhook` + Meta 驗簽；web（個人帳號）走長連線、無 webhook |

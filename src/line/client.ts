@@ -135,7 +135,8 @@ async function withRetry<T>(
 
 export class LineService implements IMessagingService {
   readonly platform = "line" as const;
-  private readonly storage = new FileStorage(config.line.storagePath);
+  // 會在 doInit() 重建，讓設定頁改完 Session 儲存目錄後「重新登入」即可生效（與 WhatsApp Web 的 webAuthPath 同）。
+  private storage = new FileStorage(config.line.storagePath);
   private readonly queue: SendQueue;
   private readonly scheduler: SendScheduler;
   private base: BaseClient | null = null;
@@ -252,6 +253,7 @@ export class LineService implements IMessagingService {
 
   private async doInit(): Promise<void> {
     this.loggedIn = false;
+    this.storage = new FileStorage(config.line.storagePath);
     const base = new BaseClient({
       device: config.line.device,
       storage: this.storage,

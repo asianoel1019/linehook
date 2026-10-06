@@ -150,6 +150,8 @@ const settingsSchema = z.object({
   line: z.object({
     // E2：帳號模式擇一（仿 WhatsApp）；官方模式只用底下的 official 區塊。
     mode: z.enum(["personal", "official"]).default("personal"),
+    /** 個人帳號的 session 檔（authToken）位置；對應 WhatsApp Web 的 webAuthPath。 */
+    storagePath: z.string().trim().default("./storage.json"),
     device: z.enum(DEVICES).default("DESKTOPWIN"),
     deviceName: z.string().default("IM Webhook"),
     modelName: z.string().default("IM Webhook"),
@@ -282,6 +284,7 @@ export function currentSettings(): EditableSettings {
     replyMaxChars: config.replyMaxChars,
     line: {
       mode: config.line.mode,
+      storagePath: config.line.storagePath,
       device: config.line.device,
       deviceName: config.line.deviceName,
       modelName: config.line.modelName,
@@ -380,6 +383,7 @@ function apply(settings: EditableSettings): void {
   config.rateLimit = { ...settings.rateLimit };
   config.replyMaxChars = settings.replyMaxChars;
   config.line.mode = settings.line.mode;
+  config.line.storagePath = settings.line.storagePath;
   config.line.device = settings.line.device;
   config.line.deviceName = settings.line.deviceName;
   config.line.modelName = settings.line.modelName;

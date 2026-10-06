@@ -310,13 +310,6 @@ export function renderConsoleHtml() {
 
   $("target-search").addEventListener("input", renderTargets);
 
-  $("btn-relogin").addEventListener("click", function () {
-    $("action-msg").textContent = "重登中…";
-    post("settings/relogin").then(function (r) {
-      $("action-msg").textContent = r.ok ? "已觸發重新登入" : ("失敗：" + (r.data.error || ""));
-    });
-  });
-
   $("btn-refresh").addEventListener("click", function () {
     $("action-msg").textContent = "更新中…";
     post("settings/refresh").then(function (r) {
@@ -648,7 +641,6 @@ export function renderConsoleHtml() {
 </div>
 <div class="side-section" data-im="line">${tr(config.language, "section_actions")}</div>
 <div class="fn-list" data-im="line">
-  <button type="button" class="fn-card" id="btn-relogin">${tr(config.language, "relogin")}</button>
   <button type="button" class="fn-card" id="btn-refresh">${tr(config.language, "refresh_contacts")}</button>
 </div>
 <p id="action-msg" class="msg" style="align-self:stretch; word-break:break-word; margin:6px 2px 0" data-im="line"></p>`;

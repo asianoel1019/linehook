@@ -33,14 +33,16 @@ LINE 與 WhatsApp 一樣是**單一平台、模式擇一**：`LINE_MODE=personal
 
 ### 產生本系統所需資訊
 - 登入 **QR Code / PIN**：由系統啟動時自動產生，顯示於終端機與 `/dashboard` 狀態頁，用手機 LINE 掃描即可。
-- 登入成功後 **authToken** 自動存到 `storage.json`（由 `STORAGE_PATH` 決定），之後自動登入。
+- 登入成功後 **authToken** 自動存到 `storage.json`（路徑可在 `/settings` → LINE → **Session 儲存目錄** 修改，預設 `STORAGE_PATH`），之後自動登入。
 
 ### 設定步驟
 1. `/settings` → 切到右上角 **LINE**。
 2. **裝置類型**（`LINE_DEVICE`）：預設 `DESKTOPWIN`，一般不用改。
-3. **顯示名稱 / 機型**（`LINE_DEVICE_NAME` / `LINE_MODEL_NAME`）：LINE 上顯示的裝置名稱；**修改後需重新登入才生效**（刪除 `storage.json` 後重啟）。
-4. **目標對照**（名稱=mid）：每行 `名稱=mid`。mid 可從 `/console` 的「目標清單」看到，或用聊天中的 `!id`（若已開指令）取得；也可直接填 LINE 顯示名稱（較不建議，名稱可能重複）。
-5. 儲存後，到 `/dashboard` 掃 QR 完成首次登入。
+3. **顯示名稱 / 機型**（`LINE_DEVICE_NAME` / `LINE_MODEL_NAME`）：LINE 上顯示的裝置名稱；**修改後需重新登入才生效**（按下方「儲存並重新登入」即可，不需刪檔重啟）。
+4. **Session 儲存目錄**（`STORAGE_PATH`）：`storage.json` 的位置；改完路徑按「儲存並重新登入」即以新位置重新登入（舊檔不會自動搬移）。
+5. **重新登入**：卡片內的「儲存並重新登入」按鈕（原 `/console` → 操作）；會先儲存設定再觸發，依提示掃 QR 或輸入 PIN。
+6. **目標對照**（名稱=mid）：每行 `名稱=mid`。mid 可從 `/console` 的「目標清單」看到，或用聊天中的 `!id`（若已開指令）取得；也可直接填 LINE 顯示名稱（較不建議，名稱可能重複）。
+7. 首次登入：按「儲存並重新登入」，到 `/dashboard` 掃 QR 完成。
 
 ### 端點 / API 呼叫
 - 發送：`POST https://你的網域/webhook`（驗證方式見文末「共用驗證」）。

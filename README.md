@@ -57,7 +57,7 @@ npm run typecheck
 
 設定分兩層：
 
-- **`.env`（bootstrap，無法在網頁修改）**：`PORT`、`SETTINGS_PATH`、`STORAGE_PATH`、`LOG_FILE`、`MESSAGES_PATH`、`STATUS_USER`、`STATUS_PASS`、`MEDIA_PUBLIC_URL`
+- **`.env`（bootstrap，無法在網頁修改）**：`PORT`、`SETTINGS_PATH`、`LOG_FILE`、`MESSAGES_PATH`、`STATUS_USER`、`STATUS_PASS`、`MEDIA_PUBLIC_URL`
 - **`/settings` 頁面（存於 `settings.json`，修改後立即生效）**：其餘所有項目
 - 優先順序：`.env` < `settings.json`（`.env` 可作為初始預設值）
 
@@ -69,7 +69,7 @@ npm run typecheck
 | --- | --- | --- |
 | `PORT` | `8090` | 服務埠 |
 | `SETTINGS_PATH` | `./settings.json` | 執行期設定儲存檔 |
-| `STORAGE_PATH` | `./storage.json` | 登入 token 儲存位置 |
+| `STORAGE_PATH` | `./storage.json` | LINE **個人帳號**的登入 token 儲存位置（**初始值**；已在 `/settings` → LINE 可改，改完按「儲存並重新登入」） |
 | `LOG_FILE` | `./logs/app.log` | log 檔路徑 |
 | `MESSAGES_PATH` | `./data/messages.jsonl` | 收到的訊息持久化檔（jsonl 模式為主檔；sqlite 模式開機遷移後封存 `.migrated`）；是否寫入由 `/settings` 開關控制 |
 | `SCHEDULES_PATH` | `./data/schedules.json` | 排程訊息持久化檔；重啟後恢復未到期排程 |
@@ -93,7 +93,7 @@ npm run typecheck
 `HEALTH_CHECK_INTERVAL_SEC`、`LOG_LIMIT`、`LOG_MAX_BYTES`、`LOG_MAX_FILES`、`TARGETS`、訊息模板、
 訊息持久化開關、自動回覆（含冷卻秒數）、`SMTP_*`、`MAIL_FROM`、`MAIL_TO`、
 `ALERT_WEBHOOK_URLS`、`ALERT_DEADMAN_URL`、`ALERT_DEADLETTER_THRESHOLD`、`ALERT_RESEND_MINUTES`、
-LINE（`LINE_MODE` 擇一：`personal` 自己申請的個人帳號 selfbot ／ `official` 官方 Messaging API，含 `LINE_OFFICIAL_*`：access token、channel secret、webhook URL、targets）、
+LINE（`LINE_MODE` 擇一：`personal` 自己申請的個人帳號 selfbot ／ `official` 官方 Messaging API，含 `LINE_MODE`、`STORAGE_PATH`、`LINE_OFFICIAL_*`：access token、channel secret、webhook URL、targets）、
 Telegram（`TELEGRAM_*`）、WhatsApp（`WHATSAPP_*`，含 Cloud／個人帳號模式切換）、Teams（`TEAMS_*`）、Discord（`DISCORD_*`）。
 
 > `LINE_DEVICE_NAME` / `LINE_DEVICE` 需重新登入（刪除 `storage.json`）才會反映在 LINE 顯示的裝置名稱。

@@ -87,7 +87,6 @@ export const DICT: Record<string, Entry> = {
   platform_discord: { zh: "Discord", en: "Discord", ja: "Discord" },
   platform_not_enabled: { zh: "此平台未啟用", en: "This platform is not enabled", ja: "このプラットフォームは有効化されていません" },
 
-  relogin: { zh: "Line重新登入", en: "Relogin LINE", ja: "LINE 再ログイン" },
   refresh_contacts: { zh: "重新整理聯絡人", en: "Refresh contacts", ja: "連絡先を更新" },
   language: { zh: "語言", en: "Language", ja: "言語" },
 
@@ -145,6 +144,19 @@ export const DICT: Record<string, Entry> = {
   lbl_device_name: { zh: "顯示名稱（systemName）", en: "Display name (systemName)", ja: "表示名（systemName）" },
   lbl_model_name: { zh: "機型（modelName）", en: "Model (modelName)", ja: "機種（modelName）" },
   hint_relogin_needed: { zh: "顯示名稱需重新登入才生效", en: "Display name takes effect after re-login", ja: "表示名は再ログイン後に有効" },
+  lbl_line_storage: { zh: "Session 儲存目錄", en: "Session file path", ja: "セッション保存先" },
+  hint_line_storage: {
+    zh: "登入憑證（authToken）儲存位置，預設 ./storage.json；改完路徑按下方「儲存並重新登入」即以新位置重新登入，舊檔不會自動搬移",
+    en: "Where the login credential (authToken) is stored, default ./storage.json. Change it, then press \"Save & re-login\" below; the old file is not moved automatically",
+    ja: "ログイン情報（authToken）の保存先（既定 ./storage.json）。変更後、下の「保存して再ログイン」で新しい場所へ再ログインします（旧ファイルは自動移動されません）",
+  },
+  lbl_line_relogin: { zh: "重新登入", en: "Re-login", ja: "再ログイン" },
+  btn_line_relogin: { zh: "儲存並重新登入", en: "Save & re-login", ja: "保存して再ログイン" },
+  hint_line_relogin: {
+    zh: "會先儲存目前設定再觸發重新登入；依提示掃 QR 或輸入 PIN，狀態與 QR 顯示於 /dashboard",
+    en: "Saves the current settings first, then triggers a re-login; scan the QR or enter the PIN. Status and QR appear on /dashboard",
+    ja: "現在の設定を保存してから再ログインを実行します。QR をスキャンまたは PIN を入力。状態と QR は /dashboard に表示されます",
+  },
 
   // line official mode（E2：Messaging API，由 line.mode 擇一啟用）
   hint_lo_personal_targets: {
