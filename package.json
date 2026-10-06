@@ -29,7 +29,7 @@
     "marked": "^18.0.14",
     "nodemailer": "^10.0.12",
     "qrcode": "^1.5.4",
-    "zod": "^3.25.76"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
