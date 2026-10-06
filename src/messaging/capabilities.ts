@@ -26,6 +26,16 @@ export const PLATFORM_CAPABILITIES: Record<Platform, Record<Capability, Capabili
     location: { level: "native", note: "" },
     flex: { level: "native", note: "" },
   },
+  "line-official": {
+    text: { level: "native", note: "單則上限 5000 字元，超過自動分段" },
+    image: { level: "native", note: "來源需為 HTTPS；本機檔案會自動轉為有時效的簽章公開連結" },
+    video: { level: "native", note: "來源需為 HTTPS；本機檔案會自動轉為有時效的簽章公開連結" },
+    audio: { level: "degraded", note: "需長度資訊；抓不到長度（如遠端音訊）會改以檔案附件送出" },
+    file: { level: "native", note: "來源需為 HTTPS；本機檔案會自動轉為有時效的簽章公開連結" },
+    sticker: { level: "degraded", note: "以 LINE 官方貼圖送出；無效或非官方貼圖 ID 會降級為文字說明" },
+    location: { level: "native", note: "" },
+    flex: { level: "native", note: "Flex 原生呈現（非降級）" },
+  },
   telegram: {
     text: { level: "native", note: "" },
     image: { level: "native", note: "" },

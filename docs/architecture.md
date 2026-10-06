@@ -165,6 +165,7 @@ X-Signature: <HMAC-SHA256(body, secret)>   # 或 ?token=<WEBHOOK_TOKEN> / Author
 | --- | --- |
 | **共用** | 安全/來源（allowedIps、hmac*、webhookToken*、apiToken*、adminPrivateOnly、rateLimit*）；發送/重試（send.*、replyMaxChars）；監控/Log（timezone、healthCheckIntervalSec、log*、messagesPersist）；訊息模板 `templates`（純文字）；訊息轉發規則 `forward`；指令 `commands`；Email `smtp.*`；匯出/匯入；語言；技能頁 `assistant` + `skills`；Console 的測試發送、目標清單、最近紀錄、排程；Dashboard 的狀態摘要與發送統計 |
 | **LINE 專屬** | 設定：`line.device` / `deviceName` / `modelName`、`targets`（mid）、**Flex 樣板 `flexTemplates`**；Console：Flex 可視化編輯器、操作（重新登入 / 重新整理聯絡人）；Dashboard：QR / PIN |
+| **LINE 官方專屬** | 設定：`lineOfficial.enabled` / `channelAccessToken` / `channelSecret` / `webhookUrl` / `lineOfficial.targets`（userId・groupId）。獨立平台 id `line-official`（與 selfbot `line` 不互撞，見 D6）；接收 `POST /line-official/webhook` 驗 `X-Line-Signature`；本機媒體需 `MEDIA_PUBLIC_URL` 才能變成 LINE 可抓取的簽章連結（`/media/:exp/:sig/:name`） |
 | **Telegram 專屬** | 設定：`telegram.enabled` / `botToken` / `secretToken` / `webhookUrl` / `telegram.targets`（chat_id） |
 | **WhatsApp 專屬** | 設定：`whatsapp.enabled` / `mode`（cloud\|web）/ `phoneNumberId` / `accessToken` / `verifyToken` / `appSecret` / `apiVersion` / `webAuthPath` / `whatsapp.targets`（E.164）。Cloud 走 `/wa/webhook` + Meta 驗簽；web（個人帳號）走長連線、無 webhook |
 | **Teams 專屬** | 設定：`teams.enabled` / `appId` / `appPassword` / `tenantId` / `serviceUrl` / `teams.targets`（conversation id）。單一企業模式（無個人帳號選項）；接收 `POST /teams/messages`、驗 Bearer JWT；Flex 轉譯為 Adaptive Card |

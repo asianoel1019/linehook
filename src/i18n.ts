@@ -63,6 +63,7 @@ export const DICT: Record<string, Entry> = {
   card_scheduled: { zh: "排程中的訊息", en: "Scheduled", ja: "予約メッセージ" },
   card_security: { zh: "安全 / 來源", en: "Security / Source", ja: "セキュリティ / 送信元" },
   card_line: { zh: "LINE 登入", en: "LINE login", ja: "LINE ログイン" },
+  "card_line-official": { zh: "LINE 官方", en: "LINE official", ja: "LINE 公式" },
   card_telegram: { zh: "Telegram", en: "Telegram", ja: "Telegram" },
   card_whatsapp: { zh: "WhatsApp", en: "WhatsApp", ja: "WhatsApp" },
   card_teams: { zh: "Teams", en: "Teams", ja: "Teams" },
@@ -81,6 +82,7 @@ export const DICT: Record<string, Entry> = {
   section_settings: { zh: "設定", en: "Settings", ja: "設定" },
   section_platform: { zh: "通訊平台", en: "Platform", ja: "プラットフォーム" },
   platform_line: { zh: "LINE", en: "LINE", ja: "LINE" },
+  "platform_line-official": { zh: "LINE 官方", en: "LINE official", ja: "LINE 公式" },
   platform_telegram: { zh: "Telegram", en: "Telegram", ja: "Telegram" },
   platform_whatsapp: { zh: "WhatsApp", en: "WhatsApp", ja: "WhatsApp" },
   platform_teams: { zh: "Teams", en: "Teams", ja: "Teams" },
@@ -137,6 +139,49 @@ export const DICT: Record<string, Entry> = {
   lbl_device_name: { zh: "顯示名稱（systemName）", en: "Display name (systemName)", ja: "表示名（systemName）" },
   lbl_model_name: { zh: "機型（modelName）", en: "Model (modelName)", ja: "機種（modelName）" },
   hint_relogin_needed: { zh: "顯示名稱需重新登入才生效", en: "Display name takes effect after re-login", ja: "表示名は再ログイン後に有効" },
+
+  // line-official（E2：Messaging API 雙軌）
+  "legend_line-official": { zh: "LINE 官方（Messaging API）", en: "LINE official (Messaging API)", ja: "LINE 公式（Messaging API）" },
+  hint_lo_dual: {
+    zh: "與 selfbot 的 LINE（左側「LINE 登入」）雙軌並存：兩者是獨立平台、獨立統計與排程，可同時上線。官方版本是合規路線，無停權風險。",
+    en: "Runs alongside the selfbot LINE (\"LINE login\" on the left): two independent platforms with separate stats and schedules. The official channel is the compliant path with no ban risk.",
+    ja: "セルフボット版 LINE（左の「LINE ログイン」とは独立したプラットフォーム）と並行稼働できます。統計・予約も別々。公式チャネルは停止リスクのない合规ルートです。",
+  },
+  lbl_lo_enabled: { zh: "啟用 LINE 官方", en: "Enable LINE official", ja: "LINE 公式を有効化" },
+  lbl_lo_token: { zh: "Channel access token", en: "Channel access token", ja: "チャネルアクセストークン" },
+  hint_lo_token: {
+    zh: "LINE Developers Console → Messaging API → Channel access token (long-lived) 產生；留空 = 停用",
+    en: "Create it in LINE Developers Console → Messaging API → Channel access token (long-lived); empty = disabled",
+    ja: "LINE Developers Console → Messaging API → Channel access token (long-lived) で取得。空欄 = 無効",
+  },
+  lbl_lo_secret: { zh: "Channel secret", en: "Channel secret", ja: "チャネルシークレット" },
+  hint_lo_secret: {
+    zh: "Basic settings → Channel secret；未設定會直接拒絕接收 webhook（這是該端點唯一的來源驗證）",
+    en: "Basic settings → Channel secret. Without it inbound webhooks are rejected — it is the only source verification for that endpoint.",
+    ja: "Basic settings → Channel secret。未設定の場合 webhook を拒否します（このエンドポイント唯一の来源検証）。",
+  },
+  lbl_lo_webhook: { zh: "Webhook URL（自動註冊）", en: "Webhook URL (auto-register)", ja: "Webhook URL（自動登録）" },
+  hint_lo_webhook: {
+    zh: "設定後重啟會自動註冊；也可到 Console 手動填 https://<你的網域>/line-official/webhook",
+    en: "Registered automatically on restart; you can also set https://<your-domain>/line-official/webhook manually in the Console",
+    ja: "再起動時に自動登録。Console に https://<ドメイン>/line-official/webhook を手動設定しても可",
+  },
+  lbl_lo_targets: { zh: "目標對照（名稱=userId／groupId）", en: "Target mapping (name=userId/groupId)", ja: "送信先（名称=userId/groupId）" },
+  hint_lo_targets: {
+    zh: "每行一筆；用戶 U…、群組 c…、多人房 Ra…。收到訊息後會自動記住，可不填",
+    en: "One per line; users U…, groups c…, multi-person rooms Ra…. Conversations are remembered automatically after inbound messages",
+    ja: "1 行に 1 件。ユーザー U…、グループ c…、マルチチャット Ra…。受信後に自動記憶されます",
+  },
+  hint_lo_media: {
+    zh: "本機檔案要送給 LINE 需先變成公開連結（LINE 只收 HTTPS URL）：請在 .env 設定 MEDIA_PUBLIC_URL=https://<你的網域>，檔案會以 HMAC 簽章＋24 小時時效的路徑（/media/…）提供。",
+    en: "LINE only accepts HTTPS media URLs, so local files are served through a signed, 24-hour /media/… path. Set MEDIA_PUBLIC_URL=https://<your-domain> in .env.",
+    ja: "LINE は HTTPS のメディア URL のみ受付。ローカルファイルは署名付き 24 時間の /media/… 経由で提供されます。.env の MEDIA_PUBLIC_URL を設定してください。",
+  },
+  hint_lo_quota: {
+    zh: "配額：回覆（reply）不佔每月訊息額度，push／multicast／broadcast 佔。系統會在 1 分鐘內的回覆自動改用 replyToken，逾時才退回 push。",
+    en: "Quota: reply messages do not count toward the monthly allowance; push/multicast/broadcast do. Replies within 1 minute automatically use replyToken, otherwise push is used.",
+    ja: "クォータ：返信（reply）は月間割当に不算入、push/multicast/broadcast は算入。1 分以内の返信は replyToken を自動使用、期限後は push にフォールバック。",
+  },
 
   // telegram
   legend_telegram: { zh: "Telegram Bot", en: "Telegram bot", ja: "Telegram Bot" },

@@ -1,7 +1,11 @@
 import type { ScheduledJobView } from "../line/scheduler.js";
 
-/** 支援的通訊平台。新增 adapter 時擴充此 union 即可。 */
-export type Platform = "line" | "telegram" | "teams" | "whatsapp" | "discord";
+/**
+ * 支援的通訊平台。新增 adapter 時擴充此 union 即可。
+ * `line`（selfbot）與 `line-official`（Messaging API）刻意用不同 id，
+ * 避免兩者互撞同一個 platform key（見稽核 D6）。
+ */
+export type Platform = "line" | "line-official" | "telegram" | "teams" | "whatsapp" | "discord";
 
 /** 目標對照（一列）：顯示名稱 → 平台原生 ID（LINE 的 mid、Telegram 的 chat_id…）。 */
 export interface ChatTarget {

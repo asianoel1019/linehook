@@ -19,6 +19,7 @@ import { TelegramService } from "./telegram/client.js";
 import { WhatsAppService } from "./whatsapp/client.js";
 import { WhatsAppWebService } from "./whatsapp/web-client.js";
 import { TeamsService } from "./teams/client.js";
+import { LineOfficialService } from "./line-official/client.js";
 import { DiscordService } from "./discord/client.js";
 import { registerService } from "./messaging/services.js";
 import { createServer } from "./webhook/server.js";
@@ -127,6 +128,14 @@ async function main(): Promise<void> {
     logger.info("Discord 已啟用");
   }
 
+  // E2：LINE 官方 Messaging API（與 selfbot 的 LINE 雙軌並存）；需 enabled + channel access token。
+  let lineOfficial: LineOfficialService | null = null;
+  if (config.lineOfficial.enabled && config.lineOfficial.channelAccessToken.trim()) {
+    lineOfficial = new LineOfficialService();
+    registerService(lineOfficial);
+    logger.info("LINE 官方已啟用（Messaging API）");
+  }
+
   const app = createServer(line);
 
   const server = await new Promise<Server>((resolve) => {
@@ -170,6 +179,12 @@ async function main(): Promise<void> {
     });
   }
 
+  if (lineOfficial) {
+    void lineOfficial.init().catch((error) => {
+      logger.error("LINE 官方初始化失敗", { error: String(error) });
+    });
+  }
+
   let shuttingDown = false;
   const shutdown = (signal: string): void => {
     if (shuttingDown) return;
@@ -183,6 +198,8 @@ async function main(): Promise<void> {
     whatsapp?.stopQueue();
     teams?.stopQueue();
     discord?.stopQueue();
+    lineOfficial?.stopListening();
+    lineOfficial?.stopQueue();
     closeStore();
 
     const force = setTimeout(() => {

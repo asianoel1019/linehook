@@ -29,6 +29,8 @@ import { llmUsage } from "../llm-usage.js";
 import { persistInbound } from "../messaging/inbox.js";
 import { verifyWhatsAppSignature } from "../whatsapp/client.js";
 import { verifyTeamsJwt } from "../teams/client.js";
+import { verifyLineSignature } from "../line-official/client.js";
+import { mimeForName, resolveMediaFile, verifyMediaSignature } from "../media-url.js";
 import { encryptSettings, decryptSettings, isEncryptedEnvelope } from "../settings-crypto.js";
 import { reserveIdempotency, releaseIdempotency, requireSessionOrApi, verifyWebhookAuth, webhookAuthEnabled, type RawBodyRequest } from "../middleware/hmac.js";
 import { getMessages, reloadMessages, searchMessages, purgeMessages } from "../messages.js";
@@ -358,7 +360,7 @@ function resolveInputs(body: Record<string, unknown>, targets: string[]): SendIn
         return result;
     return targets.map((to) => buildInputFromMessage(to, result));
 }
-const ALL_PLATFORMS: Platform[] = ["line", "telegram", "whatsapp", "teams", "discord"];
+const ALL_PLATFORMS: Platform[] = ["line", "line-official", "telegram", "whatsapp", "teams", "discord"];
 /** 某平台目前的登入 QR（若需人工掃描）。各服務自行提供 getQr()。 */
 function platformQr(platform: string): string {
     const svc = getService(platform as Platform);
@@ -1248,6 +1250,57 @@ export function createServer(line: IMessagingService): express.Express {
     app.post("/webhook/teams", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("teams")));
     // Discord 發送端點：語意與 /webhook 相同（收訊走 Gateway 長連線，非 webhook）。
     app.post("/webhook/discord", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("discord")));
+    // E2：LINE 官方發送端點：語意與 /webhook 相同，走 Messaging API。
+    app.post("/webhook/line-official", ipGuard, rateLimit, verifyWebhookAuth, makeWebhookSender(() => getService("line-official")));
+    // E2：LINE 官方接收端點（Messaging API webhook）。驗 X-Line-Signature = base64(HMAC-SHA256(rawBody, channelSecret))。
+    // channel secret 未設定就直接拒絕——這是該端點唯一的來源驗證，不做「未設定就放行」。
+    app.post("/line-official/webhook", rateLimit, (req, res) => {
+        const service = getService("line-official");
+        if (!service || !config.lineOfficial.enabled || !config.lineOfficial.channelAccessToken.trim()) {
+            res.status(503).json({ ok: false, error: "LINE 官方未啟用" });
+            return;
+        }
+        const secret = config.lineOfficial.channelSecret.trim();
+        if (!secret) {
+            logger.error("LINE 官方 webhook 拒絕：未設定 channel secret（LINE_OFFICIAL_CHANNEL_SECRET）");
+            res.status(503).json({ ok: false, error: "未設定 channel secret，無法驗證來源" });
+            return;
+        }
+        const rawBody = (req as RawBodyRequest).rawBody;
+        const signature = req.header("x-line-signature") ?? "";
+        if (!rawBody || !verifyLineSignature(rawBody, signature, secret)) {
+            logger.warn("LINE 官方 webhook 簽章不符", { ip: clientIp(req) });
+            res.status(403).json({ ok: false });
+            return;
+        }
+        // 先落地再回 200：崩潰時仍可追溯（見 messaging/inbox.ts）。
+        persistInbound("line-official", req.body);
+        // LINE 要求盡快回 200，否則會重送；實際處理非同步進行。
+        res.json({ ok: true });
+        void Promise.resolve(service.handleIncoming?.(req.body)).catch((error: unknown) => {
+            logger.error("LINE 官方 webhook 處理失敗", { error: error instanceof Error ? error.message : String(error) });
+        });
+    });
+    // E2：公開媒體（LINE 只收 HTTPS URL）。路徑帶 HMAC 簽章與時效，僅限上傳／快取目錄內的檔案。
+    app.get("/media/:exp/:sig/:name", (req, res) => {
+        const exp = Number(req.params.exp);
+        const sig = String(req.params.sig ?? "");
+        const name = String(req.params.name ?? "");
+        if (!verifyMediaSignature(exp, sig, name)) {
+            res.status(403).json({ ok: false, error: "無效或過期的媒體連結" });
+            return;
+        }
+        const file = resolveMediaFile(name);
+        if (!file) {
+            res.status(404).json({ ok: false, error: "檔案不存在" });
+            return;
+        }
+        res.set("Cache-Control", `public, max-age=${Math.max(0, exp - Math.floor(Date.now() / 1000))}`);
+        res.type(mimeForName(name));
+        res.sendFile(file, (error) => {
+            if (error) logger.warn("媒體檔案送出失敗", { name, error: String(error) });
+        });
+    });
     // Telegram 接收端點：由 Telegram Bot API 推送 update 進來，驗 X-Telegram-Bot-Api-Secret-Token。
     app.post("/tg/update", rateLimit, (req, res) => {
         const service = getService("telegram");

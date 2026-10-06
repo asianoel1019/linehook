@@ -115,6 +115,16 @@ const settingsSchema = z.object({
       targets: z.record(z.string(), z.string()).default({}),
     })
     .default({ enabled: false, botToken: "", targets: {} }),
+  // E2：LINE 官方 Messaging API（與 selfbot 雙軌並存）。
+  lineOfficial: z
+    .object({
+      enabled: z.boolean().default(false),
+      channelAccessToken: z.string().trim().default(""),
+      channelSecret: z.string().trim().default(""),
+      webhookUrl: z.string().trim().default(""),
+      targets: z.record(z.string(), z.string()).default({}),
+    })
+    .default({ enabled: false, channelAccessToken: "", channelSecret: "", webhookUrl: "", targets: {} }),
   templates: z
     .array(
       z.object({
@@ -260,6 +270,13 @@ export function currentSettings(): EditableSettings {
       botToken: config.discord.botToken,
       targets: { ...config.discord.targets },
     },
+    lineOfficial: {
+      enabled: config.lineOfficial.enabled,
+      channelAccessToken: config.lineOfficial.channelAccessToken,
+      channelSecret: config.lineOfficial.channelSecret,
+      webhookUrl: config.lineOfficial.webhookUrl,
+      targets: { ...config.lineOfficial.targets },
+    },
     templates: config.templates.map((template) => ({ ...template })),
     flexTemplates: config.flexTemplates.map((template) => ({ ...template })),
     healthCheckIntervalSec: config.healthCheckIntervalSec,
@@ -352,6 +369,13 @@ function apply(settings: EditableSettings): void {
     botToken: settings.discord.botToken,
     targets: { ...settings.discord.targets },
   };
+  config.lineOfficial = {
+    enabled: settings.lineOfficial.enabled,
+    channelAccessToken: settings.lineOfficial.channelAccessToken,
+    channelSecret: settings.lineOfficial.channelSecret,
+    webhookUrl: settings.lineOfficial.webhookUrl,
+    targets: { ...settings.lineOfficial.targets },
+  };
   config.templates = settings.templates.map((template) => ({ ...template }));
   config.flexTemplates = settings.flexTemplates.map((template) => ({ ...template }));
   config.healthCheckIntervalSec = settings.healthCheckIntervalSec;
@@ -430,6 +454,7 @@ export function loadSettings(): void {
       whatsapp: { ...base.whatsapp, ...(data.whatsapp ?? {}) },
       teams: { ...base.teams, ...(data.teams ?? {}) },
       discord: { ...base.discord, ...(data.discord ?? {}) },
+      lineOfficial: { ...base.lineOfficial, ...(data.lineOfficial ?? {}) },
     });
     logger.info("已載入 settings.json", { path });
   } catch (error) {

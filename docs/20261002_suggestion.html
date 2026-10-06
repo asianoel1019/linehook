@@ -195,7 +195,7 @@
     4 個 IM 平台、50 條 HTTP 路由、23 個測試檔與全部部署設定。共整理 <strong>95 項建議</strong>：80 項既有功能增強、15 項新功能提案。
   </p>
   <div class="stamp">
-    實作更新 2026-10-06（NEXT4＋NEXT5）：<strong>64 項已處理（41 完整＋23 部分），31 項未排期</strong>，各卡均已標記；累計 NEXT1–NEXT5（測試護網、拆 server.ts、sqlite 儲存層、Discord＋重送中心＋成本儀表板、告警泛化＋Docker 硬化＋CI 補強）。<br>
+    實作更新 2026-10-06（NEXT4–NEXT6）：<strong>65 項已處理（42 完整＋23 部分），30 項未排期</strong>，各卡均已標記；累計 NEXT1–NEXT6（測試護網、拆 server.ts、sqlite 儲存層、Discord＋重送中心＋成本儀表板、告警泛化＋Docker 硬化＋CI 補強、<strong>LINE 官方 Messaging API 雙軌</strong>）。<br>
     前次更新 2026-10-05（commit <code>ba44f89</code> 起）：58 項已處理（34 完整＋24 部分），37 項未排期。<br>
     掃描日期 2026-10-02 ・ 基準 commit <code>88381ab</code> ・ 掃描範圍：<code>src/</code> <code>tests/</code> <code>docs/</code> <code>scripts/</code> <code>library/</code> <code>.github/</code> <code>Dockerfile</code> <code>docker-compose.yml</code>
   </div>
@@ -203,14 +203,14 @@
   <div class="stats">
     <div class="stat"><b>17,153</b><span>src 行數</span><i>80 個 .ts</i></div>
     <div class="stat"><b>4,030</b><span>server.ts</span><i>63.7% 為模板字串</i></div>
-    <div class="stat"><b>5</b><span>IM 平台</span><i>LINE / TG / WA / Teams / Discord</i></div>
+    <div class="stat"><b>6</b><span>IM 平台</span><i>LINE / LINE 官方 / TG / WA / Teams / Discord</i></div>
     <div class="stat"><b>38</b><span>內建技能</span><i>+ zip 熱安裝</i></div>
     <div class="stat"><b>50</b><span>HTTP 路由</span><i>單一 Express 行程</i></div>
     <div class="stat"><b>1,579</b><span>測試行數</span><i>23 檔，僅單元測試</i></div>
     <div class="stat"><b>8</b><span>CI 步驟</span><i>typecheck / lint / build / test / coverage / secret scan / audit / docker build</i></div>
     <div class="stat"><b>95</b><span>項建議</span><i>15 P0 / 36 P1 / 42 P2 / 2 P3</i></div>
-    <div class="stat"><b>64</b><span>已處理</span><i>41 完整＋23 部分</i></div>
-    <div class="stat"><b>31</b><span>未排期</span><i>見各卡原因</i></div>
+    <div class="stat"><b>65</b><span>已處理</span><i>42 完整＋23 部分</i></div>
+    <div class="stat"><b>30</b><span>未排期</span><i>見各卡原因</i></div>
   </div>
 </header>
 
@@ -1010,8 +1010,8 @@
 
   <div class="grid">
 
-    <div class="card" data-s="no" data-p="P1">
-      <div class="head"><span class="id">E2</span><h4>LINE 官方 Messaging API 雙軌模式（消除 selfbot 風險）</h4><span class="p P1">P1</span><span class="st no">未實作</span><span class="p E">XL</span></div>
+    <div class="card" data-s="done" data-p="P1">
+      <div class="head"><span class="id">E2</span><h4>LINE 官方 Messaging API 雙軌模式（消除 selfbot 風險）</h4><span class="p P1">P1</span><span class="st done">已實作</span><span class="p E">XL</span></div>
       <p class="body">目前 LINE 是 <code>@evex/linejs</code> selfbot，README 自己就標註違反條款、有停權風險。這是整個專案<strong>最大的單一風險</strong>：帳號被停就等於 LINE 這條線全斷。</p>
       <div class="ev"><b>現況與取捨</b>
         <code>line/client.ts</code> 692 行：QR/PIN 登入、E2EE 媒體上傳、Flex、貼圖、群組；<code>storage.json</code> 存 authToken 與 E2EE 私鑰。<br>
@@ -1025,7 +1025,11 @@
         <li>遷移路線：官方帳號先行、selfbot 保留為個人自用通道，兩者 targets 分開存放</li>
         <li>注意 D6：兩個 LINE adapter 會有同樣的 <code>platform</code> key 問題，應在設計時就採複合 id</li>
       </ul>
-      <div class="why"><b>未實作（2026-10-05）：</b>LINE 官方雙軌涉及帳號遷移與法遵決策，未排期。</div>
+      <div class="impl"><b>已實作（2026-10-06 · NEXT6）：</b><code>src/line-official/client.ts</code>（<code>platform: "line-official"</code>，與 selfbot 的 <code>line</code> 完全分開——複合 id 的 D6 問題在設計時就避開）；收訊 <code>POST /line-official/webhook</code> 驗 <code>X-Line-Signature</code>（base64 HMAC-SHA256，<strong>channel secret 未設定一律 503 拒絕</strong>）、發送 <code>POST /webhook/line-official</code> → <code>v2/bot/message/push</code>，設定 <code>LINE_OFFICIAL_*</code> 與設定頁「LINE 官方」卡片、右上角切換、<code>icons/line-official.png</code>、能力矩陣。<br>
+        <b>配額關鍵</b>：<strong>reply 不佔每月額度、push 佔</strong>（free 方案 200～500 則/月）→ adapter 記住 1 分鐘內的 <code>replyToken</code>，回覆優先走 reply、失效自動退回 push。<br>
+        <b>媒體</b>：LINE 只收 HTTPS URL 且無二進位上傳 API → <code>src/media-url.ts</code> 把本機檔案轉成 HMAC 簽章＋24h 時效的 <code>/media/:exp/:sig/:name</code>（需 <code>MEDIA_PUBLIC_URL</code>），路徑穿越與過期皆擋。<br>
+        技能／指令／轉發管線<strong>完全沒改</strong>（抽象層如期發揮）。<br>
+        未做：收用戶傳送的圖片／檔案（Get content 需先下載，暫不支援）、已讀回執、narrowcast／broadcast、多 channel 管理。</div>
     <div class="gain">把專案從「可能被停權」變成「長期可用」，且不犧牲任何現有功能。這是<strong>單一投入產出比最高</strong>的項目。</div>
     </div>
 
@@ -2060,7 +2064,7 @@
 
 <section id="done">
   <h2 class="sec">本次實作結果 <span class="bn">2026-10-05 → 2026-10-06 · NEXT1–NEXT4</span></h2>
-  <p class="muted">95 項中 <strong>64 項已處理（41 完整＋23 部分）</strong>，31 項未排期。驗證：typecheck ✅、build ✅、lint 0 errors ✅、<strong>269 tests 全過</strong>（NEXT5 新增 16 個）。以下按原報告章節彙整，細節見各卡片標記。</p>
+  <p class="muted">95 項中 <strong>65 項已處理（42 完整＋23 部分）</strong>，30 項未排期。驗證：typecheck ✅、build ✅、lint 0 errors ✅、<strong>295 tests 全過</strong>（NEXT6 新增 26 個）。以下按原報告章節彙整，細節見各卡片標記。</p>
 
   <div class="tbl-wrap">
     <table>
@@ -2070,7 +2074,7 @@
         <tr><td>B 安全</td><td>B1 B3 B4 B6 B7 B11＋B5 B9 部分（8/12）</td><td>B2（沙箱 XL）、B8（待 D1）、B10（breaking）、B12（效益低）</td></tr>
         <tr><td>C 可觀測</td><td>C1 C2 C7＋C3 C4 C5 C6 部分（7/7）</td><td>—（C 全數至少部分處理）</td></tr>
         <tr><td>D 架構</td><td>D1 D2 D3 D4 D8 D10 D11＋D5 D6 D7 D9 部分（11/11）</td><td>—（D 全數至少部分處理）</td></tr>
-        <tr><td>E 平台</td><td>E1 E3 E4（3/8）</td><td>E2 E5 E6 E7 E8</td></tr>
+        <tr><td>E 平台</td><td>E1 E2 E3 E4（4/8）</td><td>E5 E6 E7 E8</td></tr>
         <tr><td>F 技能</td><td>F2 F4 F5＋F1 F3 部分（5/8）</td><td>F6 F7 F8</td></tr>
         <tr><td>G LLM</td><td>G4＋G1 G2 G3 G5 部分（5/6）</td><td>G6（需 SSE）</td></tr>
         <tr><td>H 體驗</td><td>H1 H4＋H2 部分（3/7）</td><td>H3 H5 H6 H7</td></tr>
@@ -2120,7 +2124,7 @@
     <h4>平台與產品擴張</h4>
     <div class="when">技術債清完後</div>
     <ul>
-      <li><s><strong>E1</strong> Discord</s> <strong>已完成（NEXT4）</strong>（驗證抽象層第 5 次重用）；<strong>E2</strong> LINE 官方雙軌（法遵決策先行，需使用者資源）</li>
+      <li><s><strong>E1</strong> Discord</s> <strong>已完成（NEXT4）</strong>（驗證抽象層第 5 次重用）；<s><strong>E2</strong> LINE 官方雙軌</s> <strong>已完成（NEXT6）</strong></li>
       <li><s><strong>K4</strong> 完整重送中心</s> <strong>已完成（NEXT4）</strong>（死信 payload＋重送／清除端點）；<s><strong>K5</strong> 成本儀表板</s> <strong>已完成（NEXT4，儀表板部分）</strong>（護欄待 G2/F5）</li>
       <li>breaking 類（<strong>B10</strong> nonce 必填、<strong>I3</strong> scope 細分）安排遷移期後執行</li>
     </ul>
@@ -2133,7 +2137,17 @@
       <li><s><strong>C2</strong> 告警泛化</s> <strong>已完成</strong>：所有平台逐個檢查、去抖重發、多通道（Email ＋ Slack/Discord/ntfy webhook）、dead-man ping、死信閾值</li>
       <li><s><strong>J2</strong> Docker 硬化</s> <strong>已完成</strong>：非 root（uid 1000）、HEALTHCHECK → <code>/healthz</code>、cap_drop／pids／mem／log 輪替</li>
       <li><s><strong>J4</strong> CI 補強</s> <strong>已完成</strong>：secret scanning、docker build、Dependabot、audit 豁免限期化</li>
-      <li><strong>下一輪建議</strong>：<strong>B2／F1</strong> 技能沙箱（P0 的最後一塊，XL）、<strong>B8</strong> CSP（D2 已就緒）、<strong>E2</strong> LINE 官方雙軌（需使用者資源）</li>
+      <li><strong>下一輪建議</strong>：<strong>B2／F1</strong> 技能沙箱（P0 的最後一塊，XL）、<strong>B8</strong> CSP（D2 已就緒）、<strong>B5</strong> 密鑰加密與遮罩</li>
+    </ul>
+  </div>
+  <div class="phase">
+    <div class="lbl">Next 6</div>
+    <h4>LINE 官方 Messaging API 雙軌（E2）</h4>
+    <div class="when">已完成（2026-10-06）· 把「可能被停權」變成「長期可用」</div>
+    <ul>
+      <li><s><strong>E2</strong> LINE 官方 adapter</s> <strong>已完成</strong>：獨立平台 id <code>line-official</code>、<code>X-Line-Signature</code> 驗簽（未設 secret 一律拒絕）、push/reply 雙路（<strong>reply 不佔配額</strong>）、Flex／位置原生</li>
+      <li><s>本機媒體公開連結</s> <strong>已完成</strong>：<code>/media/:exp/:sig/:name</code>（HMAC＋24h 時效，需 <code>MEDIA_PUBLIC_URL</code>）</li>
+      <li><strong>尚未做</strong>：收用戶的圖片／檔案（Get content）、已讀回執、narrowcast／broadcast、多 channel 切換</li>
     </ul>
   </div>
 </section>

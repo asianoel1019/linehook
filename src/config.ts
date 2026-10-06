@@ -69,6 +69,15 @@ const schema = z.object({
   DISCORD_ENABLED: boolDefault(false),
   DISCORD_BOT_TOKEN: z.string().trim().default(""),
   DISCORD_TARGETS: z.string().default(""),
+  // E2：LINE 官方 Messaging API（與 selfbot 的 LINE 並存的雙軌模式）。
+  LINE_OFFICIAL_ENABLED: boolDefault(false),
+  LINE_OFFICIAL_CHANNEL_ACCESS_TOKEN: z.string().trim().default(""),
+  LINE_OFFICIAL_CHANNEL_SECRET: z.string().trim().default(""),
+  // 對外 webhook 網址；設定後啟動時自動註冊（PUT /v2/bot/channel/webhook/endpoint）。
+  LINE_OFFICIAL_WEBHOOK_URL: z.string().trim().default(""),
+  LINE_OFFICIAL_TARGETS: z.string().default(""),
+  // 本機媒體要變成 LINE 可抓取的連結（LINE 只收 HTTPS URL），需知道本服務的對外網址。
+  MEDIA_PUBLIC_URL: z.string().trim().default(""),
   HEALTH_CHECK_INTERVAL_SEC: z.coerce.number().int().positive().default(60),
   // C2：告警通道（Email 之外的 webhook fan-out）與 dead-man ping。
   ALERT_WEBHOOK_URLS: z.string().default(""),
@@ -268,6 +277,15 @@ export interface Config {
     botToken: string;
     targets: Record<string, string>;
   };
+  lineOfficial: {
+    enabled: boolean;
+    channelAccessToken: string;
+    channelSecret: string;
+    webhookUrl: string;
+    targets: Record<string, string>;
+  };
+  /** 本服務對外網址（https://…）；本機媒體轉公開連結時用。 */
+  mediaPublicUrl: string;
   templates: MessageTemplate[];
   flexTemplates: FlexTemplate[];
   healthCheckIntervalSec: number;
@@ -392,6 +410,14 @@ export const config: Config = {
     botToken: env.DISCORD_BOT_TOKEN,
     targets: parseTargets(env.DISCORD_TARGETS),
   },
+  lineOfficial: {
+    enabled: env.LINE_OFFICIAL_ENABLED,
+    channelAccessToken: env.LINE_OFFICIAL_CHANNEL_ACCESS_TOKEN,
+    channelSecret: env.LINE_OFFICIAL_CHANNEL_SECRET,
+    webhookUrl: env.LINE_OFFICIAL_WEBHOOK_URL,
+    targets: parseTargets(env.LINE_OFFICIAL_TARGETS),
+  },
+  mediaPublicUrl: env.MEDIA_PUBLIC_URL,
   templates: [],
   flexTemplates: [],
   healthCheckIntervalSec: env.HEALTH_CHECK_INTERVAL_SEC,

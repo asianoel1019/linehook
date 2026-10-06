@@ -1,6 +1,6 @@
 # IM 申請與設定說明書
 
-本文件說明如何為每個通訊平台（LINE / Telegram / WhatsApp / Teams / Discord）申請服務，並產生本系統所需的設定值。
+本文件說明如何為每個通訊平台（LINE、LINE 官方 Messaging API、Telegram、WhatsApp、Teams、Discord）申請服務，並產生本系統所需的設定值。
 
 - 設定分兩層：`.env`（bootstrap，無法在網頁改）與 `/settings`（線上編輯，存於 `settings.json`）。
 - 各平台的設定都在 **`/settings` 頁面**對應的卡片中填寫，填完按「儲存設定」。
@@ -12,6 +12,7 @@
 | 平台 | 發送端點 | 接收端點 | 目標對照欄位 |
 | --- | --- | --- | --- |
 | LINE | `POST /webhook` | 長連線（自 bot，無 webhook） | 設定 → 目標對照（名稱=mid） |
+| LINE 官方 | `POST /webhook/line-official` | `POST /line-official/webhook` | 設定 → LINE 官方 → 目標對照 |
 | Telegram | `POST /webhook/tg` | `POST /tg/update` | 設定 → Telegram Bot → 目標對照 |
 | WhatsApp | `POST /webhook/wa` | `GET/POST /wa/webhook` | 設定 → WhatsApp → 目標對照 |
 | Teams | `POST /webhook/teams` | `POST /teams/messages` | 設定 → Microsoft Teams → 目標對照 |
@@ -43,6 +44,60 @@
 
 ### 端點 / API 呼叫
 - 發送：`POST https://你的網域/webhook`（驗證方式見文末「共用驗證」）。
+
+---
+
+## 1B. LINE 官方（Messaging API，合規雙軌）
+
+與第 1 節的 selfbot **雙軌並存**：兩者是獨立平台（`line` 與 `line-official`），統計、排程、目標對照都分開，可同時上線。
+官方版本走 LINE 官方 Messaging API，**沒有 selfbot 的停權風險**，也是長期唯一合規的做法。
+
+### 需要什麼
+- 一個 **LINE 帳號**（用來建立 LINE 官方帳號）。
+- **LINE Developers** 帳號與 **Provider**（免費即可）。
+- 對外可達的 **HTTPS** 網址（webhook 與本機媒體都要）。
+
+### 申請步驟
+1. 到 [LINE Developers Console](https://developers.line.biz/) → **Create a new provider**（或沿用既有）。
+2. **Create a Messaging API channel**（對應一個 LINE 官方帳號）→ 記下：
+   - **Channel access token (long-lived)**：Messaging API 分頁 → Issuing → 產生（也可用短期 token）。→ `LINE_OFFICIAL_CHANNEL_ACCESS_TOKEN`
+   - **Channel secret**：Basic settings 分頁。→ `LINE_OFFICIAL_CHANNEL_SECRET`
+3. Messaging API 分頁設定：
+   - **Use webhook** → 開啟（必須）。
+   - **Auto-reply messages** → 建議**關閉**（否則 LINE 官方自動回覆會跟本系統的回覆疊在一起）。
+   - **Greeting message** 視需求。
+4. **Webhook URL** 填 `https://<你的網域>/line-official/webhook`，或把網址填進 `LINE_OFFICIAL_WEBHOOK_URL`（系統啟動時會用 `PUT /v2/bot/channel/webhook/endpoint` 自動註冊）。填完按 **Verify** 應顯示成功。
+5. 邀請 Bot：把官方帳號加為好友（一對一）或加入群組（群組需在 LINE 官方帳號管理後台開啟「允許加入群組」）。
+6. `.env` 或 `/settings` 設定：
+   - `LINE_OFFICIAL_ENABLED=1`
+   - Channel access token / Channel secret / Webhook URL
+   - **`MEDIA_PUBLIC_URL=https://<你的網域>`**（本機檔案要送給 LINE 必需，見下方「重要限制」）
+7. `/settings` → 右上角切到 **LINE 官方**，按「儲存設定」→ 重啟。
+8. 對 Bot 傳一則訊息，到 `/messages` 頁找到 **chatMid**（`U…`／`c…`／`Ra…`），填入「目標對照」即可主動推播。
+   （收到訊息的對話也會自動記住，僅供名稱對照顯示用。）
+
+### 端點 / API 呼叫
+- 發送：`POST https://你的網域/webhook/line-official`（驗證方式見文末「共用驗證」）。
+- 接收：`POST https://你的網域/line-official/webhook`（驗 `X-Line-Signature`，**channel secret 未設定一律 503 拒絕**）。
+
+### 測試是否成功
+1. `/dashboard` 右上角切到 **LINE 官方**，狀態應顯示**已登入**（日誌會出現「LINE 官方 Bot 已連線」）。
+2. 對官方帳號傳訊息，本系統應回覆；或呼叫 `POST /webhook/line-official` 主動發送。
+
+#### 常見問題
+- **webhook 403**：簽章不符 → 確認 `Channel secret` 正確，且**不要**讓 proxy 重新編碼 body（需保留原始 bytes）。
+- **webhook 503**：channel access token 或 channel secret 沒設，或未啟用。
+- **本機圖片送不出去（400 / 要求 HTTPS）**：`MEDIA_PUBLIC_URL` 沒設或不是 `https://`。
+- **429 Too Many Requests**：佇列會自動退避重試；也可調大 `SEND_MIN_INTERVAL_MS`。
+- **額度用盡**：push／multicast／broadcast 佔每月額度（free 方案依地區 200～500 則），**回覆（reply）不佔**。系統會在收到訊息後 1 分鐘內自動改用 replyToken，逾時才退回 push。
+
+### 重要限制
+- 圖片／影片／語音／檔案的來源**必須是 HTTPS URL**（LINE 沒有「上傳二進位」的 API）。
+  本系統會把 `data/uploads`、`data/cache` 內的檔案轉成 **HMAC 簽章＋24 小時時效**的 `/media/<exp>/<sig>/<name>` 公開連結；`data:` URL 會先解碼暫存到上傳目錄。
+  → 因此 `MEDIA_PUBLIC_URL` 必須是**對外 HTTPS 網址**。
+- 文字單則上限 **5000 字元**（超過自動分段）；一次請求最多 5 則訊息。
+- **Flex 原生**呈現（非降級）；位置原生；**貼圖**以 LINE 官方貼圖送出，無效 ID 會降級成文字說明。
+- **語音**需要長度資訊：本機檔案會解析 WAV／MP4／MP3 估算；抓不到長度（例如遠端音訊）會改以**檔案附件**送出。
 
 ---
 
@@ -276,7 +331,7 @@ Discord 與 LINE 同屬**長連線**模式：收訊不靠 webhook，由本程式
 
 ## 共用驗證（`/webhook*` 發送端點）
 
-LINE / Telegram / WhatsApp / Teams / Discord 的**發送**端點共用同一套驗證（任一通過即可）：
+LINE（selfbot）、LINE 官方 Messaging API、Telegram、WhatsApp、Teams、Discord 的**發送**端點共用同一套驗證（任一通過即可）：
 
 | 方式 | 設定 | 呼叫方式 |
 | --- | --- | --- |
@@ -285,7 +340,7 @@ LINE / Telegram / WhatsApp / Teams / Discord 的**發送**端點共用同一套�
 | API Token（Bearer） | `API_TOKEN` / 具名 `apiTokens`（可設 scopes `read`/`send`/`admin`） | 標頭 `Authorization: Bearer <token>` |
 
 - 三者各有獨立開關，**全關或皆未設定 = 開放模式**（開機時會警告）。
-- 接收端點（`/tg/update`、`/wa/webhook`、`/teams/messages`）**不受**這套影響，各用平台自身的密鑰驗證（Telegram secret token、WhatsApp app signature、Teams Bearer JWT）。
+- 接收端點（`/tg/update`、`/wa/webhook`、`/teams/messages`、`/line-official/webhook`）**不受**這套影響，各用平台自身的密鑰驗證（Telegram secret token、WhatsApp app signature、Teams Bearer JWT、LINE channel secret）。
 
 ---
 
@@ -295,6 +350,10 @@ LINE / Telegram / WhatsApp / Teams / Discord 的**發送**端點共用同一套�
 | --- | --- | --- |
 | LINE 登入 | 系統產生 QR，手機掃描 | （自動，無欄位） |
 | LINE 目標 mid | `/console` 目標清單 / `!id` | 目標對照 |
+| LINE 官方 Channel access token | LINE Developers Console → Messaging API → Issuing | `LINE_OFFICIAL_CHANNEL_ACCESS_TOKEN` |
+| LINE 官方 Channel secret | LINE Developers Console → Basic settings | `LINE_OFFICIAL_CHANNEL_SECRET` |
+| LINE 官方 userId／groupId | 對 Bot 傳訊息後到 `/messages` 看 chatMid | 目標對照（`名稱=U…`） |
+| 本機媒體對外網址 | 自己的域名（需 HTTPS） | `MEDIA_PUBLIC_URL` |
 | Telegram Bot Token | @BotFather `/newbot` | `TELEGRAM_BOT_TOKEN` |
 | Telegram secret | 自己自訂（可用「隨機產生」） | `TELEGRAM_SECRET_TOKEN` |
 | Telegram chat_id | `getUpdates` / @userinfobot | 目標對照 |
