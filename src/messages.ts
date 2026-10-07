@@ -103,7 +103,20 @@ export function getMessages(): ReceivedMessage[] {
 export interface MessageQuery {
   q?: string;
   chat?: string;
+  /** 起始日（YYYY-MM-DD，含當日）；相容 YYYY/MM/DD。 */
+  since?: string;
+  /** 結束日（YYYY-MM-DD，含當日）；相容 YYYY/MM/DD。 */
+  until?: string;
+  /** 平台代號（chatType：line／telegram／whatsapp／teams／discord）。 */
+  chatType?: string;
   limit?: number;
+}
+
+/** 把日期輸入正規化為 YYYY-MM-DD；無效回空字串（視為不設限）。 */
+function normalizeDay(value: string): string {
+  const m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(String(value ?? "").trim());
+  if (!m) return "";
+  return `${m[1]}-${String(Number(m[2])).padStart(2, "0")}-${String(Number(m[3])).padStart(2, "0")}`;
 }
 
 /**
@@ -113,12 +126,18 @@ export interface MessageQuery {
 export function searchMessages(query: MessageQuery = {}): ReceivedMessage[] {
   const q = (query.q || "").trim();
   const chat = (query.chat || "").trim();
+  const since = normalizeDay(query.since || "");
+  const until = normalizeDay(query.until || "");
+  const chatType = (query.chatType || "").trim();
   const limit = Math.min(Math.max(query.limit ?? 300, 1), 1000);
   if (config.messagesPersist) {
     try {
       return getStore().query("messages", {
         ...(q ? { search: q } : {}),
         ...(chat ? { chat } : {}),
+        ...(since ? { sinceDate: since } : {}),
+        ...(until ? { untilDate: until } : {}),
+        ...(chatType ? { chatType } : {}),
         limit,
       }) as unknown as ReceivedMessage[];
     } catch (error) {
@@ -130,6 +149,10 @@ export function searchMessages(query: MessageQuery = {}): ReceivedMessage[] {
   const out: ReceivedMessage[] = [];
   for (let i = buffer.length - 1; i >= 0; i--) {
     const m = buffer[i];
+    const day = String(m.time ?? "").slice(0, 10);
+    if (since && day < since) continue;
+    if (until && day > until) continue;
+    if (chatType && (m.chatType ?? "") !== chatType) continue;
     if (cl && m.chatMid.toLowerCase().indexOf(cl) === -1) continue;
     if (ql) {
       const hay = `${m.time} ${m.fromName} ${m.fromMid} ${m.chatMid} ${m.chatType} ${m.text}`.toLowerCase();

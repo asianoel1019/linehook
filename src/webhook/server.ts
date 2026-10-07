@@ -876,6 +876,9 @@ export function createServer(line: IMessagingService): express.Express {
             messages: searchMessages({
                 q: str(q.q),
                 chat: str(q.chat),
+                since: str(q.since),
+                until: str(q.until),
+                chatType: str(q.chatType),
                 limit: Number.isFinite(num) ? num : undefined,
             }),
         });

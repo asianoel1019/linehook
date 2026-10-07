@@ -219,6 +219,18 @@ export class SqliteStore implements Store {
       where.push("time >= ?");
       params.push(opts.sinceIso);
     }
+    if (opts?.sinceDate) {
+      where.push("substr(time, 1, 10) >= ?");
+      params.push(opts.sinceDate);
+    }
+    if (opts?.untilDate) {
+      where.push("substr(time, 1, 10) <= ?");
+      params.push(opts.untilDate);
+    }
+    if (opts?.chatType && table === "messages") {
+      where.push("chatType = ?");
+      params.push(opts.chatType);
+    }
     if (opts?.platform) {
       where.push(table === "sends" ? "platform = ?" : "platform = ?");
       params.push(opts.platform);

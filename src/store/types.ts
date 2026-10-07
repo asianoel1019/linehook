@@ -22,6 +22,12 @@ export interface StoreQueryOptions {
   platform?: string;
   /** 只回 time >= 此值的列。 */
   sinceIso?: string;
+  /** 只回 `time` 的日期部分（YYYY-MM-DD）>= 此值的列。 */
+  sinceDate?: string;
+  /** 只回 `time` 的日期部分（YYYY-MM-DD）<= 此值的列。 */
+  untilDate?: string;
+  /** 依 `chatType` 過濾（messages 表專用：平台代號，如 line／telegram／whatsapp）。 */
+  chatType?: string;
   /** 預設 true（新到舊）。 */
   orderDesc?: boolean;
   /** 預設 1000，最少 1。 */

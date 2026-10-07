@@ -468,6 +468,9 @@ export const DICT: Record<string, Entry> = {
   btn_copy_mapping: { zh: "複製對應", en: "Copy mapping", ja: "マッピングをコピー" },
   btn_test: { zh: "測試", en: "Test", ja: "テスト" },
   ph_search: { zh: "搜尋名稱或 MID", en: "Search name or MID", ja: "名前または MID を検索" },
+  lbl_since: { zh: "起", en: "From", ja: "開始" },
+  lbl_until: { zh: "訖", en: "To", ja: "終了" },
+  opt_all_platforms: { zh: "全部平台", en: "All platforms", ja: "すべてのプラットフォーム" },
   list_count: { zh: "清單", en: "List", ja: "一覧" },
 
   // dashboard summary labels

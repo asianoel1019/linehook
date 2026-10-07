@@ -47,6 +47,10 @@ function hayOf(row: StoreRow): string {
 function matches(row: StoreRow, opts?: StoreQueryOptions): boolean {
   if (!opts) return true;
   if (opts.sinceIso && !(String(row.time) >= opts.sinceIso)) return false;
+  const day = String(row.time ?? "").slice(0, 10);
+  if (opts.sinceDate && day < opts.sinceDate) return false;
+  if (opts.untilDate && day > opts.untilDate) return false;
+  if (opts.chatType && String(row.chatType ?? "") !== opts.chatType) return false;
   if (opts.platform && String(row.platform ?? "line") !== opts.platform) return false;
   if (opts.chat && !String(row.chatMid ?? "").toLowerCase().includes(opts.chat.toLowerCase())) return false;
   if (opts.search) {

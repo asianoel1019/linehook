@@ -10,6 +10,18 @@ export function renderMessagesHtml() {
 <div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
   <input id="message-search" data-i18n-ph="ph_search" placeholder="搜尋關鍵字" style="width:220px">
   <input id="message-chat" placeholder="MID" style="width:200px">
+  <label for="message-since" data-i18n="lbl_since" class="msg">起</label>
+  <input id="message-since" type="date" style="width:150px">
+  <label for="message-until" data-i18n="lbl_until" class="msg">訖</label>
+  <input id="message-until" type="date" style="width:150px">
+  <select id="message-platform" style="width:140px">
+    <option value="" data-i18n="opt_all_platforms">全部平台</option>
+    <option value="line" data-i18n="platform_line">LINE</option>
+    <option value="telegram" data-i18n="platform_telegram">Telegram</option>
+    <option value="whatsapp" data-i18n="platform_whatsapp">WhatsApp</option>
+    <option value="teams" data-i18n="platform_teams">Teams</option>
+    <option value="discord" data-i18n="platform_discord">Discord</option>
+  </select>
   <button type="button" id="message-export-json">JSON</button>
   <button type="button" id="message-export-csv">CSV</button>
   <button type="button" id="message-purge" style="color:#fb7185">清除全部</button>
@@ -42,8 +54,14 @@ export function renderMessagesHtml() {
     var parts = [];
     var q = $("message-search").value.trim();
     var chat = $("message-chat").value.trim();
+    var since = $("message-since").value;
+    var until = $("message-until").value;
+    var plat = $("message-platform").value;
     if (q) parts.push("q=" + encodeURIComponent(q));
     if (chat) parts.push("chat=" + encodeURIComponent(chat));
+    if (since) parts.push("since=" + encodeURIComponent(since));
+    if (until) parts.push("until=" + encodeURIComponent(until));
+    if (plat) parts.push("chatType=" + encodeURIComponent(plat));
     return parts.length > 0 ? "?" + parts.join("&") : "";
   }
 
@@ -94,12 +112,14 @@ export function renderMessagesHtml() {
   });
 
   var searchTimer = null;
-  [$("message-search"), $("message-chat")].forEach(function (el) {
-    el.addEventListener("input", function () {
-      if (searchTimer) clearTimeout(searchTimer);
-      searchTimer = setTimeout(refresh, 300);
-    });
+  function scheduleRefresh() {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(refresh, 300);
+  }
+  [$("message-search"), $("message-chat"), $("message-since"), $("message-until")].forEach(function (el) {
+    el.addEventListener("input", scheduleRefresh);
   });
+  $("message-platform").addEventListener("change", scheduleRefresh);
 
   refresh();
   setInterval(refresh, 5000);

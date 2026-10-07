@@ -57,6 +57,28 @@ function bothBehaviors(make: () => import("../src/store/types.js").Store, label:
       store.close();
     });
 
+    it("query 依日期區間與 chatType 過濾", () => {
+      const store = make();
+      store.append("messages", { ...msg("2026-01-01T00:00:00", "a"), chatType: "line" });
+      store.append("messages", { ...msg("2026-01-02T00:00:00", "b"), chatType: "telegram" });
+      store.append("messages", { ...msg("2026-01-03T00:00:00", "c"), chatType: "line" });
+
+      assert.equal(store.query("messages", { sinceDate: "2026-01-02" }).length, 2);
+      assert.equal(store.query("messages", { untilDate: "2026-01-02" }).length, 2);
+      assert.equal(
+        store.query("messages", { sinceDate: "2026-01-02", untilDate: "2026-01-02" }).length,
+        1,
+      );
+      assert.equal(store.query("messages", { chatType: "line" }).length, 2);
+      assert.equal(store.query("messages", { chatType: "telegram" }).length, 1);
+      assert.equal(store.query("messages", { chatType: "telegram", sinceDate: "2026-01-03" }).length, 0);
+      assert.equal(
+        store.query("messages", { sinceDate: "2026-01-01", untilDate: "2026-01-03", chatType: "line" }).length,
+        2,
+      );
+      store.close();
+    });
+
     it("count / groupCount（sends）", () => {
       const store = make();
       store.append("sends", { time: "2026-01-01T00:00:00.000Z", to: "a", type: "text", ok: true, platform: "line" });

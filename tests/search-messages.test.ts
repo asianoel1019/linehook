@@ -41,4 +41,22 @@ describe("searchMessages", () => {
     assert.ok(searchMessages({ limit: 99999 }).length <= 1000);
     assert.ok(searchMessages({ limit: -5 }).length >= 1);
   });
+
+  it("日期區間過濾（含當日），支援斜線格式與無效值不設限", () => {
+    assert.equal(searchMessages({ since: "2026-01-02" }).length, 2);
+    assert.equal(searchMessages({ until: "2026-01-02" }).length, 2);
+    assert.equal(searchMessages({ since: "2026-01-02", until: "2026-01-02" }).length, 1);
+    assert.equal(searchMessages({ since: "2026-01-04" }).length, 0);
+    assert.equal(searchMessages({ until: "2025-12-31" }).length, 0);
+    assert.equal(searchMessages({ since: "2026/01/01", until: "2026/01/01" }).length, 1);
+    assert.equal(searchMessages({ since: "亂寫" }).length, 3);
+  });
+
+  it("平台（chatType）過濾與組合條件", () => {
+    assert.equal(searchMessages({ chatType: "group" }).length, 1);
+    assert.equal(searchMessages({ chatType: "user" }).length, 2);
+    assert.equal(searchMessages({ chatType: "telegram" }).length, 0);
+    assert.equal(searchMessages({ chatType: "user", since: "2026-01-02" }).length, 1);
+    assert.equal(searchMessages({ chatType: "group", q: "大家" }).length, 1);
+  });
 });
