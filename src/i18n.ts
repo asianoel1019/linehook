@@ -16,6 +16,8 @@ export const DICT: Record<string, Entry> = {
   nav_skills: { zh: "技能", en: "Skills", ja: "スキル" },
   tab_skill_list: { zh: "技能列", en: "Skill List", ja: "スキル一覧" },
   tab_skill_install: { zh: "安裝/移除", en: "Install / Remove", ja: "インストール/削除" },
+  ph_filter_skills: { zh: "快速篩選：名稱、ID、觸發詞、說明…", en: "Filter by name, id, trigger, description…", ja: "絞り込み：名前・ID・トリガー・説明…" },
+  lbl_category_other: { zh: "其他", en: "Other", ja: "その他" },
   tab_skill_ai: { zh: "AI 設定", en: "AI Settings", ja: "AI設定" },
   hint_global_llm: { zh: "全域 LLM 設定。技能可留空欄位以使用此設定；技能有填寫則以技能為主。", en: "Global LLM settings. Skills can leave fields empty to use these; skill-level values take priority.", ja: "グローバル LLM 設定。スキルは空欄でこの設定を使用、スキル側に値があればスキルが優先されます。" },
   nav_settings: { zh: "設定", en: "Settings", ja: "設定" },

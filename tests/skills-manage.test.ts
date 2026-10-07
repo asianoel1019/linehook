@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "../src/config.js";
-import { getSkill, hideSkill, readHiddenSkills, reloadSkills, restoreSkill } from "../src/skills/loader.js";
+import { getSkill, hideSkill, listSkills, readHiddenSkills, reloadSkills, restoreSkill } from "../src/skills/loader.js";
 import { uninstallSkill } from "../src/skills/install.js";
 
 let dir = "";
@@ -51,5 +51,16 @@ describe("技能隱藏與移除", () => {
 
   it("uninstallSkill：找不到技能回 false", async () => {
     assert.equal(await uninstallSkill("nope-not-here"), false);
+  });
+
+  it("所有技能都有分類（供技能列／安裝移除分組顯示）", async () => {
+    await reloadSkills();
+    const all = listSkills();
+    assert.ok(all.length > 0, "應載入技能");
+    for (const s of all) {
+      const c = s.category;
+      const v = typeof c === "string" ? c : c && (c.zh || c.en || c.ja);
+      assert.ok(v, `技能 ${s.id} 缺少 category`);
+    }
   });
 });

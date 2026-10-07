@@ -10,6 +10,8 @@ export function renderSkillsHtml() {
         id: skill.id,
         name: skill.name,
         description: resolveText(skill.description, config.language),
+        category: resolveText(skill.category, config.language),
+        categoryZh: resolveText(skill.category, "zh"),
         defaultTrigger: skill.defaultTrigger,
         triggerMode: skill.triggerMode ?? "assistant",
         hideTrigger: skill.hideTrigger ?? false,
@@ -39,6 +41,7 @@ export function renderSkillsHtml() {
   <div class="field"><label data-i18n="lbl_assistant_name">助理名稱</label><input id="assistant-name" type="text" placeholder="阿寶"></div>
   <div class="actions"><button type="button" id="skills-save" data-i18n="save_settings">儲存</button><span id="skills-msg" class="msg"></span></div>
 </div>
+<div style="margin:10px 0 6px"><input id="skill-filter" data-i18n-ph="ph_filter_skills" placeholder="快速篩選：名稱、ID、觸發詞、說明…" style="width:100%;max-width:460px"></div>
 <div id="skillList"></div>
 </div>
 
@@ -46,6 +49,7 @@ export function renderSkillsHtml() {
 <div class="glass">
   <div class="field"><label data-i18n="lbl_install_skill">安裝技能（上傳 .zip）</label><span style="display:flex;gap:8px;align-items:center"><input id="skill-zip" type="file" accept=".zip,application/zip" style="flex:1"><button type="button" id="skill-install-btn" data-i18n="btn_install">安裝</button><span id="install-msg" class="msg"></span></span><div class="hint" data-i18n="hint_install">zip 內含技能的 index.js（可含 skill.json）。安裝後立即生效。</div></div>
   <h2 data-i18n="tab_skill_install">安裝/移除</h2>
+  <div style="margin:10px 0 6px"><input id="manage-filter" data-i18n-ph="ph_filter_skills" placeholder="快速篩選：名稱、ID、觸發詞、說明…" style="width:100%;max-width:460px"></div>
   <div id="installed-list"></div>
   <h2 data-i18n="lbl_hidden_skills">已隱藏技能</h2>
   <div id="hidden-list"></div>
@@ -131,9 +135,10 @@ export function renderSkillsHtml() {
     }).catch(function () { $("ai-msg").textContent = "失敗"; });
   });
 
-  function manageRow(labelText, badgeText, btnText, onAction) {
+  function manageRow(labelText, badgeText, btnText, onAction, search) {
     var row = document.createElement("div");
     row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-top:1px solid rgba(34,211,238,.12)";
+    row.setAttribute("data-search", search || "");
     var label = document.createElement("div");
     label.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap";
     var nameEl = document.createElement("span");
@@ -171,37 +176,49 @@ export function renderSkillsHtml() {
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (d) {
         if (!d) return;
-        var rows = [];
+        var items = [];
         (d.installed || []).forEach(function (s) {
-          rows.push(manageRow(
-            s.name + (s.version ? " v" + s.version : "") + "（" + s.id + "）",
-            T("lbl_external"),
-            T("btn_uninstall"),
-            function () {
-              if (!window.confirm(T("confirm_remove_external").replace("{id}", s.id))) return;
-              removeSkill(s.id);
-            }
-          ));
+          var def = skillDef(s.id) || {};
+          var hay = searchHay([s.name, s.id, def.name, def.category, def.description]);
+          items.push({
+            categoryZh: def.categoryZh || "",
+            category: def.category || "",
+            el: manageRow(
+              s.name + (s.version ? " v" + s.version : "") + "（" + s.id + "）",
+              T("lbl_external"),
+              T("btn_uninstall"),
+              function () {
+                if (!window.confirm(T("confirm_remove_external").replace("{id}", s.id))) return;
+                removeSkill(s.id);
+              },
+              hay
+            )
+          });
         });
         (d.builtin || []).forEach(function (s) {
-          rows.push(manageRow(
-            s.name + "（" + s.id + "）",
-            T("lbl_builtin"),
-            T("btn_uninstall"),
-            function () {
-              if (!window.confirm(T("confirm_hide_builtin").replace("{id}", s.id))) return;
-              removeSkill(s.id);
-            }
-          ));
+          var def = skillDef(s.id) || {};
+          var hay = searchHay([s.name, s.id, def.name, def.category, def.description]);
+          items.push({
+            categoryZh: def.categoryZh || "",
+            category: def.category || "",
+            el: manageRow(
+              s.name + "（" + s.id + "）",
+              T("lbl_builtin"),
+              T("btn_uninstall"),
+              function () {
+                if (!window.confirm(T("confirm_hide_builtin").replace("{id}", s.id))) return;
+                removeSkill(s.id);
+              },
+              hay
+            )
+          });
         });
         var host = $("installed-list");
-        if (rows.length === 0) {
+        if (!renderGroups(host, items)) {
           var empty = document.createElement("div");
           empty.className = "msg";
           empty.textContent = T("no_installed");
           host.replaceChildren(empty);
-        } else {
-          host.replaceChildren.apply(host, rows);
         }
         var hrows = [];
         (d.hidden || []).forEach(function (id) {
@@ -216,7 +233,7 @@ export function renderSkillsHtml() {
               if (r.ok) { loadInstalled(); loadSkills(); }
               else { alert(T("restore_failed") + (r.data.error || "")); }
             });
-          }));
+          }, searchHay([id])));
         });
         var hhost = $("hidden-list");
         if (hrows.length === 0) {
@@ -227,6 +244,7 @@ export function renderSkillsHtml() {
         } else {
           hhost.replaceChildren.apply(hhost, hrows);
         }
+        applyManageFilter();
       })
       .catch(function () {});
   }
@@ -536,24 +554,87 @@ export function renderSkillsHtml() {
     return card;
   }
 
+  var CATEGORY_ORDER = ["智慧助理", "交通", "金融理財", "生活資訊", "生活消費", "購物消費", "內容訂閱", "自動化", "工具"];
+
+  function catRank(catZh) {
+    var i = CATEGORY_ORDER.indexOf(catZh);
+    return i === -1 ? 999 : i;
+  }
+
+  function searchHay(parts) {
+    return (parts || []).join(" ").toLowerCase();
+  }
+
+  function renderGroups(host, items) {
+    if (items.length === 0) return false;
+    var groups = {};
+    items.forEach(function (it) {
+      var key = it.categoryZh || "";
+      if (!groups[key]) groups[key] = { label: it.category || T("lbl_category_other"), rank: catRank(key), els: [] };
+      groups[key].els.push(it.el);
+    });
+    var keys = Object.keys(groups).sort(function (a, b) { return groups[a].rank - groups[b].rank; });
+    var out = [];
+    keys.forEach(function (key) {
+      var g = groups[key];
+      var wrap = document.createElement("div");
+      wrap.className = "skill-group";
+      var h = document.createElement("h2");
+      h.textContent = g.label + "（" + g.els.length + "）";
+      wrap.appendChild(h);
+      g.els.forEach(function (el) { wrap.appendChild(el); });
+      out.push(wrap);
+    });
+    host.replaceChildren.apply(host, out);
+    return true;
+  }
+
+  function filterBlocks(hostId, filterId, itemSelector) {
+    var q = (($(filterId) && $(filterId).value) || "").trim().toLowerCase();
+    var host = $(hostId);
+    if (!host) return;
+    Array.prototype.forEach.call(host.querySelectorAll(itemSelector), function (el) {
+      var hay = el.getAttribute("data-search") || "";
+      el.style.display = !q || hay.indexOf(q) !== -1 ? "" : "none";
+    });
+    Array.prototype.forEach.call(host.querySelectorAll(".skill-group"), function (g) {
+      var visible = 0;
+      Array.prototype.forEach.call(g.querySelectorAll(itemSelector), function (el) {
+        if (el.style.display !== "none") visible += 1;
+      });
+      g.style.display = visible ? "" : "none";
+    });
+  }
+
+  function applySkillFilter() {
+    filterBlocks("skillList", "skill-filter", ".skill-card");
+  }
+
+  function applyManageFilter() {
+    filterBlocks("installed-list", "manage-filter", "[data-search]");
+    filterBlocks("hidden-list", "manage-filter", "[data-search]");
+  }
+
   function renderSkillList(skills) {
     openCards = [];
     var byId = {};
     (skills || []).forEach(function (s) { byId[s.id] = s; });
     var list = $("skillList");
-    var cards = [];
+    var items = [];
     SKILL_DEFS.forEach(function (def) {
       var card = buildSkillCard(byId[def.id] || { id: def.id, enabled: false, trigger: def.defaultTrigger, config: {} });
-      if (card) cards.push(card);
+      if (!card) return;
+      card.setAttribute("data-search", searchHay([def.name, def.id, def.description, def.defaultTrigger, def.category]));
+      items.push({ el: card, categoryZh: def.categoryZh, category: def.category });
     });
-    if (cards.length === 0) {
+    if (!renderGroups(list, items)) {
       var empty = document.createElement("div");
       empty.className = "glass msg";
       empty.textContent = T("no_skills");
       list.replaceChildren(empty);
       return;
     }
-    list.replaceChildren.apply(list, cards);
+    applySkillFilter();
   }
 
   function collectSkills() {
@@ -646,6 +727,9 @@ export function renderSkillsHtml() {
       $("skills-msg").textContent = r.ok ? T("saved") : ("失敗：" + (r.data.error || ""));
     }).catch(function () { $("skills-msg").textContent = "失敗"; });
   });
+
+  $("skill-filter").addEventListener("input", applySkillFilter);
+  $("manage-filter").addEventListener("input", applyManageFilter);
 
   loadSkills();
   loadInstalled();
