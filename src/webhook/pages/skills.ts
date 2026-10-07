@@ -47,6 +47,8 @@ export function renderSkillsHtml() {
   <div class="field"><label data-i18n="lbl_install_skill">安裝技能（上傳 .zip）</label><span style="display:flex;gap:8px;align-items:center"><input id="skill-zip" type="file" accept=".zip,application/zip" style="flex:1"><button type="button" id="skill-install-btn" data-i18n="btn_install">安裝</button><span id="install-msg" class="msg"></span></span><div class="hint" data-i18n="hint_install">zip 內含技能的 index.js（可含 skill.json）。安裝後立即生效。</div></div>
   <h2 data-i18n="tab_skill_install">安裝/移除</h2>
   <div id="installed-list"></div>
+  <h2 data-i18n="lbl_hidden_skills">已隱藏技能</h2>
+  <div id="hidden-list"></div>
 </div>
 </div>
 
@@ -129,37 +131,70 @@ export function renderSkillsHtml() {
     }).catch(function () { $("ai-msg").textContent = "失敗"; });
   });
 
+  function manageRow(labelText, badgeText, btnText, onAction) {
+    var row = document.createElement("div");
+    row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-top:1px solid rgba(34,211,238,.12)";
+    var label = document.createElement("div");
+    label.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap";
+    var nameEl = document.createElement("span");
+    nameEl.textContent = labelText;
+    label.appendChild(nameEl);
+    if (badgeText) {
+      var badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = badgeText;
+      label.appendChild(badge);
+    }
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = btnText;
+    btn.addEventListener("click", onAction);
+    row.append(label, btn);
+    return row;
+  }
+
+  function removeSkill(id) {
+    fetch("/skills/uninstall", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: id })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (x) { return { ok: r.ok, data: x }; });
+    }).then(function (r) {
+      if (r.ok) { loadInstalled(); loadSkills(); }
+      else { alert(T("remove_failed") + (r.data.error || "")); }
+    });
+  }
+
   function loadInstalled() {
     fetch("/skills/installed.json", { cache: "no-store" })
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (d) {
         if (!d) return;
-        var host = $("installed-list");
         var rows = [];
         (d.installed || []).forEach(function (s) {
-          var row = document.createElement("div");
-          row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-top:1px solid rgba(34,211,238,.12)";
-          var label = document.createElement("div");
-          label.textContent = s.name + (s.version ? " v" + s.version : "") + "（" + s.id + "）";
-          var btn = document.createElement("button");
-          btn.type = "button";
-          btn.textContent = T("btn_uninstall");
-          btn.addEventListener("click", function () {
-            if (!window.confirm("移除技能 " + s.id + "？")) return;
-            fetch("/skills/uninstall", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ id: s.id })
-            }).then(function (r) {
-              return r.json().catch(function () { return {}; }).then(function (x) { return { ok: r.ok, data: x }; });
-            }).then(function (r) {
-              if (r.ok) { loadInstalled(); loadSkills(); }
-              else { alert("移除失敗：" + (r.data.error || "")); }
-            });
-          });
-          row.append(label, btn);
-          rows.push(row);
+          rows.push(manageRow(
+            s.name + (s.version ? " v" + s.version : "") + "（" + s.id + "）",
+            T("lbl_external"),
+            T("btn_uninstall"),
+            function () {
+              if (!window.confirm(T("confirm_remove_external").replace("{id}", s.id))) return;
+              removeSkill(s.id);
+            }
+          ));
         });
+        (d.builtin || []).forEach(function (s) {
+          rows.push(manageRow(
+            s.name + "（" + s.id + "）",
+            T("lbl_builtin"),
+            T("btn_uninstall"),
+            function () {
+              if (!window.confirm(T("confirm_hide_builtin").replace("{id}", s.id))) return;
+              removeSkill(s.id);
+            }
+          ));
+        });
+        var host = $("installed-list");
         if (rows.length === 0) {
           var empty = document.createElement("div");
           empty.className = "msg";
@@ -167,6 +202,30 @@ export function renderSkillsHtml() {
           host.replaceChildren(empty);
         } else {
           host.replaceChildren.apply(host, rows);
+        }
+        var hrows = [];
+        (d.hidden || []).forEach(function (id) {
+          hrows.push(manageRow(id, "", T("btn_restore"), function () {
+            fetch("/skills/restore", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: id })
+            }).then(function (r) {
+              return r.json().catch(function () { return {}; }).then(function (x) { return { ok: r.ok, data: x }; });
+            }).then(function (r) {
+              if (r.ok) { loadInstalled(); loadSkills(); }
+              else { alert(T("restore_failed") + (r.data.error || "")); }
+            });
+          }));
+        });
+        var hhost = $("hidden-list");
+        if (hrows.length === 0) {
+          var hempty = document.createElement("div");
+          hempty.className = "msg";
+          hempty.textContent = T("no_hidden");
+          hhost.replaceChildren(hempty);
+        } else {
+          hhost.replaceChildren.apply(hhost, hrows);
         }
       })
       .catch(function () {});

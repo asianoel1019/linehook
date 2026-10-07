@@ -3,7 +3,7 @@ import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
-import { reloadSkills, listSkills } from "./loader.js";
+import { hideSkill, isBuiltinSkill, reloadSkills, listSkills } from "./loader.js";
 
 const builtinDir = fileURLToPath(new URL(".", import.meta.url));
 
@@ -173,13 +173,21 @@ export async function uninstallSkill(id: string): Promise<boolean> {
   const root = skillsRoot();
   const dir = resolve(root, safe);
   const rootWithSep = root.endsWith(sep) ? root : root + sep;
-  if (dir !== root && !dir.startsWith(rootWithSep)) return false;
-  if (dir === root) return false;
-  if (!existsSync(dir)) return false;
-  rmSync(dir, { recursive: true, force: true });
-  await reloadSkills();
-  logger.info("已移除技能", { id: safe });
-  return true;
+  if (dir === root || !dir.startsWith(rootWithSep)) return false;
+  let removed = false;
+  if (existsSync(dir)) {
+    rmSync(dir, { recursive: true, force: true });
+    removed = true;
+    logger.info("已移除外部技能", { id: safe });
+  }
+  // 內建技能不刪檔（重建置會復活）：改為隱藏不載入，可於安裝/移除頁恢復。
+  if (isBuiltinSkill(safe)) {
+    hideSkill(safe);
+    removed = true;
+    logger.info("已隱藏內建技能", { id: safe });
+  }
+  if (removed) await reloadSkills();
+  return removed;
 }
 
 /** 打包內建技能為 zip（含 index.js/ts 與 skill.json），供技能庫下載。 */

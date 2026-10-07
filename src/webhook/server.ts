@@ -14,7 +14,7 @@ import { getState } from "../state.js";
 import { currentSettings, saveSettings } from "../settings.js";
 import { getStats } from "../stats.js";
 import { getTokenUsage } from "../token-stats.js";
-import { listSkills, isBuiltinSkill, getSkill } from "../skills/index.js";
+import { listSkills, isBuiltinSkill, getSkill, restoreSkill, readHiddenSkills, reloadSkills } from "../skills/index.js";
 import { installZip, listInstalled, uninstallSkill } from "../skills/install.js";
 import { validateSkillConfig } from "../skills/validate.js";
 import { readBackupBundle, restoreBackupBundle } from "../backup.js";
@@ -763,12 +763,31 @@ export function createServer(line: IMessagingService): express.Express {
         }
     });
     app.get("/skills/installed.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
+        const installed = listInstalled();
+        const externalIds = new Set(installed.map((s) => s.id));
         res.json({
-            installed: listInstalled(),
+            installed,
             builtin: listSkills()
-                .filter((s) => isBuiltinSkill(s.id))
+                .filter((s) => isBuiltinSkill(s.id) && !externalIds.has(s.id))
                 .map((s) => ({ id: s.id, name: s.name })),
+            hidden: readHiddenSkills(),
         });
+    });
+    app.post("/skills/restore", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, async (req, res) => {
+        const body = asRecord(req.body) ?? {};
+        const id = typeof body.id === "string" ? body.id : "";
+        if (!id) {
+            res.status(400).json({ ok: false, error: "id 必填" });
+            return;
+        }
+        const restored = restoreSkill(id);
+        if (!restored) {
+            res.status(404).json({ ok: false, error: "找不到已隱藏的技能" });
+            return;
+        }
+        await reloadSkills();
+        audit(req, "skills.restore", id);
+        res.json({ ok: true });
     });
     app.post("/skills/install", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, express.raw({ type: "*/*", limit: `${config.maxBodyMb}mb` }), async (req, res) => {
         const data = Buffer.isBuffer(req.body) ? req.body : (req as RawBodyRequest).rawBody;
