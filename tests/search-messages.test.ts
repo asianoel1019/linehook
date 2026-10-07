@@ -59,4 +59,21 @@ describe("searchMessages", () => {
     assert.equal(searchMessages({ chatType: "user", since: "2026-01-02" }).length, 1);
     assert.equal(searchMessages({ chatType: "group", q: "大家" }).length, 1);
   });
+
+  it("limit 0 或未設＝預設上限（不退化成 1 筆）", () => {
+    assert.equal(searchMessages({ limit: 0 }).length, 3);
+    assert.equal(searchMessages({ limit: undefined }).length, 3);
+    assert.equal(searchMessages({ limit: -5 }).length, 3);
+    assert.equal(searchMessages({ limit: 1 }).length, 1);
+  });
+
+  it("時間戳區間（sinceTs/untilTs，ISO 或 epoch 毫秒）", () => {
+    assert.equal(searchMessages({ sinceTs: "2026-01-02T00:00:00" }).length, 2);
+    assert.equal(searchMessages({ untilTs: "2026-01-02T00:00:00" }).length, 2);
+    assert.equal(searchMessages({ sinceTs: "2026-01-02T00:00:00", untilTs: "2026-01-02T00:00:00" }).length, 1);
+    assert.equal(searchMessages({ sinceTs: String(Date.parse("2026-01-02T00:00:00")) }).length, 2, "epoch 毫秒");
+    assert.equal(searchMessages({ sinceTs: "2026-01-02T00:00:00", chatType: "user" }).length, 1);
+    assert.equal(searchMessages({ sinceTs: "不是時間" }).length, 3, "無效值視為不設限");
+    assert.equal(searchMessages({ sinceTs: "2026-01-04T00:00:00" }).length, 0);
+  });
 });

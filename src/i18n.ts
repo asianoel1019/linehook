@@ -474,6 +474,12 @@ export const DICT: Record<string, Entry> = {
   ph_search: { zh: "搜尋名稱或 MID", en: "Search name or MID", ja: "名前または MID を検索" },
   lbl_since: { zh: "起", en: "From", ja: "開始" },
   lbl_until: { zh: "訖", en: "To", ja: "終了" },
+  lbl_range_all: { zh: "全部", en: "All", ja: "すべて" },
+  lbl_range_10m: { zh: "10 分鐘", en: "10 min", ja: "10分" },
+  lbl_range_1h: { zh: "1 小時", en: "1 hour", ja: "1時間" },
+  lbl_range_8h: { zh: "8 小時", en: "8 hours", ja: "8時間" },
+  lbl_range_1d: { zh: "1 天", en: "1 day", ja: "1日" },
+  lbl_range_custom: { zh: "自訂區間", en: "Custom range", ja: "カスタム範囲" },
   opt_all_platforms: { zh: "全部平台", en: "All platforms", ja: "すべてのプラットフォーム" },
   list_count: { zh: "清單", en: "List", ja: "一覧" },
 

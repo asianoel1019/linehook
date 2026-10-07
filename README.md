@@ -293,7 +293,7 @@ curl -sS -X POST "http://localhost:8090/webhook" \
 | `POST /settings/scheduled/cancel` | 取消排程（需登入），body `{ id, platform? }`（依平台解析，預設 LINE） |
 | `POST /settings/scheduled/update` | 編輯排程（需登入），body `{ id, platform?, delaySec? \| sendAt?, repeat? }` |
 | `GET /messages` | 收到的訊息頁（需登入）：關鍵字搜尋、JSON / CSV 匯出、一鍵清除 |
-| `GET /messages.json` | 收到的訊息 JSON（需登入或 read token），支援 `?q=` 關鍵字、`?chat=` 對話過濾、`?limit=`（最多 1000） |
+| `GET /messages.json` | 收到的訊息 JSON（需登入或 read token），支援 `?q=` 關鍵字、`?chat=` 對話過濾、`?since=`／`?until=` 日期（含當日）、`?sinceTs=`／`?untilTs=` 時間（ISO 8601 或 epoch 毫秒，含該時點）、`?chatType=` 平台、`?limit=`（最多 1000） |
 | `POST /messages/purge` | 清除訊息紀錄（需登入，記憶體＋檔案） |
 | `GET /deadletter.json` | 死信列表（需登入或 read token），`?limit=`（最多 500） |
 | `GET /settings/backup?password=` | 完整備份下載（需登入，設定＋登入狀態＋排程，一律加密） |

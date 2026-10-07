@@ -26,6 +26,10 @@ export interface StoreQueryOptions {
   sinceDate?: string;
   /** 只回 `time` 的日期部分（YYYY-MM-DD）<= 此值的列。 */
   untilDate?: string;
+  /** 只回 `time` 解析出的 epoch 毫秒 >= 此值的列（含該時點，比 sinceDate 細到時分秒）。 */
+  sinceTsMs?: number;
+  /** 只回 `time` 解析出的 epoch 毫秒 <= 此值的列（含該時點）。 */
+  untilTsMs?: number;
   /** 依 `chatType` 過濾（messages 表專用：平台代號，如 line／telegram／whatsapp）。 */
   chatType?: string;
   /** 預設 true（新到舊）。 */

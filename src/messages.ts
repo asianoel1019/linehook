@@ -107,6 +107,10 @@ export interface MessageQuery {
   since?: string;
   /** 結束日（YYYY-MM-DD，含當日）；相容 YYYY/MM/DD。 */
   until?: string;
+  /** 起始時間（ISO 8601 或 epoch 毫秒，含該時點）；精確到時分秒，可與 since 並用。 */
+  sinceTs?: string;
+  /** 結束時間（ISO 8601 或 epoch 毫秒，含該時點）。 */
+  untilTs?: string;
   /** 平台代號（chatType：line／telegram／whatsapp／teams／discord）。 */
   chatType?: string;
   limit?: number;
@@ -119,6 +123,18 @@ function normalizeDay(value: string): string {
   return `${m[1]}-${String(Number(m[2])).padStart(2, "0")}-${String(Number(m[3])).padStart(2, "0")}`;
 }
 
+/** 把時間輸入正規化為 epoch 毫秒；無效回 undefined（視為不設限）。ISO 8601 或 ≥10 位純數字毫秒。 */
+function normalizeTs(value: string | undefined): number | undefined {
+  const raw = String(value ?? "").trim();
+  if (!raw) return undefined;
+  if (/^\d{10,}$/.test(raw)) {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  const t = Date.parse(raw);
+  return Number.isFinite(t) ? t : undefined;
+}
+
 /**
  * 關鍵字搜尋（比對時間/來源/對話/內容，不分大小寫）＋對話過濾＋筆數上限。
  * 持久化開啟時查詢儲存層（全量歷史，A6/H6 修正）；否則只搜記憶體視窗。
@@ -128,8 +144,12 @@ export function searchMessages(query: MessageQuery = {}): ReceivedMessage[] {
   const chat = (query.chat || "").trim();
   const since = normalizeDay(query.since || "");
   const until = normalizeDay(query.until || "");
+  const sinceTs = normalizeTs(query.sinceTs);
+  const untilTs = normalizeTs(query.untilTs);
   const chatType = (query.chatType || "").trim();
-  const limit = Math.min(Math.max(query.limit ?? 300, 1), 1000);
+  // limit <= 0 或未設＝預設 300（注意：Number("") === 0，不可直接拿來當上限）。
+  const rawLimit = Number(query.limit);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 1000) : 300;
   if (config.messagesPersist) {
     try {
       return getStore().query("messages", {
@@ -137,6 +157,8 @@ export function searchMessages(query: MessageQuery = {}): ReceivedMessage[] {
         ...(chat ? { chat } : {}),
         ...(since ? { sinceDate: since } : {}),
         ...(until ? { untilDate: until } : {}),
+        ...(sinceTs !== undefined ? { sinceTsMs: sinceTs } : {}),
+        ...(untilTs !== undefined ? { untilTsMs: untilTs } : {}),
         ...(chatType ? { chatType } : {}),
         limit,
       }) as unknown as ReceivedMessage[];
@@ -152,6 +174,12 @@ export function searchMessages(query: MessageQuery = {}): ReceivedMessage[] {
     const day = String(m.time ?? "").slice(0, 10);
     if (since && day < since) continue;
     if (until && day > until) continue;
+    if (sinceTs !== undefined || untilTs !== undefined) {
+      const t = Date.parse(String(m.time ?? ""));
+      if (!Number.isFinite(t)) continue;
+      if (sinceTs !== undefined && t < sinceTs) continue;
+      if (untilTs !== undefined && t > untilTs) continue;
+    }
     if (chatType && (m.chatType ?? "") !== chatType) continue;
     if (cl && m.chatMid.toLowerCase().indexOf(cl) === -1) continue;
     if (ql) {

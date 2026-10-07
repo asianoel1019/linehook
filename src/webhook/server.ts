@@ -907,15 +907,18 @@ export function createServer(line: IMessagingService): express.Express {
         res.set("Cache-Control", "no-store");
         const q = req.query;
         const str = (v: unknown): string => (typeof v === "string" ? v : "");
-        const num = Number(str(q.limit));
+        const limitRaw = str(q.limit).trim();
+        const num = Number(limitRaw);
         res.json({
             messages: searchMessages({
                 q: str(q.q),
                 chat: str(q.chat),
                 since: str(q.since),
                 until: str(q.until),
+                sinceTs: str(q.sinceTs),
+                untilTs: str(q.untilTs),
                 chatType: str(q.chatType),
-                limit: Number.isFinite(num) ? num : undefined,
+                limit: limitRaw !== "" && Number.isFinite(num) ? num : undefined,
             }),
         });
     });

@@ -47,6 +47,12 @@ function hayOf(row: StoreRow): string {
 function matches(row: StoreRow, opts?: StoreQueryOptions): boolean {
   if (!opts) return true;
   if (opts.sinceIso && !(String(row.time) >= opts.sinceIso)) return false;
+  if (opts.sinceTsMs !== undefined || opts.untilTsMs !== undefined) {
+    const t = Date.parse(String(row.time ?? ""));
+    if (!Number.isFinite(t)) return false;
+    if (opts.sinceTsMs !== undefined && t < opts.sinceTsMs) return false;
+    if (opts.untilTsMs !== undefined && t > opts.untilTsMs) return false;
+  }
   const day = String(row.time ?? "").slice(0, 10);
   if (opts.sinceDate && day < opts.sinceDate) return false;
   if (opts.untilDate && day > opts.untilDate) return false;

@@ -10,10 +10,20 @@ export function renderMessagesHtml() {
 <div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
   <input id="message-search" data-i18n-ph="ph_search" placeholder="搜尋關鍵字" style="width:220px">
   <input id="message-chat" placeholder="MID" style="width:200px">
-  <label for="message-since" data-i18n="lbl_since" class="msg">起</label>
-  <input id="message-since" type="date" style="width:150px">
-  <label for="message-until" data-i18n="lbl_until" class="msg">訖</label>
-  <input id="message-until" type="date" style="width:150px">
+  <span class="range-chips" id="message-range">
+    <button type="button" class="active" data-range="all" data-i18n="lbl_range_all">全部</button>
+    <button type="button" data-range="10m" data-i18n="lbl_range_10m">10 分鐘</button>
+    <button type="button" data-range="1h" data-i18n="lbl_range_1h">1 小時</button>
+    <button type="button" data-range="8h" data-i18n="lbl_range_8h">8 小時</button>
+    <button type="button" data-range="1d" data-i18n="lbl_range_1d">1 天</button>
+    <button type="button" data-range="custom" data-i18n="lbl_range_custom">自訂區間</button>
+  </span>
+  <span id="message-custom-range" hidden>
+    <label for="message-since" data-i18n="lbl_since" class="msg">起</label>
+    <input id="message-since" type="datetime-local" style="width:180px">
+    <label for="message-until" data-i18n="lbl_until" class="msg">訖</label>
+    <input id="message-until" type="datetime-local" style="width:180px">
+  </span>
   <select id="message-platform" style="width:140px">
     <option value="" data-i18n="opt_all_platforms">全部平台</option>
     <option value="line" data-i18n="platform_line">LINE</option>
@@ -50,18 +60,26 @@ export function renderMessagesHtml() {
     }));
   }
 
+  var RANGE_MS = { "10m": 600000, "1h": 3600000, "8h": 28800000, "1d": 86400000 };
+  var rangeMode = "all";
+
   function queryString() {
     var parts = [];
     var q = $("message-search").value.trim();
     var chat = $("message-chat").value.trim();
-    var since = $("message-since").value;
-    var until = $("message-until").value;
     var plat = $("message-platform").value;
     if (q) parts.push("q=" + encodeURIComponent(q));
     if (chat) parts.push("chat=" + encodeURIComponent(chat));
-    if (since) parts.push("since=" + encodeURIComponent(since));
-    if (until) parts.push("until=" + encodeURIComponent(until));
     if (plat) parts.push("chatType=" + encodeURIComponent(plat));
+    if (rangeMode === "custom") {
+      var since = $("message-since").value;
+      var until = $("message-until").value;
+      if (since) parts.push("sinceTs=" + encodeURIComponent(new Date(since).toISOString()));
+      if (until) parts.push("untilTs=" + encodeURIComponent(new Date(until).toISOString()));
+    } else if (rangeMode !== "all") {
+      var ms = RANGE_MS[rangeMode] || 0;
+      if (ms) parts.push("sinceTs=" + encodeURIComponent(new Date(Date.now() - ms).toISOString()));
+    }
     return parts.length > 0 ? "?" + parts.join("&") : "";
   }
 
@@ -109,6 +127,18 @@ export function renderMessagesHtml() {
         : ("失敗：" + (r.data.error || ""));
       refresh();
     });
+  });
+
+  function setRange(mode) {
+    rangeMode = mode;
+    document.querySelectorAll("#message-range button").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-range") === mode);
+    });
+    $("message-custom-range").hidden = mode !== "custom";
+    refresh();
+  }
+  document.querySelectorAll("#message-range button").forEach(function (b) {
+    b.addEventListener("click", function () { setRange(b.getAttribute("data-range")); });
   });
 
   var searchTimer = null;

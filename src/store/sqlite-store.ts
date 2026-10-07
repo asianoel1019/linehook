@@ -227,6 +227,14 @@ export class SqliteStore implements Store {
       where.push("substr(time, 1, 10) <= ?");
       params.push(opts.untilDate);
     }
+    if (opts?.sinceTsMs !== undefined) {
+      where.push("CAST(strftime('%s', time) AS INTEGER) >= ?");
+      params.push(Math.floor(opts.sinceTsMs / 1000));
+    }
+    if (opts?.untilTsMs !== undefined) {
+      where.push("CAST(strftime('%s', time) AS INTEGER) <= ?");
+      params.push(Math.floor(opts.untilTsMs / 1000));
+    }
     if (opts?.chatType && table === "messages") {
       where.push("chatType = ?");
       params.push(opts.chatType);
