@@ -219,6 +219,18 @@ export interface SkillConfig {
   config: Record<string, string>;
 }
 
+/** 全域 LLM 設定；技能可覆寫個別欄位。 */
+export interface GlobalLlmConfig {
+  provider: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  temperature: number;
+  maxTokens: number;
+  timeoutMs: number;
+}
+
 export interface Config {
   port: number;
   settingsPath: string;
@@ -331,6 +343,7 @@ export interface Config {
   commands: CommandConfig;
   assistant: AssistantConfig;
   skills: SkillConfig[];
+  globalLlm: GlobalLlmConfig;
 }
 
 const rawEnv: Record<string, string | undefined> = {};
@@ -483,4 +496,14 @@ export const config: Config = {
     name: "阿寶",
   },
   skills: [],
+  globalLlm: {
+    provider: "openai",
+    baseUrl: "",
+    apiKey: "",
+    model: "",
+    systemPrompt: "",
+    temperature: 0.7,
+    maxTokens: 2048,
+    timeoutMs: 30000,
+  },
 };

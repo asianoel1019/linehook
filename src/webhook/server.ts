@@ -809,6 +809,14 @@ export function createServer(line: IMessagingService): express.Express {
             const assistant = asRecord(body.assistant);
             const skills = Array.isArray(body.skills) ? body.skills : [];
             const current = currentSettings();
+            // Safety: refuse to save empty skills list when existing config has skills
+            if (skills.length === 0 && current.skills.length > 0) {
+                res.status(400).json({
+                    ok: false,
+                    error: `拒絕儲存：技能清單為空，但現有設定有 ${current.skills.length} 個技能。請重新整理頁面後再試。`,
+                });
+                return;
+            }
             const mappedSkills = skills.map((item: unknown) => {
                 const s = asRecord(item) ?? {};
                 const config = asRecord(s.config) ?? {};
@@ -850,6 +858,34 @@ export function createServer(line: IMessagingService): express.Express {
                 skills: mappedSkills,
             });
             res.json({ ok: true, assistant: saved.assistant, skills: saved.skills });
+        }
+        catch (error) {
+            res.status(400).json({
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    });
+    app.post("/skills/global-llm", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
+        try {
+            const body = asRecord(req.body) ?? {};
+            const gl = asRecord(body.globalLlm) ?? {};
+            const current = currentSettings();
+            const saved = saveSettings({
+                ...current,
+                globalLlm: {
+                    provider: typeof gl.provider === "string" ? gl.provider : "openai",
+                    baseUrl: typeof gl.baseUrl === "string" ? gl.baseUrl : "",
+                    apiKey: typeof gl.apiKey === "string" ? gl.apiKey : "",
+                    model: typeof gl.model === "string" ? gl.model : "",
+                    systemPrompt: typeof gl.systemPrompt === "string" ? gl.systemPrompt : "",
+                    temperature: Number(gl.temperature) || 0.7,
+                    maxTokens: Math.max(1, Number(gl.maxTokens) || 2048),
+                    timeoutMs: Math.max(1000, Number(gl.timeoutMs) || 30000),
+                },
+            });
+            audit(req, "skills.globalLlm", saved.globalLlm.provider);
+            res.json({ ok: true, globalLlm: saved.globalLlm });
         }
         catch (error) {
             res.status(400).json({

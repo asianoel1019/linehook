@@ -209,6 +209,18 @@ const settingsSchema = z.object({
       name: z.string().default("阿寶"),
     })
     .default({ enabled: false, name: "阿寶" }),
+  globalLlm: z
+    .object({
+      provider: z.string().default("openai"),
+      baseUrl: z.string().default(""),
+      apiKey: z.string().default(""),
+      model: z.string().default(""),
+      systemPrompt: z.string().default(""),
+      temperature: z.coerce.number().default(0.7),
+      maxTokens: z.coerce.number().default(2048),
+      timeoutMs: z.coerce.number().default(30000),
+    })
+    .default({}),
   skills: z
     .array(
       z.object({
@@ -311,6 +323,16 @@ export function currentSettings(): EditableSettings {
     assistant: {
       enabled: config.assistant.enabled,
       name: config.assistant.name,
+    },
+    globalLlm: {
+      provider: config.globalLlm.provider,
+      baseUrl: config.globalLlm.baseUrl,
+      apiKey: config.globalLlm.apiKey,
+      model: config.globalLlm.model,
+      systemPrompt: config.globalLlm.systemPrompt,
+      temperature: config.globalLlm.temperature,
+      maxTokens: config.globalLlm.maxTokens,
+      timeoutMs: config.globalLlm.timeoutMs,
     },
     skills: config.skills.map((skill) => ({
       id: skill.id,
@@ -417,6 +439,16 @@ function apply(settings: EditableSettings): void {
     allowedUsers: [...(skill.allowedUsers ?? [])],
     config: { ...skill.config },
   }));
+  config.globalLlm = {
+    provider: settings.globalLlm.provider,
+    baseUrl: settings.globalLlm.baseUrl,
+    apiKey: settings.globalLlm.apiKey,
+    model: settings.globalLlm.model,
+    systemPrompt: settings.globalLlm.systemPrompt,
+    temperature: settings.globalLlm.temperature,
+    maxTokens: settings.globalLlm.maxTokens,
+    timeoutMs: settings.globalLlm.timeoutMs,
+  };
   resetMailer();
 }
 
@@ -454,6 +486,7 @@ export function loadSettings(): void {
       smtp: { ...base.smtp, ...(data.smtp ?? {}) },
       commands: { ...base.commands, ...(data.commands ?? {}) },
       assistant: { ...base.assistant, ...(data.assistant ?? {}) },
+      globalLlm: { ...base.globalLlm, ...(data.globalLlm ?? {}) },
       telegram: { ...base.telegram, ...(data.telegram ?? {}) },
       whatsapp: { ...base.whatsapp, ...(data.whatsapp ?? {}) },
       teams: { ...base.teams, ...(data.teams ?? {}) },

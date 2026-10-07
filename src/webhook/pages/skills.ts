@@ -25,23 +25,109 @@ export function renderSkillsHtml() {
         })),
         ruleKey: skill.ruleKey ?? "rules",
     }));
+    const sidebar = `
+<div class="side-section">${tr(config.language, "nav_skills")}</div>
+<div class="fn-list" id="skills-subnav">
+  <button type="button" class="fn-card active" data-tab="list" data-i18n="tab_skill_list">技能列</button>
+  <button type="button" class="fn-card" data-tab="install" data-i18n="tab_skill_install">安裝/移除</button>
+  <button type="button" class="fn-card" data-tab="ai" data-i18n="tab_skill_ai">AI 設定</button>
+</div>`;
     const body = `
+<div id="tab-list" class="skills-tab">
 <div class="glass">
   <div class="field"><label data-i18n="lbl_assistant_enabled">啟用助理</label><input id="assistant-enabled" type="checkbox"><div class="hint" data-i18n="hint_assistant">開啟後，訊息以「名稱」開頭即會呼叫技能，例如「阿寶請幫忙 火車 台北 到 高雄」</div></div>
   <div class="field"><label data-i18n="lbl_assistant_name">助理名稱</label><input id="assistant-name" type="text" placeholder="阿寶"></div>
   <div class="actions"><button type="button" id="skills-save" data-i18n="save_settings">儲存</button><span id="skills-msg" class="msg"></span></div>
 </div>
-
-<h2 data-i18n="title_skills">技能</h2>
-<div class="glass">
-  <div class="field"><label data-i18n="lbl_install_skill">安裝技能（上傳 .zip）</label><span style="display:flex;gap:8px;align-items:center"><input id="skill-zip" type="file" accept=".zip,application/zip" style="flex:1"><button type="button" id="skill-install-btn" data-i18n="btn_install">安裝</button><span id="install-msg" class="msg"></span></span><div class="hint" data-i18n="hint_install">zip 內含技能的 index.js（可含 skill.json）。安裝後立即生效。</div></div>
-  <div id="installed-list"></div>
+<div id="skillList"></div>
 </div>
 
-<div id="skillList"></div>
+<div id="tab-install" class="skills-tab" hidden>
+<div class="glass">
+  <div class="field"><label data-i18n="lbl_install_skill">安裝技能（上傳 .zip）</label><span style="display:flex;gap:8px;align-items:center"><input id="skill-zip" type="file" accept=".zip,application/zip" style="flex:1"><button type="button" id="skill-install-btn" data-i18n="btn_install">安裝</button><span id="install-msg" class="msg"></span></span><div class="hint" data-i18n="hint_install">zip 內含技能的 index.js（可含 skill.json）。安裝後立即生效。</div></div>
+  <h2 data-i18n="tab_skill_install">安裝/移除</h2>
+  <div id="installed-list"></div>
+</div>
+</div>
+
+<div id="tab-ai" class="skills-tab" hidden>
+<div class="glass">
+  <h2 style="margin-top:0" data-i18n="tab_skill_ai">AI 設定</h2>
+  <div class="hint" data-i18n="hint_global_llm">全域 LLM 設定。技能可留空欄位以使用此設定；技能有填寫則以技能為主。</div>
+  <div class="field"><label>Provider</label><select id="ai-provider" class="sf"><option value="openai">OpenAI</option><option value="gemini">Gemini（API Key）</option><option value="gemini-cli">Antigravity CLI（帳戶登入）</option><option value="opencode">OpenCode</option><option value="local">本地自建</option><option value="custom">自訂端點</option></select></div>
+  <div class="field"><label>Base URL</label><input id="ai-baseUrl" type="text" placeholder="留空用各供應商預設"></div>
+  <div class="field"><label>API Key</label><input id="ai-apiKey" type="password" placeholder="Antigravity CLI / 本地自建可留空"></div>
+  <div class="field"><label>Model</label><input id="ai-model" type="text" placeholder="留空用預設"></div>
+  <div class="field"><label>System Prompt</label><textarea id="ai-systemPrompt" placeholder="選填"></textarea></div>
+  <div class="field"><label>Temperature</label><input id="ai-temperature" type="text" placeholder="0.7"></div>
+  <div class="field"><label>Max Tokens</label><input id="ai-maxTokens" type="text" placeholder="2048"></div>
+  <div class="field"><label>Timeout (ms)</label><input id="ai-timeoutMs" type="text" placeholder="30000"></div>
+  <div class="actions"><button type="button" id="ai-save" data-i18n="save_settings">儲存 AI 設定</button><span id="ai-msg" class="msg"></span></div>
+</div>
+<div class="glass">
+  <h2 style="margin-top:0">Gemini CLI</h2>
+  <div class="hint">使用 Google 帳戶登入 Antigravity CLI（免 API Key）。需先安裝：<code>npm install -g @google/antigravity-cli && agy</code>。Provider 選「Antigravity CLI」即可使用。</div>
+</div>
+</div>
 `;
     const script = `
   var SKILL_DEFS = ${JSON.stringify(skillDefs).replace(/</g, "\\u003c")};
+
+  // Tab switching
+  document.querySelectorAll("#skills-subnav .fn-card").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll("#skills-subnav .fn-card").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      var tab = btn.getAttribute("data-tab");
+      document.querySelectorAll(".skills-tab").forEach(function (el) { el.hidden = true; });
+      var target = document.getElementById("tab-" + tab);
+      if (target) target.hidden = false;
+    });
+  });
+
+  // AI global settings
+  function loadAiSettings() {
+    fetch("/settings.json", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (s) {
+        if (!s) return;
+        var g = s.globalLlm || {};
+        $("ai-provider").value = g.provider || "openai";
+        $("ai-baseUrl").value = g.baseUrl || "";
+        $("ai-apiKey").value = g.apiKey || "";
+        $("ai-model").value = g.model || "";
+        $("ai-systemPrompt").value = g.systemPrompt || "";
+        $("ai-temperature").value = g.temperature != null ? String(g.temperature) : "";
+        $("ai-maxTokens").value = g.maxTokens != null ? String(g.maxTokens) : "";
+        $("ai-timeoutMs").value = g.timeoutMs != null ? String(g.timeoutMs) : "";
+      })
+      .catch(function () {});
+  }
+
+  $("ai-save").addEventListener("click", function () {
+    $("ai-msg").textContent = "儲存中…";
+    var payload = {
+      globalLlm: {
+        provider: $("ai-provider").value,
+        baseUrl: $("ai-baseUrl").value.trim(),
+        apiKey: $("ai-apiKey").value.trim(),
+        model: $("ai-model").value.trim(),
+        systemPrompt: $("ai-systemPrompt").value.trim(),
+        temperature: Number($("ai-temperature").value) || 0.7,
+        maxTokens: Math.max(1, Number($("ai-maxTokens").value) || 2048),
+        timeoutMs: Math.max(1000, Number($("ai-timeoutMs").value) || 30000)
+      }
+    };
+    fetch("/skills/global-llm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, data: d }; });
+    }).then(function (r) {
+      $("ai-msg").textContent = r.ok ? T("saved") : ("失敗：" + (r.data.error || ""));
+    }).catch(function () { $("ai-msg").textContent = "失敗"; });
+  });
 
   function loadInstalled() {
     fetch("/skills/installed.json", { cache: "no-store" })
@@ -504,6 +590,7 @@ export function renderSkillsHtml() {
 
   loadSkills();
   loadInstalled();
+  loadAiSettings();
 `;
-    return page(tr(config.language, "title_skills"), "skills", body, script);
+    return page(tr(config.language, "title_skills"), "skills", body, script, { sidebar });
 }

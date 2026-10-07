@@ -51,8 +51,10 @@ const summarizeSkill: SkillDefinition = {
       label: { zh: "供應商", en: "Provider", ja: "プロバイダー" },
       type: "select",
       options: [
+        { value: "", label: "（使用全域設定）" },
         { value: "openai", label: "OpenAI" },
-        { value: "gemini", label: "Gemini" },
+        { value: "gemini", label: "Gemini（API Key）" },
+        { value: "gemini-cli", label: "Antigravity CLI（帳戶登入）" },
         { value: "opencode", label: "OpenCode" },
         { value: "local", label: "本地自建（OpenAI 相容 / Ollama）" },
         { value: "custom", label: "自訂端點" },
@@ -78,7 +80,7 @@ const summarizeSkill: SkillDefinition = {
     }
 
     const cfg = llmConfigFrom(ctx.config);
-    if (cfg.provider !== "local" && !cfg.apiKey) {
+    if (cfg.provider !== "local" && cfg.provider !== "gemini-cli" && !cfg.apiKey) {
       await ctx.reply("網頁摘要需先設定 LLM（到技能設定填寫供應商與 API Key）。");
       return;
     }

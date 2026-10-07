@@ -1,7 +1,10 @@
 import { logger } from "../logger.js";
 import { recordMetric } from "../metrics.js";
+import { config } from "../config.js";
+import { execSync, spawn } from "node:child_process";
+import { homedir } from "node:os";
 
-export type LlmProvider = "openai" | "gemini" | "opencode" | "local" | "custom";
+export type LlmProvider = "openai" | "gemini" | "gemini-cli" | "opencode" | "local" | "custom";
 
 export interface LlmConfig {
   provider: LlmProvider;
@@ -22,6 +25,7 @@ export interface ChatMessage {
 function providerDefaults(provider: LlmProvider): { baseUrl: string; model: string } {
   switch (provider) {
     case "gemini":
+    case "gemini-cli":
       return { baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-2.0-flash" };
     case "opencode":
       return { baseUrl: "https://opencode.ai/zen/v1", model: "opencode/deepseek-v4.1-flash" };
@@ -35,18 +39,19 @@ function providerDefaults(provider: LlmProvider): { baseUrl: string; model: stri
   }
 }
 
-export function llmConfigFrom(raw: Record<string, string>): LlmConfig {
-  const provider = ((raw.provider || "openai").trim() as LlmProvider) || "openai";
+export function llmConfigFrom(raw: Record<string, string>, globalLlm?: Record<string, string | number>): LlmConfig {
+  const g = globalLlm ?? config.globalLlm;
+  const provider = (((raw.provider || String(g.provider || "openai")).trim()) as LlmProvider) || "openai";
   const defaults = providerDefaults(provider);
   return {
     provider,
-    baseUrl: (raw.baseUrl || defaults.baseUrl).trim().replace(/\/+$/, ""),
-    apiKey: (raw.apiKey || "").trim(),
-    model: (raw.model || defaults.model).trim(),
-    systemPrompt: (raw.systemPrompt || "").trim(),
-    temperature: numOr(raw.temperature, 0.7),
-    maxTokens: Math.max(1, Math.floor(numOr(raw.maxTokens, 2048))),
-    timeoutMs: Math.max(1000, Math.floor(numOr(raw.timeoutMs, 30_000))),
+    baseUrl: ((raw.baseUrl || String(g.baseUrl || "") || defaults.baseUrl).trim()).replace(/\/+$/, ""),
+    apiKey: ((raw.apiKey || String(g.apiKey || "")).trim()),
+    model: ((raw.model || String(g.model || "") || defaults.model).trim()),
+    systemPrompt: ((raw.systemPrompt || String(g.systemPrompt || "")).trim()),
+    temperature: numOr(raw.temperature, numOr(String(g.temperature ?? ""), 0.7)),
+    maxTokens: Math.max(1, Math.floor(numOr(raw.maxTokens, numOr(String(g.maxTokens ?? ""), 2048)))),
+    timeoutMs: Math.max(1000, Math.floor(numOr(raw.timeoutMs, numOr(String(g.timeoutMs ?? ""), 30_000)))),
   };
 }
 
@@ -59,6 +64,7 @@ function numOr(value: string | undefined, fallback: number): number {
 /** 呼叫 LLM，回傳純文字；失敗丟錯。tag.skill 供用量統計歸屬。 */
 export async function chat(cfg: LlmConfig, messages: ChatMessage[], tag?: { skill?: string }): Promise<string> {
   if (!cfg.model) throw new Error("未設定模型（model）");
+  if (cfg.provider === "gemini-cli") return geminiCliChat(cfg, messages, tag);
   if (cfg.provider === "gemini") return geminiChat(cfg, messages, tag);
   return openaiCompatChat(cfg, messages, cfg.provider !== "local", tag);
 }
@@ -146,6 +152,80 @@ async function geminiChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { skill
   return text;
 }
 
+/** Antigravity CLI（原 Gemini CLI）帳戶模式：spawn `agy` 取得回覆（免 API key）。 */
+function findAgyPath(): string {
+  try {
+    const result = execSync("where agy 2>nul || which agy 2>/dev/null", { timeout: 5000, encoding: "utf8" });
+    const path = result.split("\n")[0]?.trim();
+    if (path) return path;
+  } catch { /* fallthrough */ }
+  return "agy";
+}
+
+async function geminiCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { skill?: string }): Promise<string> {
+  const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+  const last = messages.filter((m) => m.role !== "system").pop();
+  const raw = last?.content ?? "";
+  const clean = raw.replace(/<\/?untrusted-(?:user|web)-content>/g, "").trim();
+  const prompt = system ? `${system}\n\n${clean}` : clean;
+  const agyBin = findAgyPath();
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(agyBin, ["-p", prompt, "--output-format", "json", "--print-timeout", "5m", "--dangerously-skip-permissions"], {
+      timeout: Math.max(cfg.timeoutMs, 300_000), // at least 5 minutes to match --print-timeout
+      env: { ...process.env, HOME: process.env.HOME || homedir() },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let out = "";
+    let err = "";
+    proc.stdout?.on("data", (d: Buffer) => { out += d.toString("utf8"); });
+    proc.stderr?.on("data", (d: Buffer) => { err += d.toString("utf8"); });
+
+    proc.on("error", (e) => {
+      logger.error("Antigravity CLI spawn 失敗", { error: e.message });
+      reject(new Error(`Antigravity CLI 無法啟動：${e.message}`));
+    });
+
+    proc.on("close", (code) => {
+      const rawOut = out.trim();
+      const rawErr = err.trim();
+
+      // 嘗試從 stdout 解析 JSON
+      try {
+        const data = JSON.parse(rawOut) as {
+          status?: string; response?: string; error?: string;
+          denied_actions?: Array<{ action?: string }>;
+          usage?: { input_tokens?: number; output_tokens?: number };
+        };
+        if (data.status === "SUCCESS" && data.response?.trim()) {
+          recordLlmUsage(cfg, tag?.skill, data.usage?.input_tokens, data.usage?.output_tokens);
+          resolve(data.response.trim());
+          return;
+        }
+        if (data.status === "ERROR" || data.error) {
+          reject(new Error(`Antigravity CLI 錯誤：${data.error || data.status}`));
+          return;
+        }
+        if (data.status === "INTERRUPTED") {
+          reject(new Error("Antigravity CLI 被中斷（逾時或外部干擾），請稍後再試"));
+          return;
+        }
+        if (data.status === "SUCCESS" && !data.response?.trim()) {
+          const denied = (data.denied_actions ?? []).map((d) => d.action).join(", ");
+          reject(new Error(`Antigravity CLI 未回傳內容${denied ? `（工具被拒絕：${denied}）` : ""}`));
+          return;
+        }
+      } catch { /* not JSON */ }
+
+      // 非 JSON 或解析失敗
+      const detail = [rawErr, rawOut].filter(Boolean).join(" | ") || `exit ${code}`;
+      logger.error("Antigravity CLI 輸出無法解析", { code, stdout: rawOut.slice(0, 300), stderr: rawErr.slice(0, 300) });
+      reject(new Error(`Antigravity CLI 失敗：${detail.slice(0, 500)}`));
+    });
+  });
+}
+
 /** G2：記錄 LLM token 用量（供 /metrics 的 llm_tokens_total）。缺 usage 時記 0 佔位。 */
 function recordLlmUsage(cfg: LlmConfig, skill: string | undefined, prompt?: number, completion?: number): void {
   const labels = { provider: cfg.provider, model: cfg.model, skill: skill ?? "unknown" };
@@ -156,8 +236,25 @@ function recordLlmUsage(cfg: LlmConfig, skill: string | undefined, prompt?: numb
 
 /** 列出供應商支援的模型 id。 */
 export async function listModels(cfg: LlmConfig): Promise<string[]> {
+  if (cfg.provider === "gemini-cli") return antigravityListModels();
   if (cfg.provider === "gemini") return geminiListModels(cfg);
   return openaiCompatListModels(cfg);
+}
+
+async function antigravityListModels(): Promise<string[]> {
+  const agyBin = findAgyPath();
+  return new Promise((resolve) => {
+    const proc = spawn(agyBin, ["models"], { timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] });
+    let out = "";
+    proc.stdout?.on("data", (d: Buffer) => { out += d.toString("utf8"); });
+    proc.on("close", () => {
+      const models = out.split("\n").map((l) => l.trim().split(/\s+/)[0]).filter((s) => /^[a-z0-9.\-]+$/i.test(s));
+      resolve(models.length > 0 ? models : ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"]);
+    });
+    proc.on("error", () => {
+      resolve(["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"]);
+    });
+  });
 }
 
 async function openaiCompatListModels(cfg: LlmConfig): Promise<string[]> {
