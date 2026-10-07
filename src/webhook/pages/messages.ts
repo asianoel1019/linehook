@@ -5,7 +5,7 @@ import { page } from "../shell.js";
 
 export function renderMessagesHtml() {
     const body = `
-<div class="glass glass-hover">
+<div class="glass glass-hover msg-page">
 <h2 style="margin-top:0" data-i18n="title_messages">收到的訊息</h2>
 <div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
   <input id="message-search" data-i18n-ph="ph_search" placeholder="搜尋關鍵字" style="width:220px">

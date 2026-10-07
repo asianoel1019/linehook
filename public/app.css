@@ -164,6 +164,9 @@
   .glass-hover::after { content: ""; position: absolute; top: 0; left: -150%; width: 60%; height: 100%; background: linear-gradient(120deg, transparent, rgba(255,255,255,0.18), transparent); transform: skewX(-20deg); pointer-events: none; }
   .glass-hover:hover::after { animation: shimmer 1s ease; }
   @keyframes shimmer { 0% { left: -150%; } 100% { left: 150%; } }
+  /* 收到的訊息頁：停用滑過放大（卡片與按鈕僅保留光影回饋，不做 scale） */
+  .msg-page.glass-hover:hover { transform: none; }
+  .msg-page button:hover { transform: none; }
 
   .badge { display: inline-block; padding: 5px 16px; border-radius: 999px; font-weight: 800; color: #0b1020; background: linear-gradient(90deg, #22d3ee, #f472b6); box-shadow: 0 0 22px rgba(34,211,238,.6); animation: hue 8s linear infinite; letter-spacing: .04em; }
   .badge.ok { background: linear-gradient(90deg, #34d399, #22d3ee); }
