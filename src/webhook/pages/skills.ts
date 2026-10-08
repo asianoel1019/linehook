@@ -51,6 +51,8 @@ export function renderSkillsHtml() {
   <h2 data-i18n="tab_skill_install">安裝/移除</h2>
   <div style="margin:10px 0 6px"><input id="manage-filter" data-i18n-ph="ph_filter_skills" placeholder="快速篩選：名稱、ID、觸發詞、說明…" style="width:100%;max-width:460px"></div>
   <div id="installed-list"></div>
+  <h2 data-i18n="lbl_hidden_skills">已隱藏技能</h2>
+  <div id="hidden-list"></div>
 </div>
 </div>
 
@@ -188,10 +190,28 @@ export function renderSkillsHtml() {
             category: def.category || "",
             el: manageRow(
               s.name + (s.version ? " v" + s.version : "") + "（" + s.id + "）",
-              "",
+              T("lbl_external"),
               T("btn_uninstall"),
               function () {
                 if (!window.confirm(T("confirm_remove_external").replace("{id}", s.id))) return;
+                removeSkill(s.id);
+              },
+              hay
+            )
+          });
+        });
+        (d.builtin || []).forEach(function (s) {
+          var def = skillDef(s.id) || {};
+          var hay = searchHay([s.name, s.id, def.name, def.category, def.description]);
+          items.push({
+            categoryZh: def.categoryZh || "",
+            category: def.category || "",
+            el: manageRow(
+              s.name + "（" + s.id + "）",
+              T("lbl_builtin"),
+              T("btn_uninstall"),
+              function () {
+                if (!window.confirm(T("confirm_hide_builtin").replace("{id}", s.id))) return;
                 removeSkill(s.id);
               },
               hay
@@ -211,6 +231,30 @@ export function renderSkillsHtml() {
           lib.textContent = T("lbl_skill_library");
           empty.append(t, lib);
           host.replaceChildren(empty);
+        }
+        var hrows = [];
+        (d.hidden || []).forEach(function (id) {
+          hrows.push(manageRow(id, "", T("btn_restore"), function () {
+            fetch("/skills/restore", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: id })
+            }).then(function (r) {
+              return r.json().catch(function () { return {}; }).then(function (x) { return { ok: r.ok, data: x }; });
+            }).then(function (r) {
+              if (r.ok) { loadInstalled(); loadSkills(); }
+              else { alert(T("restore_failed") + (r.data.error || "")); }
+            });
+          }, searchHay([id])));
+        });
+        var hhost = $("hidden-list");
+        if (hrows.length === 0) {
+          var hempty = document.createElement("div");
+          hempty.className = "msg";
+          hempty.textContent = T("no_hidden");
+          hhost.replaceChildren(hempty);
+        } else {
+          hhost.replaceChildren.apply(hhost, hrows);
         }
         applyManageFilter();
       })
@@ -588,6 +632,7 @@ export function renderSkillsHtml() {
 
   function applyManageFilter() {
     filterBlocks("installed-list", "manage-filter", "[data-search]");
+    filterBlocks("hidden-list", "manage-filter", "[data-search]");
   }
 
   function renderSkillList(skills) {
