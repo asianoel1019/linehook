@@ -138,25 +138,21 @@ export function renderSkillsHtml() {
   function manageRow(labelText, badgeText, btnText, onAction, search) {
     var row = document.createElement("div");
     row.className = "manage-row";
-    row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-top:1px solid rgba(34,211,238,.12);white-space:nowrap";
     row.setAttribute("data-search", search || "");
     row.title = labelText;
     var label = document.createElement("div");
-    label.style.cssText = "display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;overflow:hidden;white-space:nowrap";
+    label.className = "manage-name";
     var nameEl = document.createElement("span");
-    nameEl.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto";
     nameEl.textContent = labelText;
     label.appendChild(nameEl);
     if (badgeText) {
       var badge = document.createElement("span");
       badge.className = "badge";
-      badge.style.flexShrink = "0";
       badge.textContent = badgeText;
       label.appendChild(badge);
     }
     var btn = document.createElement("button");
     btn.type = "button";
-    btn.style.flexShrink = "0";
     btn.textContent = btnText;
     btn.addEventListener("click", onAction);
     row.append(label, btn);
