@@ -162,6 +162,95 @@ function findAgyPath(): string {
   return "agy";
 }
 
+/** agy print 模式的 token 用量（各版本欄位名不一，解析時盡量相容）。 */
+export interface AgyUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+function numField(obj: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+  }
+  return undefined;
+}
+
+/** 從 agy JSON envelope 抽用量（input/output 欄位名跨版本不一）。 */
+function agyUsageOf(usage: unknown): AgyUsage {
+  if (!usage || typeof usage !== "object") return {};
+  const u = usage as Record<string, unknown>;
+  return {
+    inputTokens: numField(u, ["input_tokens", "inputTokens", "prompt_tokens", "promptTokens", "prompt_token_count", "promptTokenCount"]),
+    outputTokens: numField(u, ["output_tokens", "outputTokens", "completion_tokens", "completionTokens", "candidates_token_count", "candidatesTokenCount"]),
+  };
+}
+
+/** 疑似帳戶/授權問題時，提示到主機上完成 agy 登入（無 TTY 環境下未登入會直接失敗）。 */
+function agyAuthHint(detail: string): string {
+  return /auth|login|unauthori[sz]ed|unauthenticated|permission denied|forbidden|sign[- ]?in/i.test(detail)
+    ? "請在主機上執行 agy 完成 Google 帳戶登入後再試"
+    : "";
+}
+
+/**
+ * 解析 agy `-p --output-format json` 的輸出。
+ * 成功回 { text, usage }；失敗回 { error }（錯誤訊息已盡量帶上可操作的說明）。
+ */
+export function parseAgyResult(
+  rawOut: string,
+  rawErr: string,
+  code: number | null,
+): { text: string; usage?: AgyUsage } | { error: string } {
+  const out = (rawOut || "").trim();
+  const err = (rawErr || "").trim();
+  try {
+    const data = JSON.parse(out) as {
+      status?: string;
+      response?: unknown;
+      result?: unknown;
+      text?: unknown;
+      error?: unknown;
+      denied_actions?: Array<{ action?: string }>;
+      usage?: unknown;
+    };
+    const textOf = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+    const detailOf = (v: unknown): string => {
+      if (typeof v === "string") return v.trim();
+      if (v && typeof v === "object") {
+        const m = v as Record<string, unknown>;
+        const msg = textOf(m.message) || textOf(m.error);
+        return msg || JSON.stringify(v).slice(0, 200);
+      }
+      return "";
+    };
+    const errDetail = detailOf(data.error);
+    if (data.status === "ERROR" || errDetail) {
+      const hint = agyAuthHint(`${errDetail} ${data.status ?? ""} ${err}`);
+      return { error: `Antigravity CLI 錯誤：${errDetail || data.status || "未知錯誤"}${hint ? `（${hint}）` : ""}` };
+    }
+    const text = textOf(data.response) || textOf(data.result) || textOf(data.text);
+    if (text) return { text, usage: agyUsageOf(data.usage) };
+    if (data.status === "INTERRUPTED") {
+      return { error: "Antigravity CLI 被中斷（逾時或外部干擾），請稍後再試" };
+    }
+    if ((data.denied_actions ?? []).length > 0) {
+      const denied = (data.denied_actions ?? []).map((d) => d.action).join(", ");
+      return { error: `Antigravity CLI 未回傳內容（工具被拒絕：${denied}）` };
+    }
+    if (data.status && data.status !== "SUCCESS") {
+      return { error: `Antigravity CLI 回傳未預期的狀態：${data.status}${err ? `（${err.slice(0, 200)}）` : ""}` };
+    }
+    const emptyDetail = err || out.slice(0, 200) || `exit ${code}`;
+    return { error: `Antigravity CLI 未回傳內容：${emptyDetail.slice(0, 300)}` };
+  } catch {
+    // 非 JSON
+  }
+  const detail = [err, out].filter(Boolean).join(" | ") || `exit ${code}`;
+  const hint = agyAuthHint(detail);
+  return { error: `Antigravity CLI 失敗：${detail.slice(0, 300)}${hint ? `（${hint}）` : ""}` };
+}
+
 async function geminiCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { skill?: string }): Promise<string> {
   const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
   const last = messages.filter((m) => m.role !== "system").pop();
@@ -169,10 +258,12 @@ async function geminiCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { sk
   const clean = raw.replace(/<\/?untrusted-(?:user|web)-content>/g, "").trim();
   const prompt = system ? `${system}\n\n${clean}` : clean;
   const agyBin = findAgyPath();
+  const timeoutMs = Math.max(cfg.timeoutMs, 300_000); // at least 5 minutes to match --print-timeout
 
   return new Promise((resolve, reject) => {
+    let done = false;
     const proc = spawn(agyBin, ["-p", prompt, "--output-format", "json", "--print-timeout", "5m", "--dangerously-skip-permissions"], {
-      timeout: Math.max(cfg.timeoutMs, 300_000), // at least 5 minutes to match --print-timeout
+      timeout: timeoutMs,
       env: { ...process.env, HOME: process.env.HOME || homedir() },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -183,45 +274,30 @@ async function geminiCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { sk
     proc.stderr?.on("data", (d: Buffer) => { err += d.toString("utf8"); });
 
     proc.on("error", (e) => {
+      if (done) return;
+      done = true;
+      const hint = /ENOENT/i.test(e.message)
+        ? "請先在主機安裝 Antigravity CLI（npm install -g @google/antigravity-cli）"
+        : "";
       logger.error("Antigravity CLI spawn 失敗", { error: e.message });
-      reject(new Error(`Antigravity CLI 無法啟動：${e.message}`));
+      reject(new Error(`Antigravity CLI 無法啟動：${e.message}${hint ? `（${hint}）` : ""}`));
     });
 
-    proc.on("close", (code) => {
-      const rawOut = out.trim();
-      const rawErr = err.trim();
-
-      // 嘗試從 stdout 解析 JSON
-      try {
-        const data = JSON.parse(rawOut) as {
-          status?: string; response?: string; error?: string;
-          denied_actions?: Array<{ action?: string }>;
-          usage?: { input_tokens?: number; output_tokens?: number };
-        };
-        if (data.status === "SUCCESS" && data.response?.trim()) {
-          recordLlmUsage(cfg, tag?.skill, data.usage?.input_tokens, data.usage?.output_tokens);
-          resolve(data.response.trim());
-          return;
-        }
-        if (data.status === "ERROR" || data.error) {
-          reject(new Error(`Antigravity CLI 錯誤：${data.error || data.status}`));
-          return;
-        }
-        if (data.status === "INTERRUPTED") {
-          reject(new Error("Antigravity CLI 被中斷（逾時或外部干擾），請稍後再試"));
-          return;
-        }
-        if (data.status === "SUCCESS" && !data.response?.trim()) {
-          const denied = (data.denied_actions ?? []).map((d) => d.action).join(", ");
-          reject(new Error(`Antigravity CLI 未回傳內容${denied ? `（工具被拒絕：${denied}）` : ""}`));
-          return;
-        }
-      } catch { /* not JSON */ }
-
-      // 非 JSON 或解析失敗
-      const detail = [rawErr, rawOut].filter(Boolean).join(" | ") || `exit ${code}`;
-      logger.error("Antigravity CLI 輸出無法解析", { code, stdout: rawOut.slice(0, 300), stderr: rawErr.slice(0, 300) });
-      reject(new Error(`Antigravity CLI 失敗：${detail.slice(0, 500)}`));
+    proc.on("close", (code, signal) => {
+      if (done) return;
+      done = true;
+      if (signal) {
+        reject(new Error(`Antigravity CLI 逾時或被終止（${signal}，上限約 ${Math.round(timeoutMs / 1000)} 秒）；若經常卡住，多為等待授權或首次互動設定，請到主機上跑一次 agy 完成設定`));
+        return;
+      }
+      const r = parseAgyResult(out, err, code);
+      if ("text" in r) {
+        recordLlmUsage(cfg, tag?.skill, r.usage?.inputTokens, r.usage?.outputTokens);
+        resolve(r.text);
+      } else {
+        logger.error("Antigravity CLI 呼叫失敗", { code, stdout: out.trim().slice(0, 300), stderr: err.trim().slice(0, 300) });
+        reject(new Error(r.error));
+      }
     });
   });
 }

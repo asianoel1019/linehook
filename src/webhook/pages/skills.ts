@@ -60,9 +60,9 @@ export function renderSkillsHtml() {
 <div class="glass">
   <h2 style="margin-top:0" data-i18n="tab_skill_ai">AI 設定</h2>
   <div class="hint" data-i18n="hint_global_llm">全域 LLM 設定。技能可留空欄位以使用此設定；技能有填寫則以技能為主。</div>
-  <div class="field"><label>Provider</label><select id="ai-provider" class="sf"><option value="openai">OpenAI</option><option value="gemini">Gemini（API Key）</option><option value="opencode">OpenCode</option><option value="local">本地自建</option><option value="custom">自訂端點</option></select></div>
+  <div class="field"><label>Provider</label><select id="ai-provider" class="sf"><option value="openai">OpenAI</option><option value="gemini">Gemini（API Key）</option><option value="gemini-cli">Antigravity CLI（帳戶登入）</option><option value="opencode">OpenCode</option><option value="local">本地自建</option><option value="custom">自訂端點</option></select></div>
   <div class="field"><label>Base URL</label><input id="ai-baseUrl" type="text" placeholder="留空用各供應商預設"></div>
-  <div class="field"><label>API Key</label><input id="ai-apiKey" type="password" placeholder="本地自建可留空"></div>
+  <div class="field"><label>API Key</label><input id="ai-apiKey" type="password" placeholder="Antigravity CLI / 本地自建可留空"></div>
   <div class="field"><label>Model</label><input id="ai-model" type="text" placeholder="留空用預設"></div>
   <div class="field"><label>System Prompt</label><textarea id="ai-systemPrompt" placeholder="選填"></textarea></div>
   <div class="field"><label>Temperature</label><input id="ai-temperature" type="text" placeholder="0.7"></div>
