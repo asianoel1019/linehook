@@ -59,7 +59,7 @@ describe("parseAgyResult", () => {
     assert.match(msg, /完成 Google 帳戶登入/);
   });
 
-  it("INTERRUPTED 與 denied_actions", () => {
+  it("INTERRUPTED 與 denied_actions（含處置指引）", () => {
     assert.match(mustError(parseAgyResult(JSON.stringify({ status: "INTERRUPTED" }), "", 1)), /中斷/);
     const denied = mustError(parseAgyResult(
       JSON.stringify({ status: "SUCCESS", response: " ", denied_actions: [{ action: "write_file" }] }),
@@ -67,6 +67,12 @@ describe("parseAgyResult", () => {
       0,
     ));
     assert.match(denied, /write_file/);
+    assert.match(denied, /permissions\.allow/);
+  });
+
+  it("keyring 相關也給登入替代方案", () => {
+    const msg = mustError(parseAgyResult("", "could not unlock keyring", 1));
+    assert.match(msg, /GEMINI_API_KEY/);
   });
 
   it("非 JSON：帶 stderr；auth 相關加提示", () => {

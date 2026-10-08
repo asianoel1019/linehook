@@ -188,9 +188,8 @@ function agyUsageOf(usage: unknown): AgyUsage {
 
 /** 疑似帳戶/授權問題時，提示到主機上完成 agy 登入（無 TTY 環境下未登入會直接失敗）。 */
 function agyAuthHint(detail: string): string {
-  return /auth|login|unauthori[sz]ed|unauthenticated|permission denied|forbidden|sign[- ]?in/i.test(detail)
-    ? "請在主機上執行 agy 完成 Google 帳戶登入後再試"
-    : "";
+  if (!/auth|login|unauthori[sz]ed|unauthenticated|permission denied|forbidden|sign[- ]?in|keyring/i.test(detail)) return "";
+  return "請在主機上執行 agy 完成 Google 帳戶登入後再試；若正式機無桌面 keyring 可用，改用 GEMINI_API_KEY（agy 的 settings.json 設 modelProvider: gemini）";
 }
 
 /**
@@ -236,7 +235,7 @@ export function parseAgyResult(
     }
     if ((data.denied_actions ?? []).length > 0) {
       const denied = (data.denied_actions ?? []).map((d) => d.action).join(", ");
-      return { error: `Antigravity CLI 未回傳內容（工具被拒絕：${denied}）` };
+      return { error: `Antigravity CLI 未回傳內容（工具被拒絕：${denied}）。已使用 --dangerously-skip-permissions，若仍被拒請檢查 agy 版本是否過舊，或在 agy 的 settings.json 以 permissions.allow 加入 allow-rule` };
     }
     if (data.status && data.status !== "SUCCESS") {
       return { error: `Antigravity CLI 回傳未預期的狀態：${data.status}${err ? `（${err.slice(0, 200)}）` : ""}` };
@@ -295,7 +294,7 @@ async function geminiCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { sk
         recordLlmUsage(cfg, tag?.skill, r.usage?.inputTokens, r.usage?.outputTokens);
         resolve(r.text);
       } else {
-        logger.error("Antigravity CLI 呼叫失敗", { code, stdout: out.trim().slice(0, 300), stderr: err.trim().slice(0, 300) });
+        logger.error("Antigravity CLI 呼叫失敗", { bin: agyBin, code, stdout: out.trim().slice(0, 300), stderr: err.trim().slice(0, 300) });
         reject(new Error(r.error));
       }
     });
