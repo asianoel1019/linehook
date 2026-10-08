@@ -137,21 +137,26 @@ export function renderSkillsHtml() {
 
   function manageRow(labelText, badgeText, btnText, onAction, search) {
     var row = document.createElement("div");
-    row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-top:1px solid rgba(34,211,238,.12)";
+    row.className = "manage-row";
+    row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-top:1px solid rgba(34,211,238,.12);white-space:nowrap";
     row.setAttribute("data-search", search || "");
+    row.title = labelText;
     var label = document.createElement("div");
-    label.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap";
+    label.style.cssText = "display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;overflow:hidden;white-space:nowrap";
     var nameEl = document.createElement("span");
+    nameEl.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto";
     nameEl.textContent = labelText;
     label.appendChild(nameEl);
     if (badgeText) {
       var badge = document.createElement("span");
       badge.className = "badge";
+      badge.style.flexShrink = "0";
       badge.textContent = badgeText;
       label.appendChild(badge);
     }
     var btn = document.createElement("button");
     btn.type = "button";
+    btn.style.flexShrink = "0";
     btn.textContent = btnText;
     btn.addEventListener("click", onAction);
     row.append(label, btn);
@@ -214,7 +219,7 @@ export function renderSkillsHtml() {
           });
         });
         var host = $("installed-list");
-        if (!renderGroups(host, items)) {
+        if (!renderGroups(host, items, { boxed: true })) {
           var empty = document.createElement("div");
           empty.className = "msg";
           empty.textContent = T("no_installed");
@@ -565,7 +570,8 @@ export function renderSkillsHtml() {
     return (parts || []).join(" ").toLowerCase();
   }
 
-  function renderGroups(host, items) {
+  function renderGroups(host, items, opts) {
+    opts = opts || {};
     if (items.length === 0) return false;
     var groups = {};
     items.forEach(function (it) {
@@ -578,11 +584,18 @@ export function renderSkillsHtml() {
     keys.forEach(function (key) {
       var g = groups[key];
       var wrap = document.createElement("div");
-      wrap.className = "skill-group";
+      wrap.className = "skill-group" + (opts.boxed ? " glass" : "");
       var h = document.createElement("h2");
       h.textContent = g.label + "（" + g.els.length + "）";
       wrap.appendChild(h);
-      g.els.forEach(function (el) { wrap.appendChild(el); });
+      if (opts.grid) {
+        var grid = document.createElement("div");
+        grid.className = "skill-grid";
+        g.els.forEach(function (el) { grid.appendChild(el); });
+        wrap.appendChild(grid);
+      } else {
+        g.els.forEach(function (el) { wrap.appendChild(el); });
+      }
       out.push(wrap);
     });
     host.replaceChildren.apply(host, out);
@@ -627,7 +640,7 @@ export function renderSkillsHtml() {
       card.setAttribute("data-search", searchHay([def.name, def.id, def.description, def.defaultTrigger, def.category]));
       items.push({ el: card, categoryZh: def.categoryZh, category: def.category });
     });
-    if (!renderGroups(list, items)) {
+    if (!renderGroups(list, items, { grid: true })) {
       var empty = document.createElement("div");
       empty.className = "glass msg";
       empty.textContent = T("no_skills");
