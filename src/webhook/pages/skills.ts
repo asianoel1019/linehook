@@ -47,12 +47,10 @@ export function renderSkillsHtml() {
 
 <div id="tab-install" class="skills-tab" hidden>
 <div class="glass">
-  <div class="field"><label data-i18n="lbl_install_skill">安裝技能（上傳 .zip）</label><span style="display:flex;gap:8px;align-items:center"><input id="skill-zip" type="file" accept=".zip,application/zip" style="flex:1"><button type="button" id="skill-install-btn" data-i18n="btn_install">安裝</button><span id="install-msg" class="msg"></span></span><div class="hint" data-i18n="hint_install">zip 內含技能的 index.js（可含 skill.json）。安裝後立即生效。</div></div>
+  <div class="field"><label data-i18n="lbl_install_skill">安裝技能（上傳 .zip）</label><span style="display:flex;gap:8px;align-items:center"><input id="skill-zip" type="file" accept=".zip,application/zip" style="flex:1"><button type="button" id="skill-install-btn" data-i18n="btn_install">安裝</button><span id="install-msg" class="msg"></span></span><div class="hint" data-i18n="hint_install">zip 內含技能的 index.js（可含 skill.json）。安裝後立即生效。</div><div class="hint"><a href="/library/" target="_blank" rel="noopener" data-i18n="lbl_skill_library">前往技能庫下載</a>：<span data-i18n="hint_library">下載技能 zip 後，回到「技能」頁上傳安裝即可使用。</span></div></div>
   <h2 data-i18n="tab_skill_install">安裝/移除</h2>
   <div style="margin:10px 0 6px"><input id="manage-filter" data-i18n-ph="ph_filter_skills" placeholder="快速篩選：名稱、ID、觸發詞、說明…" style="width:100%;max-width:460px"></div>
   <div id="installed-list"></div>
-  <h2 data-i18n="lbl_hidden_skills">已隱藏技能</h2>
-  <div id="hidden-list"></div>
 </div>
 </div>
 
@@ -190,28 +188,10 @@ export function renderSkillsHtml() {
             category: def.category || "",
             el: manageRow(
               s.name + (s.version ? " v" + s.version : "") + "（" + s.id + "）",
-              T("lbl_external"),
+              "",
               T("btn_uninstall"),
               function () {
                 if (!window.confirm(T("confirm_remove_external").replace("{id}", s.id))) return;
-                removeSkill(s.id);
-              },
-              hay
-            )
-          });
-        });
-        (d.builtin || []).forEach(function (s) {
-          var def = skillDef(s.id) || {};
-          var hay = searchHay([s.name, s.id, def.name, def.category, def.description]);
-          items.push({
-            categoryZh: def.categoryZh || "",
-            category: def.category || "",
-            el: manageRow(
-              s.name + "（" + s.id + "）",
-              T("lbl_builtin"),
-              T("btn_uninstall"),
-              function () {
-                if (!window.confirm(T("confirm_hide_builtin").replace("{id}", s.id))) return;
                 removeSkill(s.id);
               },
               hay
@@ -222,32 +202,15 @@ export function renderSkillsHtml() {
         if (!renderGroups(host, items, { boxed: true })) {
           var empty = document.createElement("div");
           empty.className = "msg";
-          empty.textContent = T("no_installed");
+          var t = document.createElement("span");
+          t.textContent = T("no_installed") + " ";
+          var lib = document.createElement("a");
+          lib.href = "/library/";
+          lib.target = "_blank";
+          lib.rel = "noopener";
+          lib.textContent = T("lbl_skill_library");
+          empty.append(t, lib);
           host.replaceChildren(empty);
-        }
-        var hrows = [];
-        (d.hidden || []).forEach(function (id) {
-          hrows.push(manageRow(id, "", T("btn_restore"), function () {
-            fetch("/skills/restore", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ id: id })
-            }).then(function (r) {
-              return r.json().catch(function () { return {}; }).then(function (x) { return { ok: r.ok, data: x }; });
-            }).then(function (r) {
-              if (r.ok) { loadInstalled(); loadSkills(); }
-              else { alert(T("restore_failed") + (r.data.error || "")); }
-            });
-          }, searchHay([id])));
-        });
-        var hhost = $("hidden-list");
-        if (hrows.length === 0) {
-          var hempty = document.createElement("div");
-          hempty.className = "msg";
-          hempty.textContent = T("no_hidden");
-          hhost.replaceChildren(hempty);
-        } else {
-          hhost.replaceChildren.apply(hhost, hrows);
         }
         applyManageFilter();
       })
@@ -625,7 +588,6 @@ export function renderSkillsHtml() {
 
   function applyManageFilter() {
     filterBlocks("installed-list", "manage-filter", "[data-search]");
-    filterBlocks("hidden-list", "manage-filter", "[data-search]");
   }
 
   function renderSkillList(skills) {
