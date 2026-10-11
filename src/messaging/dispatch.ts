@@ -4,21 +4,19 @@ import { recordSend } from "../stats.js";
 import { getState } from "../state.js";
 import { getSkill } from "../skills/index.js";
 import { effectiveMode, skillListText, skillUsageText } from "../skills/help.js";
-import type {
-  SkillContext,
-  SkillTaskContext,
-  SkillWatchView,
-  WatchOptions,
-} from "../skills/types.js";
+import type { SkillContext, SkillTaskContext, SkillWatchView, WatchOptions } from "../skills/types.js";
 import type { Job as ScheduledJob, ScheduledJobView } from "../line/scheduler.js";
 import type { IncomingMessage, SendInput } from "./types.js";
 import { seenInbound } from "./dedup.js";
 import { writeDeadLetter } from "../deadletter.js";
 import { recordMetric } from "../metrics.js";
+import type { SkillConfig } from "../config.js";
+import type { SkillDefinition } from "../skills/types.js";
+import type { ForwardRule } from "../config.js";
 
 /** per-skill 限流（F5）：預設每對話每分鐘 60 次；花錢/打外部 API 的技能更嚴。 */
-const SKILL_RATE_LIMIT_DEFAULT = 60;
-const SKILL_RATE_LIMIT_STRICT: Record<string, number> = {
+export const SKILL_RATE_LIMIT_DEFAULT = 60;
+export const SKILL_RATE_LIMIT_STRICT: Record<string, number> = {
   ai: 30,
   summarize: 30,
   flight: 30,
@@ -44,6 +42,168 @@ function skillThrottled(skillId: string, chat: string): boolean {
     if (!oldest.done) skillHits.delete(oldest.value);
   }
   return false;
+}
+
+/** 唯讀版限流檢查（規則模擬器用）：只報當下是否已超額，不累計。 */
+export function isSkillThrottledNow(skillId: string, chat: string): boolean {
+  const limit = SKILL_RATE_LIMIT_STRICT[skillId] ?? SKILL_RATE_LIMIT_DEFAULT;
+  const now = Date.now();
+  const times = (skillHits.get(`${skillId}:${chat}`) ?? []).filter((t) => now - t < WINDOW_MS);
+  return times.length >= limit;
+}
+
+/* ── 以下為「比對」純函式：真實管線與規則模擬器（src/messaging/simulate.ts）共用， ──
+   ── 以確保模擬結果與實際行為不會 drifting。純函式不讀 msg 以外的外部狀態（config 由呼叫端傳入）。 */
+
+export interface AssistantPrefix {
+  /** 設定中的助理名稱（已 trim）。 */
+  assistant: string;
+  /** 助理名稱與禮貌詞之後的剩餘文字。 */
+  rest: string;
+  hasPrefix: boolean;
+}
+
+/** 依語言決定禮貌詞（H1：非中文部署下否則助理模式會完全失靈）。 */
+function politePattern(language: string): RegExp {
+  if (language === "en") return /^(please|pls|help|help me|kindly)\s*/i;
+  if (language === "ja") return /^(お願い|おねがい|助けて|ヘルプ|ください)\s*/;
+  return /^(請幫忙|請幫|幫忙|麻煩|幫我|幫)\s*/;
+}
+
+/** 解析助理前綴：訊息是否以助理名開頭、剝掉禮貌詞後的 rest。 */
+export function analyzeAssistantPrefix(text: string, assistantName: string, language: string): AssistantPrefix {
+  const assistant = (assistantName ?? "").trim();
+  if (!assistant || !text.startsWith(assistant)) {
+    return { assistant, rest: "", hasPrefix: false };
+  }
+  let rest = text.slice(assistant.length).trim();
+  const polite = politePattern(language);
+  // 最多剝三層禮貌詞（「阿寶請幫忙幫忙…」之類），避免無限循環
+  for (let i = 0; i < 3; i++) {
+    const next = rest.replace(polite, "");
+    if (next === rest) break;
+    rest = next;
+  }
+  return { assistant, rest, hasPrefix: true };
+}
+
+export type SkillOutcome =
+  | "hit" /** 會觸發 */
+  | "layer2-usage" /** 觸發詞＋? → 回用法 */
+  | "miss" /** 不比對（觸發詞不符/模式不合） */
+  | "blocked-users" /** 白名單擋下 */
+  | "skip-disabled" /** 技能停用 */
+  | "skip-no-def"; /** 技能定義不存在（外部技能被移除等） */
+
+export interface SkillDecision {
+  skill: SkillConfig;
+  def?: SkillDefinition;
+  outcome: SkillOutcome;
+  /** 命中的觸發詞（hit 時才有）。 */
+  trigger?: string;
+  /** 觸發詞之後的參數（hit/layer2 時有）。 */
+  args?: string;
+  /** 人類可讀原因（miss/blocked 時為 zh 說明）。 */
+  reason?: string;
+}
+
+/** 判斷單一技能對這則訊息是否觸發（對齊 runSkills 的迴圈本體）。 */
+export function matchSkillEntry(
+  skill: SkillConfig,
+  def: SkillDefinition | undefined,
+  msg: { text: string; chat: string; fromMid: string },
+  prefix: AssistantPrefix,
+  assistantEnabled: boolean,
+): SkillDecision {
+  if (!skill.enabled) return { skill, def, outcome: "skip-disabled", reason: "技能已停用" };
+
+  // 技能白名單（B3/G1）：有設定時只允許清單內的使用者/對話呼叫。
+  const allowed = skill.allowedUsers ?? [];
+  if (allowed.length > 0 && !allowed.includes(msg.fromMid) && !allowed.includes(msg.chat)) {
+    return { skill, def, outcome: "blocked-users", reason: `僅限 ${allowed.length} 個指定使用者/對話` };
+  }
+  if (!def) return { skill, outcome: "skip-no-def", reason: "找不到技能定義（外部技能可能已移除）" };
+
+  const mode = effectiveMode(skill, def);
+  if (mode === "any") {
+    return { skill, def, outcome: "hit", trigger: "（每則訊息）", args: msg.text };
+  }
+  if (!assistantEnabled) return { skill, def, outcome: "miss", reason: "助理功能未啟用" };
+  if (!prefix.hasPrefix) return { skill, def, outcome: "miss", reason: "訊息沒有以助理名稱開頭" };
+  if (!prefix.rest) return { skill, def, outcome: "miss", reason: "只喊了助理名稱，沒有內容" };
+
+  const primary = (skill.trigger || def.defaultTrigger).trim();
+  const triggers = [primary, ...(def.triggerAliases ?? [])].filter(Boolean);
+  const matched = triggers.find((t) => prefix.rest.startsWith(t));
+  if (!matched) return { skill, def, outcome: "miss", reason: "觸發詞不符" };
+
+  const args = prefix.rest.slice(matched.length).trim();
+  if (/^[?？]$/.test(args) || /^(help|用法|說明)$/i.test(args)) {
+    return { skill, def, outcome: "layer2-usage", trigger: matched, args };
+  }
+  return { skill, def, outcome: "hit", trigger: matched, args };
+}
+
+/** 轉發規則比對（對齊 runForwardRules）；回傳命中與否與推導出的轉發內容。 */
+export function matchForwardRule(
+  rule: ForwardRule,
+  text: string,
+  chat: string,
+  chatName: string,
+  fromName: string,
+): { matched: boolean; forwarded: string; reason: string } {
+  if (!rule.enabled || !rule.target)
+    return { matched: false, forwarded: "", reason: !rule.enabled ? "規則未啟用" : "未設定目標" };
+  if (rule.source && rule.source.trim() !== "" && rule.source.trim() !== chat) {
+    return { matched: false, forwarded: "", reason: `來源限「${rule.source.trim()}」` };
+  }
+
+  let matched: boolean;
+  if (rule.match === "all") matched = true;
+  else if (rule.match === "regex") {
+    try {
+      matched = new RegExp(rule.keyword, "i").test(text);
+    } catch {
+      return { matched: false, forwarded: "", reason: "關鍵字不是合法的正則" };
+    }
+  } else {
+    const keywords = rule.keyword
+      .split("|")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    // 與舊行為一致：關鍵字空白視為全部轉發
+    matched = keywords.length === 0 || keywords.some((k) => text.includes(k));
+  }
+  if (!matched) {
+    const what =
+      rule.match === "all" ? "all" : rule.match === "regex" ? `正則 /${rule.keyword}/` : `關鍵字「${rule.keyword}」`;
+    return { matched: false, forwarded: "", reason: `不符（${what}）` };
+  }
+
+  const parts: string[] = [];
+  if (rule.prefix) parts.push(rule.prefix);
+  if (rule.includeSender) parts.push(`[${chatName || fromName || "未知"}]`);
+  parts.push(text);
+  return { matched: true, forwarded: parts.join(" "), reason: rule.match };
+}
+
+/** 解析指令前綴；非指令訊息回 null。 */
+export function parseCommandInput(
+  text: string,
+  prefix = config.commands.prefix || "!",
+): { command: string; args: string } | null {
+  if (!text.startsWith(prefix)) return null;
+  const rest = text.slice(prefix.length).trim();
+  const spaceIdx = rest.indexOf(" ");
+  const command = (spaceIdx === -1 ? rest : rest.slice(0, spaceIdx)).toLowerCase();
+  const args = spaceIdx === -1 ? "" : rest.slice(spaceIdx + 1).trim();
+  return { command, args };
+}
+
+/** 指令白名單（空 = 所有人）。 */
+export function commandAllowed(fromMid: string, chat: string, allow: string[] = config.commands.allowFrom): boolean {
+  const list = allow.map((item) => item.trim()).filter(Boolean);
+  return list.length === 0 || list.includes(fromMid) || list.includes(chat);
 }
 
 export type MediaKind = "image" | "video" | "audio" | "file";
@@ -152,74 +312,40 @@ async function runSkills(
 ): Promise<void> {
   if (!text) return;
 
-  const assistant = config.assistant.name.trim();
-  // 計算「助理前綴」後剩餘文字（僅 assistant 模式需要）
-  let rest = "";
-  let hasAssistantPrefix = false;
-  if (assistant && text.startsWith(assistant)) {
-    rest = text.slice(assistant.length).trim();
-    // H1：禮貌詞依介面語言剝除，否則非中文部署下助理模式完全失靈。
-    const polite =
-      config.language === "en"
-        ? /^(please|pls|help|help me|kindly)\s*/i
-        : config.language === "ja"
-          ? /^(お願い|おねがい|助けて|ヘルプ|ください)\s*/
-          : /^(請幫忙|請幫|幫忙|麻煩|幫我|幫)\s*/;
-    for (let i = 0; i < 3; i++) {
-      const next = rest.replace(polite, "");
-      if (next === rest) break;
-      rest = next;
-    }
-    hasAssistantPrefix = true;
-  }
+  const { assistant, rest, hasPrefix } = analyzeAssistantPrefix(text, config.assistant.name, config.language);
 
   // Layer 1：只喊助理名稱、未帶觸發詞 → 列出可用技能
-  if (config.assistant.enabled && hasAssistantPrefix && rest === "") {
+  if (config.assistant.enabled && hasPrefix && rest === "") {
     logger.info("列出可用技能", { chat });
     await deps.replyTo(chat, skillListText(config.language));
     return;
   }
 
   for (const skill of config.skills) {
-    if (!skill.enabled) continue;
-    // 技能白名單（B3/G1）：有設定時，只允許清單內的使用者/對話呼叫。
-    const allowed = skill.allowedUsers ?? [];
-    if (allowed.length > 0 && !allowed.includes(fromMid) && !allowed.includes(chat)) {
+    const def = getSkill(skill.id);
+    const decision = matchSkillEntry(
+      skill,
+      def,
+      { text, chat, fromMid },
+      { assistant, rest, hasPrefix },
+      config.assistant.enabled,
+    );
+    if (decision.outcome === "skip-disabled" || decision.outcome === "skip-no-def") continue;
+    if (decision.outcome === "blocked-users") {
       logger.warn("技能呼叫被白名單擋下", { skill: skill.id, fromMid, chat });
       continue;
     }
-    const def = getSkill(skill.id);
-    if (!def) continue;
+    if (decision.outcome === "miss") continue;
 
-    const mode = effectiveMode(skill, def);
-    let args: string | null = null;
-
-    if (mode === "any") {
-      args = text;
-    } else {
-      if (!config.assistant.enabled || !hasAssistantPrefix || !rest) continue;
-      const primary = (skill.trigger || def.defaultTrigger).trim();
-      const triggers = [primary, ...(def.triggerAliases ?? [])].filter(Boolean);
-      let matched = "";
-      for (const t of triggers) {
-        if (rest.startsWith(t)) {
-          matched = t;
-          break;
-        }
-      }
-      if (!matched) continue;
-      args = rest.slice(matched.length).trim();
-
-      // Layer 2：<觸發詞> ? → 顯示該技能用法
-      if (/^[?？]$/.test(args) || /^(help|用法|說明)$/i.test(args)) {
-        const primaryTrigger = (skill.trigger || def.defaultTrigger).trim();
-        logger.info("顯示技能用法", { skill: skill.id, chat });
-        await deps.replyTo(chat, skillUsageText(def, primaryTrigger, config.language));
-        continue;
-      }
+    // Layer 2：<觸發詞> ? → 顯示該技能用法
+    if (decision.outcome === "layer2-usage") {
+      const primaryTrigger = (skill.trigger || def!.defaultTrigger).trim();
+      logger.info("顯示技能用法", { skill: skill.id, chat });
+      await deps.replyTo(chat, skillUsageText(def!, primaryTrigger, config.language));
+      continue;
     }
-    if (args === null) continue;
 
+    const args = decision.args ?? "";
     if (skillThrottled(skill.id, chat)) {
       logger.warn("技能觸發過於頻繁，已略過", { skill: skill.id, chat });
       recordMetric("skill_exec_total", 1, { skill: skill.id, result: "throttled" });
@@ -227,7 +353,7 @@ async function runSkills(
     }
     recordMetric("skill_exec_total", 1, { skill: skill.id, result: "run" });
 
-    logger.info("觸發技能", { skill: skill.id, mode, chat });
+    logger.info("觸發技能", { skill: skill.id, mode: effectiveMode(skill, def!), chat });
     try {
       const skillId = skill.id;
       const toWatchView = (job: ScheduledJobView): SkillWatchView => ({
@@ -276,13 +402,11 @@ async function runSkills(
         watches: () => deps.listSkillTasks({ skillId, chat }).map(toWatchView),
         taskState: (taskOrId) => {
           const jobs = deps.listSkillTasks({ skillId, chat });
-          const job =
-            jobs.find((j) => j.id === taskOrId) ??
-            jobs.find((j) => j.skillTask?.task === taskOrId);
+          const job = jobs.find((j) => j.id === taskOrId) ?? jobs.find((j) => j.skillTask?.task === taskOrId);
           return job ? deps.readTaskState(job.id) : undefined;
         },
       };
-      await def.run(ctx);
+      await def!.run(ctx);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.error("技能執行失敗", { skill: skill.id, error: message });
@@ -290,12 +414,12 @@ async function runSkills(
         platform: deps.platform,
         kind: `skill:${skill.id}`,
         to: [chat],
-        summary: def.name,
+        summary: def!.name,
         error: message,
       });
       // 錯誤回覆本身也要保護：回覆失敗不可擊倒後續技能與轉發規則。
       try {
-        await deps.replyTo(chat, `技能「${def.name}」執行失敗：${message}`);
+        await deps.replyTo(chat, `技能「${def!.name}」執行失敗：${message}`);
       } catch (replyError) {
         logger.error("技能錯誤回覆失敗", {
           skill: skill.id,
@@ -315,31 +439,8 @@ async function runForwardRules(
 ): Promise<void> {
   if (!text) return;
   for (const rule of config.forward) {
-    if (!rule.enabled || !rule.target) continue;
-    if (rule.source && rule.source.trim() !== "" && rule.source.trim() !== chat) continue;
-
-    let matched: boolean;
-    if (rule.match === "all") matched = true;
-    else if (rule.match === "regex") {
-      try {
-        matched = new RegExp(rule.keyword, "i").test(text);
-      } catch {
-        matched = false;
-      }
-    } else {
-      const keywords = rule.keyword
-        .split("|")
-        .map((k) => k.trim())
-        .filter(Boolean);
-      matched = keywords.length === 0 || keywords.some((k) => text.includes(k));
-    }
+    const { matched, forwarded } = matchForwardRule(rule, text, chat, chatName, fromName);
     if (!matched) continue;
-
-    const parts: string[] = [];
-    if (rule.prefix) parts.push(rule.prefix);
-    if (rule.includeSender) parts.push(`[${chatName || fromName || "未知"}]`);
-    parts.push(text);
-    const forwarded = parts.join(" ");
 
     try {
       await deps.enqueueText(rule.target, forwarded);
@@ -350,26 +451,16 @@ async function runForwardRules(
   }
 }
 
-async function runCommand(
-  text: string,
-  chat: string,
-  fromMid: string,
-  deps: DispatchDeps,
-): Promise<void> {
+async function runCommand(text: string, chat: string, fromMid: string, deps: DispatchDeps): Promise<void> {
   if (!config.commands.enabled) return;
-  const prefix = config.commands.prefix || "!";
-  if (!text.startsWith(prefix)) return;
+  const parsed = parseCommandInput(text);
+  if (!parsed) return;
+  const { command, args } = parsed;
 
-  const allow = config.commands.allowFrom.map((item) => item.trim()).filter(Boolean);
-  if (allow.length > 0 && !allow.includes(fromMid) && !allow.includes(chat)) {
+  if (!commandAllowed(fromMid, chat)) {
     logger.info("指令來源未授權，略過", { fromMid });
     return;
   }
-
-  const rest = text.slice(prefix.length).trim();
-  const spaceIdx = rest.indexOf(" ");
-  const command = (spaceIdx === -1 ? rest : rest.slice(0, spaceIdx)).toLowerCase();
-  const args = spaceIdx === -1 ? "" : rest.slice(spaceIdx + 1).trim();
 
   try {
     if (command === "help" || command === "指令") {

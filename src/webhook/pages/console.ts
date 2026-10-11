@@ -122,6 +122,19 @@ export function renderConsoleHtml() {
 </details>
 </div>
 </div>
+
+<div class="fn-panel" data-fn="simulate">
+<h2 style="margin-top:0">規則模擬（這則訊息會發生什麼事）</h2>
+<div class="glass">
+  <div class="field"><label>訊息文字</label><input id="sim-text" placeholder="例如：阿寶請幫忙 明天 台北 天氣"><div class="hint">以目前設定跑一遍比對：<strong>不會真的發送、不會執行技能、不會累計限流</strong>。自動回覆冷卻與技能限流顯示的是當下真實狀態。</div></div>
+  <div class="field"><label>對話／聊天 ID（chat）</label><input id="sim-chat" placeholder="可留空 = 不限定（影響白名單與轉發來源比對）"></div>
+  <div class="field"><label>寄件者 ID（from）</label><input id="sim-fromId" placeholder="可留空（影響技能／指令白名單）"></div>
+  <div class="field"><label>寄件者名稱</label><input id="sim-fromName" placeholder="例如 小明（轉發規則含寄件者時會用到）"></div>
+  <div class="field"><label>對話名稱</label><input id="sim-chatName" placeholder="例如 產品群（轉發規則含寄件者時會用到）"></div>
+  <div class="actions"><button type="button" id="sim-run">模擬</button><button type="button" id="sim-clear" class="ghost">清除</button><span id="sim-msg" class="msg"></span></div>
+  <div id="sim-result" style="margin-top:14px"></div>
+</div>
+</div>
 `;
   const script = `
   var allTargets = [];
@@ -344,6 +357,79 @@ export function renderConsoleHtml() {
     });
     });
   }
+
+  /* ── 規則模擬（唯讀） ── */
+  var SIM_STAGE = { dedup: "① 去重", command: "② 指令", skill: "③ 技能", forward: "④ 轉發" };
+  var SIM_STYLE = { hit: "#34d399", miss: "", blocked: "#fb7185", skipped: "" };
+  var SIM_ICON = { hit: "✅", miss: "➖", blocked: "⛔", skipped: "⏭️" };
+
+  function simRow(s) {
+    var wrap = document.createElement("div");
+    wrap.style.padding = "8px 10px";
+    wrap.style.borderBottom = "1px solid rgba(255,255,255,.06)";
+    var head = document.createElement("div");
+    var icon = document.createElement("span");
+    icon.textContent = SIM_ICON[s.outcome] || "•";
+    icon.style.marginRight = "6px";
+    var label = document.createElement("strong");
+    label.textContent = (SIM_STAGE[s.stage] || s.stage) + "｜" + s.label;
+    if (SIM_STYLE[s.outcome]) label.style.color = SIM_STYLE[s.outcome];
+    head.appendChild(icon);
+    head.appendChild(label);
+    wrap.appendChild(head);
+    if (s.detail) {
+      var detail = document.createElement("div");
+      detail.className = "hint";
+      detail.style.marginTop = "2px";
+      detail.textContent = s.detail;
+      wrap.appendChild(detail);
+    }
+    if (s.preview) {
+      var preview = document.createElement("div");
+      preview.className = "hint mono";
+      preview.style.marginTop = "2px";
+      preview.textContent = "轉發內容預覽：" + s.preview;
+      wrap.appendChild(preview);
+    }
+    return wrap;
+  }
+
+  $("sim-run").addEventListener("click", function () {
+    var text = $("sim-text").value.trim();
+    var out = $("sim-result");
+    if (!text) { $("sim-msg").textContent = "請先輸入訊息文字"; return; }
+    $("sim-msg").textContent = "模擬中…";
+    post("console/simulate", {
+      text: text,
+      chat: $("sim-chat").value.trim(),
+      fromId: $("sim-fromId").value.trim(),
+      fromName: $("sim-fromName").value.trim(),
+      chatName: $("sim-chatName").value.trim(),
+    }).then(function (r) {
+      if (!r.ok) {
+        $("sim-msg").textContent = "❌ " + (r.data && (r.data.detail || r.data.error)) || "模擬失敗";
+        return;
+      }
+      $("sim-msg").textContent = "";
+      var stages = (r.data.result && r.data.result.stages) || [];
+      out.replaceChildren.apply(out, stages.map(simRow));
+      if (r.data.result && r.data.result.layer1) {
+        var note = document.createElement("div");
+        note.className = "hint";
+        note.style.marginTop = "8px";
+        note.textContent = "只喊助理名稱會回技能清單，因此不再逐條比對技能。";
+        out.appendChild(note);
+      }
+    }).catch(function () {
+      $("sim-msg").textContent = "❌ 請求失敗";
+    });
+  });
+
+  $("sim-clear").addEventListener("click", function () {
+    $("sim-text").value = "";
+    $("sim-result").replaceChildren();
+    $("sim-msg").textContent = "";
+  });
 
   function refreshData() {
     fetch("/status.json?platform=" + encodeURIComponent(currentPlatform), { cache: "no-store" })
@@ -686,6 +772,7 @@ export function renderConsoleHtml() {
   <button type="button" class="fn-card" data-fn="scheduled">${tr(config.language, "card_scheduled")}</button>
   <button type="button" class="fn-card" data-fn="deadletter">死信</button>
 <button type="button" class="fn-card" data-fn="audit">稽核紀錄</button>
+<button type="button" class="fn-card" data-fn="simulate">規則模擬</button>
 </div>
 <div class="side-section" data-im="line">${tr(config.language, "section_actions")}</div>
 <div class="fn-list" data-im="line">

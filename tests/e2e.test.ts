@@ -57,7 +57,9 @@ before(async () => {
     let body: unknown = undefined;
     try {
       body = JSON.parse(String((init?.body as string) ?? ""));
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     fetchCalls.push({ url: u, body });
     return { ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) } as Response;
   }) as typeof fetch;
@@ -70,6 +72,8 @@ before(async () => {
   config.apiToken = "";
   config.apiTokenEnabled = true;
   config.apiTokens = [{ name: "e2e", token: "e2e-send", scopes: ["send"] }];
+  // 規則模擬路由是 read 權限（唯讀），給它一支 read token
+  config.apiTokens.push({ name: "e2e-read", token: "e2e-read-token", scopes: ["read"] });
 
   const tg = new TelegramService();
   registerService(tg);
@@ -137,7 +141,9 @@ describe("e2e: 收訊 → dispatch → 真實技能回覆", () => {
       { chat: "999", fromId: "u9", fromName: "e2e", chatName: "", text: "阿寶請幫忙 echo hi", messageId: "e2e-1" },
       {
         platform: "telegram",
-        replyTo: async (_chat, text) => { replies.push(text); },
+        replyTo: async (_chat, text) => {
+          replies.push(text);
+        },
         sendAdvanced: async () => {},
         sendMedia: async () => {},
         schedule: () => ({}) as never,
@@ -152,5 +158,44 @@ describe("e2e: 收訊 → dispatch → 真實技能回覆", () => {
       },
     );
     assert.deepEqual(replies, ["回音：hi"]);
+  });
+});
+
+describe("e2e: 規則模擬路由（唯讀）", () => {
+  const post = (body: unknown, token = "e2e-read-token") =>
+    fetch(`${base}/console/simulate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+
+  it("命中設定的技能並回傳分階段結果", async () => {
+    const res = await post({
+      text: "阿寶請幫忙 echo hi",
+      chat: "c1",
+      fromId: "u1",
+      fromName: "小明",
+      chatName: "群組",
+    });
+    assert.equal(res.status, 200);
+    const data = (await res.json()) as {
+      ok: boolean;
+      result: { stages: Array<{ stage: string; outcome: string; detail: string }>; rendered: string };
+    };
+    assert.equal(data.ok, true);
+    const skill = data.result.stages.find((s) => s.stage === "skill");
+    assert.equal(skill?.outcome, "hit");
+    assert.match(skill?.detail ?? "", /echo/);
+    assert.match(data.result.rendered, /\[模擬\] 阿寶請幫忙 echo hi/);
+  });
+
+  it("空文字回 400", async () => {
+    const res = await post({ text: "" });
+    assert.equal(res.status, 400);
+  });
+
+  it("send 權限的 token 不能模擬（read 才可；不足回 401）", async () => {
+    const res = await post({ text: "阿寶請幫忙 echo hi" }, "e2e-send");
+    assert.equal(res.status, 401);
   });
 });

@@ -301,6 +301,7 @@ curl -sS -X POST "http://localhost:8090/webhook" \
 | `POST /audit/purge` | 清空稽核紀錄（需登入或 admin token） |
 | `POST /platforms/test` | 平台連線測試（需登入或 admin token），body `{ platform, values }`：以欄位值或已儲存設定呼叫平台官方 API，驗 token／webhook 狀態 |
 | `POST /digest/test` | 立即寄送每日摘要（需登入或 admin token），回傳組裝出的摘要文字 |
+| `POST /console/simulate` | 規則模擬（需登入或 **read** token）：body `{ text, chat?, fromId?, fromName?, chatName? }`，以目前設定唯讀比對，回傳分階段結果與純文字版 |
 | `GET /settings/backup?password=` | 完整備份下載（需登入，設定＋登入狀態＋排程，一律加密） |
 | `POST /settings/backup/restore` | 還原備份（需登入），body `{ bundle, password }`；還原前自動備份現況 |
 | `GET /metrics` | Prometheus 文字格式指標（需登入或 read token）：發送數、收訊數、驗證失敗、技能執行、LLM tokens、HTTP 耗時、佇列深度、排程數 |

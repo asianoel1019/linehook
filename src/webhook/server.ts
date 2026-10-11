@@ -47,6 +47,7 @@ import { readDeadLetters, purgeDeadLetters } from "../deadletter.js";
 import { readAuditEntries, purgeAudit } from "../audit.js";
 import { probePlatform } from "../monitor/platform-probe.js";
 import { getDigest } from "../monitor/digest.js";
+import { renderSimulation, simulateDispatch } from "../messaging/simulate.js";
 import { uploadHasRoom, uploadUsage } from "../uploads.js";
 import { clientIp, ipGuard, isPrivateRequest } from "../middleware/ip.js";
 import { loginRateLimit, rateLimit, recordLoginFailure, clearLoginFailures } from "../middleware/rateLimit.js";
@@ -1068,6 +1069,23 @@ export function createServer(line: IMessagingService): express.Express {
       return;
     }
     res.json({ ok: true, text: result.text });
+  });
+  // 規則模擬器（唯讀）：以目前設定跑一遍收訊比對，不發送/不執行。
+  app.post("/console/simulate", statusAccess, requireSessionOrApi("read"), requireSameOrigin, (req, res) => {
+    const body = asRecord(req.body) ?? {};
+    const text = typeof body.text === "string" ? body.text : "";
+    if (!text.trim()) {
+      res.status(400).json({ ok: false, error: "請輸入要模擬的訊息文字" });
+      return;
+    }
+    const result = simulateDispatch({
+      text,
+      chat: typeof body.chat === "string" ? body.chat : "",
+      fromId: typeof body.fromId === "string" ? body.fromId : "",
+      fromName: typeof body.fromName === "string" ? body.fromName : "",
+      chatName: typeof body.chatName === "string" ? body.chatName : "",
+    });
+    res.json({ ok: true, result: { ...result, rendered: renderSimulation(result) } });
   });
   // J3：備份（設定＋登入狀態＋排程），沿用 AES-256-GCM 加密；還原前自動備份現況。
   app.get("/settings/backup", statusAccess, requireSessionOrApi("admin"), (req, res) => {

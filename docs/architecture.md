@@ -214,6 +214,19 @@ X-Signature: <HMAC-SHA256(body, secret)>   # 或 ?token=<WEBHOOK_TOKEN> / Author
 - `tests/run.mjs` 以 `--test-concurrency=4`（可用 `TEST_CONCURRENCY` 覆寫）限制平行檔數：
   node 預設用 CPU 數-1，多核機器上會把 `scheduler-tasks` 這類真計時器測試壓到逾時。
 
+### 規則模擬器（唯讀除錯）
+
+- `src/messaging/simulate.ts`：`simulateDispatch(input)` 以目前設定跑一遍收訊比對——
+  **不發送、不執行技能、不累計限流/冷卻**（所以模擬是冪等的，可重複按）。
+- 比對邏輯不是另一份實作：`dispatch.ts` 把前綴解析（`analyzeAssistantPrefix`）、
+  技能比對（`matchSkillEntry`）、指令解析（`parseCommandInput`/`commandAllowed`）、
+  轉發規則（`matchForwardRule`）抽成純函式，**真實管線與模擬器共用**，不會 drifting。
+- 分階段回覆：① 去重 → ② 指令（前綴/白名單） → ③ 技能（Layer 1／Layer 2／any 模式／
+  白名單／停用／定義遺失／自動回覆規則與冷卻） → ④ 轉發規則（命中＋轉發內容預覽）。
+- `POST /console/simulate`（**read** 權限）供 Console「規則模擬」面板使用；
+  `renderSimulation()` 另產純文字版（log/測試用）。
+- 已知近似：限流與自動回覆冷卻顯示**當下真實狀態**（只讀）；模擬不回答「技能跑了會回什麼」。
+
 ## 建置與部署（技能庫）
 
 - `library/` 不在版控（部署產物）；建置腳本 `scripts/build-library.mjs` 是版控中唯一的 `scripts/` 例外。

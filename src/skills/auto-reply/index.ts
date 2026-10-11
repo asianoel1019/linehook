@@ -43,6 +43,30 @@ function parseRules(raw: string): AutoReplyRule[] {
   return [];
 }
 
+/** 從 rules JSON 取出啟用中的規則（供規則模擬器與 run 共用）。 */
+export function activeRules(config: Record<string, string>): AutoReplyRule[] {
+  return parseRules(config.rules || "").filter((rule) => rule.enabled !== false && rule.keyword);
+}
+
+/** 找出第一條命中的規則（不含冷卻判斷；順序即優先序）。 */
+export function matchAutoReplyRule(rules: AutoReplyRule[], text: string): AutoReplyRule | undefined {
+  return rules.find((candidate) => {
+    const match = candidate.match ?? "exact";
+    const keywords = candidate.keyword
+      .split("|")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    return keywords.some((k) => matchKeyword(match, k, text));
+  });
+}
+
+/** 該對話目前是否仍在回覆冷卻中（唯讀；供規則模擬器）。 */
+export function isCooling(chat: string, cooldownSec: number, now = Date.now()): boolean {
+  const last = cooldown.get(chat) ?? 0;
+  if (!Number.isFinite(cooldownSec) || cooldownSec <= 0) return false;
+  return now - last < cooldownSec * 1000;
+}
+
 const autoReplySkill: SkillDefinition = {
   id: "auto-reply",
   name: "關鍵字自動回覆",
@@ -63,9 +87,7 @@ const autoReplySkill: SkillDefinition = {
   },
   defaultTrigger: "",
   triggerMode: "any",
-  fields: [
-    { key: "cooldownSec", label: "回覆冷卻（秒）", hint: "同一個聊天於此時間內只回覆一次，例如 10" },
-  ],
+  fields: [{ key: "cooldownSec", label: "回覆冷卻（秒）", hint: "同一個聊天於此時間內只回覆一次，例如 10" }],
   ruleKey: "rules",
   ruleFields: [
     { key: "keyword", label: "關鍵字", hint: "可用 | 分隔多組，例如 報價|價目" },
@@ -79,7 +101,11 @@ const autoReplySkill: SkillDefinition = {
         { value: "regex", label: "正則" },
       ],
     },
-    { key: "text", label: { zh: "回覆文字", en: "Reply text", ja: "返信テキスト" }, hint: "可用 {{name}}（對方名稱）、{{keyword}}、{{text}}" },
+    {
+      key: "text",
+      label: { zh: "回覆文字", en: "Reply text", ja: "返信テキスト" },
+      hint: "可用 {{name}}（對方名稱）、{{keyword}}、{{text}}",
+    },
     { key: "image", label: "回覆圖片", type: "file", hint: "上傳圖片或填 URL / 路徑" },
     { key: "filePath", label: "回覆檔案", type: "file", hint: "上傳檔案或填伺服器路徑" },
     { key: "filename", label: "顯示檔名", hint: "選填" },
@@ -88,28 +114,16 @@ const autoReplySkill: SkillDefinition = {
     const text = ctx.text;
     if (!text) return;
 
-    const rules = parseRules(ctx.config.rules || "");
-    const active = rules.filter((rule) => rule.enabled !== false && rule.keyword);
-    if (active.length === 0) return;
-
-    const rule = active.find((candidate) => {
-      const match = candidate.match ?? "exact";
-      const keywords = candidate.keyword
-        .split("|")
-        .map((k) => k.trim())
-        .filter(Boolean);
-      return keywords.some((k) => matchKeyword(match, k, text));
-    });
+    const rules = activeRules(ctx.config);
+    const rule = matchAutoReplyRule(rules, text);
     if (!rule) return;
 
     const cooldownSec = Number(ctx.config.cooldownSec ?? "10");
-    const now = Date.now();
-    const last = cooldown.get(ctx.chat) ?? 0;
-    if (Number.isFinite(cooldownSec) && cooldownSec > 0 && now - last < cooldownSec * 1000) {
+    if (isCooling(ctx.chat, cooldownSec)) {
       logger.info("自動回覆冷卻中，略過", { chat: ctx.chat });
       return;
     }
-    cooldown.set(ctx.chat, now);
+    cooldown.set(ctx.chat, Date.now());
 
     logger.info("觸發自動回覆", { keyword: rule.keyword, match: rule.match ?? "exact", to: ctx.chat });
 
