@@ -7,7 +7,7 @@ const URL_RE = /https?:\/\/[^\s]+/i;
 async function shorten(url: string): Promise<string> {
   try {
     const res = await fetch(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`, {
-      headers: { "User-Agent": "LineHook/1.0" },
+      headers: { "User-Agent": "ImHook/1.0" },
       signal: AbortSignal.timeout(15_000),
     });
     if (res.ok) {
@@ -18,7 +18,7 @@ async function shorten(url: string): Promise<string> {
     // fall through
   }
   const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`, {
-    headers: { "User-Agent": "LineHook/1.0" },
+    headers: { "User-Agent": "ImHook/1.0" },
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

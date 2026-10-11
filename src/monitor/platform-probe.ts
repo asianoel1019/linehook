@@ -19,7 +19,7 @@ export interface ProbeResult {
   detail: string;
 }
 
-const UA = "LineHook/1.0 (platform probe)";
+const UA = "ImHook/1.0 (platform probe)";
 const TIMEOUT_MS = 12_000;
 
 function fail(detail: string): ProbeResult {

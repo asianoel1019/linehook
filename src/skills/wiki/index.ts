@@ -3,7 +3,7 @@ import { parseTtl, readCache, writeCache } from "../cache.js";
 import { fetchJson as netFetchJson } from "../../net.js";
 import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
-const UA = "LineHook/1.0 (https://github.com/; skill:wiki)";
+const UA = "ImHook/1.0 (https://github.com/; skill:wiki)";
 const HOSTS: Record<string, string> = {
   zh: "https://zh.wikipedia.org",
   en: "https://en.wikipedia.org",

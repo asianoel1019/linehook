@@ -31,7 +31,7 @@ export interface DigestInput {
 /** 組裝摘要文字（純函式，測試用；成對的 input 缺欄位不會爆）。 */
 export function composeDigestText(input: DigestInput, dateLabel: string): string {
   const lines: string[] = [];
-  lines.push(`📊 IM Webhook 每日摘要（${dateLabel}）`);
+  lines.push(`📊 ImHook 每日摘要（${dateLabel}）`);
 
   const health = input.platformHealth ?? [];
   if (health.length > 0) {
@@ -168,7 +168,7 @@ function createDigest(): DigestHandle {
         formatInTz(new Date(Date.now() - 86_400_000), config.timezone).slice(0, 10),
       );
       // sendAlert 回每條通道結果：未設任何通道或全部失敗都不算寄送成功（由呼叫端提示）。
-      const outcomes = await sendAlert("[IM Webhook] 每日摘要", text);
+      const outcomes = await sendAlert("[ImHook] 每日摘要", text);
       return { ok: outcomes.some((o) => o.ok), text };
     } catch (error) {
       logger.error("每日摘要寄送失敗", { error: String(error) });

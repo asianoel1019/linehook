@@ -30,7 +30,7 @@ async function fetchAll(): Promise<GarbageRow[]> {
   const all: GarbageRow[] = [];
   for (let offset = 0; ; offset += 1000) {
     const res = await fetch(`${API}&limit=1000&offset=${offset}`, {
-      headers: { "User-Agent": "LineHook/1.0" },
+      headers: { "User-Agent": "ImHook/1.0" },
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -74,7 +74,7 @@ const garbageSkill: SkillDefinition = {
   async health(): Promise<SkillHealth[]> {
     try {
       const res = await fetch(`${API}&limit=1`, {
-        headers: { "User-Agent": "LineHook/1.0" },
+        headers: { "User-Agent": "ImHook/1.0" },
         signal: AbortSignal.timeout(15_000),
       });
       return [{ name: "臺北市開放資料", ok: res.ok, detail: `HTTP ${res.status}` }];

@@ -126,7 +126,7 @@ const mcdonaldSkill: SkillDefinition = {
         try {
           const res = await fetch(s.url, {
             method: "GET",
-            headers: { "User-Agent": "Mozilla/5.0 (compatible; LineHook/1.0)" },
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; ImHook/1.0)" },
             signal: AbortSignal.timeout(15_000),
           });
           return { name: s.name, ok: res.ok, detail: `HTTP ${res.status}` };

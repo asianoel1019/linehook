@@ -56,15 +56,15 @@ describe("sendAlert", () => {
     const url = `http://127.0.0.1:${port}/services/T0000/B0000/XYZ`;
     config.alert.webhookUrls = [url];
 
-    const outcomes = await sendAlert("[IM Webhook] 測試", "測試內文");
+    const outcomes = await sendAlert("[ImHook] 測試", "測試內文");
     assert.equal(outcomes.length, 1);
     assert.equal(outcomes[0].channel, "webhook");
     assert.equal(outcomes[0].ok, true);
 
     assert.equal(received.length, 1);
     const body = received[0].body;
-    assert.equal(body.title, "[IM Webhook] 測試");
-    assert.match(body.text as string, /\[IM Webhook\] 測試\n測試內文/);
+    assert.equal(body.title, "[ImHook] 測試");
+    assert.match(body.text as string, /\[ImHook\] 測試\n測試內文/);
     assert.equal(body.content, body.text, "Discord 用 content");
     assert.equal(body.message, body.text, "ntfy 用 message");
     assert.equal(body.topic, "XYZ", "ntfy topic 取自 URL 最後一段");

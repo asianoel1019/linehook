@@ -83,7 +83,7 @@ export function startHealthMonitor(overrides: Partial<MonitorDeps> = {}): Health
     deadletterLastAlertAt = deps.now();
     logger.error("死信積壓超過閾值", { total, threshold });
     deps.alert(
-      "[IM Webhook] 死信積壓",
+      "[ImHook] 死信積壓",
       [
         `目前有 ${total} 筆死信（閾值 ${threshold}），代表有訊息永久性發送失敗。`,
         "請至 /console 的「死信」檢視原因並重送或清除。",
@@ -108,7 +108,7 @@ export function startHealthMonitor(overrides: Partial<MonitorDeps> = {}): Health
           logger.info("連線已恢復", { platform: svc.platform });
           if (svc.platform === "line") setState({ status: "已登入", lastError: undefined });
           deps.alert(
-            `[IM Webhook] ${svc.platform} 已恢復`,
+            `[ImHook] ${svc.platform} 已恢復`,
             [`${svc.platform} 連線已恢復。`, "", `時間：${new Date(deps.now()).toISOString()}`].join("\n"),
           );
         }
@@ -131,7 +131,7 @@ export function startHealthMonitor(overrides: Partial<MonitorDeps> = {}): Health
         logger.error("偵測到連線失效，嘗試自動重登", { platform: svc.platform });
         if (svc.platform === "line") setState({ status: "已過期", lastError: "登入失效" });
         deps.alert(
-          `[IM Webhook] ${svc.platform} 連線失效${needsHuman ? "（需人工處理）" : ""}`,
+          `[ImHook] ${svc.platform} 連線失效${needsHuman ? "（需人工處理）" : ""}`,
           [
             `${svc.platform} 連線檢查失敗，系統正嘗試自動重登。`,
             needsHuman ? "狀態為「需人工」，請開啟狀態頁手動處理。" : "若需要人工重新驗證（QR / PIN），請開啟狀態頁查看。",

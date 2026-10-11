@@ -5,7 +5,7 @@ import { fetchJson as netFetchJson } from "../../net.js";
 import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "../types.js";
 import { describeWatch } from "../watch.js";
 
-const UA = "Mozilla/5.0 (compatible; LineHook/1.0)";
+const UA = "Mozilla/5.0 (compatible; ImHook/1.0)";
 const WARN_API = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/W-C0033-005";
 const TY_API = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/W-C0034-005";
 const TASK = "watch";

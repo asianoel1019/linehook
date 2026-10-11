@@ -304,16 +304,16 @@ const html = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LineHook 技能庫 · 侘寂</title>
-<meta name="description" content="LineHook 技能庫 — 以侘寂美學靜置每一個技能，下載即用。">
+<title>ImHook 技能庫 · 侘寂</title>
+<meta name="description" content="ImHook 技能庫 — 以侘寂美學靜置每一個技能，下載即用。">
 <style>${STYLE}</style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="eyebrow">LineHook · Skills</div>
+    <div class="eyebrow">ImHook · Skills</div>
     <h1>技能庫</h1>
-    <p class="lead">不完美、不張揚。共 <strong>${built.length}</strong> 個技能，每個技能都是一段可獨立存在的器物，下載後安放於你的 LineHook，即能使用。</p>
+    <p class="lead">不完美、不張揚。共 <strong>${built.length}</strong> 個技能，每個技能都是一段可獨立存在的器物，下載後安放於你的 ImHook，即能使用。</p>
     <div class="philo" id="filters">
 ${filters}
       <span class="filter-count" id="filter-count"></span>
@@ -332,12 +332,12 @@ ${cards || `      <article class="card"><h2>尚無技能</h2><p>目前沒有可�
     <h2 class="sec">如何安裝</h2>
     <ol class="steps">
       <li>下載技能 <code>.zip</code>。</li>
-      <li>開啟 LineHook 的「技能」頁。</li>
+      <li>開啟 ImHook 的「技能」頁。</li>
       <li>上傳 <code>.zip</code> 安裝，立即生效。</li>
     </ol>
   </section>
 
-  <footer>靜置 · 使用 · 放下　—　LineHook Skill Library</footer>
+  <footer>靜置 · 使用 · 放下　—　ImHook Skill Library</footer>
 </div>
 <script>
 function toggleUsage(id){

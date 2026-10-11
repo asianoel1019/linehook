@@ -5,7 +5,7 @@ import { fetchText as netFetchText } from "../../net.js";
 import type { SkillContext, SkillDefinition } from "../types.js";
 
 const CACHE_NAME = "lottery-invoice";
-const USER_AGENT = "Mozilla/5.0 (compatible; LineHook/1.0)";
+const USER_AGENT = "Mozilla/5.0 (compatible; ImHook/1.0)";
 
 interface InvoiceResult {
   termLabel: string;

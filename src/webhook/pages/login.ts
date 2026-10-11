@@ -1,4 +1,4 @@
-/* * IM Webhook頁面模板（由 server.ts 拆出，NEXT2 D1）。 */
+/* * ImHook頁面模板（由 server.ts 拆出，NEXT2 D1）。 */
 import { LANGS, LANG_LABELS, tr, type Lang } from "../../i18n.js";
 import { page } from "../shell.js";
 
@@ -9,7 +9,7 @@ export function renderLoginHtml(lang: Lang) {
 <div class="login-center">
   <div class="glass login-card">
     <div class="login-head">
-      <h2 class="neon-text">IM Webhook</h2>
+      <h2 class="neon-text">ImHook</h2>
       <div class="login-lang" id="login-lang">
         <button type="button" class="login-lang-toggle" id="login-lang-toggle">${shortLabels[lang] || "中"} &#9662;</button>
         <div class="login-lang-menu" id="login-lang-menu" hidden>${langMenu}</div>

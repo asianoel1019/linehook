@@ -3,7 +3,7 @@ import { parseTtl, readCache, writeCache } from "../cache.js";
 import { fetchJson as netFetchJson } from "../../net.js";
 import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
-const UA = "Mozilla/5.0 (compatible; LineHook/1.0)";
+const UA = "Mozilla/5.0 (compatible; ImHook/1.0)";
 
 interface YahooMeta {
   currency?: string;

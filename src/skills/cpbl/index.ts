@@ -122,7 +122,7 @@ export function parseZxcRows(text: string): StandingRow[] {
 
 async function fetchZxc(url: string): Promise<StandingRow[]> {
   const res = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; LineHook/1.0)" },
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; ImHook/1.0)" },
     signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -322,7 +322,7 @@ const cpblSkill: SkillDefinition = {
       try {
         const res = await fetch(url, {
           method: "GET",
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; LineHook/1.0)" },
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; ImHook/1.0)" },
           signal: AbortSignal.timeout(15_000),
         });
         results.push({ name, ok: res.ok, detail: `HTTP ${res.status}` });

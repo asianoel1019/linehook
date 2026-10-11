@@ -1,5 +1,5 @@
 services:
-  line-webhook:
+  im-webhook:
     build: .
     restart: unless-stopped
     # 優雅關閉：index.ts 的強制關閉逾時是 10 秒，給它 15 秒。

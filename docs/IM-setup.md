@@ -18,7 +18,7 @@ LINE 與 WhatsApp 一樣是**單一平台、模式擇一**：`LINE_MODE=personal
 | Teams | `POST /webhook/teams` | `POST /teams/messages` | 設定 → Microsoft Teams → 目標對照 |
 | Discord | `POST /webhook/discord` | Gateway 長連線（無 webhook） | 設定 → Discord → 目標對照 |
 
-> 對外網址假設為 `https://你的網域`（本專案範例：`https://linehook.asianoel.space`）。所有接收端點都需能被平台伺服器以 HTTPS 呼叫。
+> 對外網址假設為 `https://你的網域`（本專案範例：`https://imhook.asianoel.space`）。所有接收端點都需能被平台伺服器以 HTTPS 呼叫。
 
 ---
 

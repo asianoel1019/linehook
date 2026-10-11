@@ -4,7 +4,7 @@ import { fetchJson as netFetchJson } from "../../net.js";
 import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
 const CACHE_NAME = "air-quality";
-const USER_AGENT = "Mozilla/5.0 (compatible; LineHook/1.0)";
+const USER_AGENT = "Mozilla/5.0 (compatible; ImHook/1.0)";
 
 export interface AqiReading {
   station: string;

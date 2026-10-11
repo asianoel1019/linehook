@@ -1,4 +1,4 @@
-# IM Webhook
+# ImHook
 
 接收外部端點傳來的訊息，轉發到多個通訊軟體（目前支援 LINE、Telegram、WhatsApp、Teams、Discord，架構可擴充）。
 LINE 透過已登入的個人帳號（selfbot），Telegram 走 Bot API，WhatsApp 可選官方 Cloud API 或個人帳號（WhatsApp Web），Teams 走企業 Bot（Entra + Bot Connector），Discord 走 Bot Gateway 長連線。
@@ -581,7 +581,7 @@ Git 部署（檔案已在 `.gitignore`，`git pull` 不會動到它們）：
 git pull
 npm ci
 npm run build
-pm2 restart line-webhook
+pm2 restart im-webhook
 ```
 
 > 切勿在伺服器上執行 `git clean -fdx` 或重新 clone，否則會刪掉未追蹤的 runtime 檔案。
@@ -597,8 +597,8 @@ rsync 部署（**不要**用範圍過大的 `--delete`，並排除狀態檔）�
 rsync -av \
   --exclude='.env' --exclude='settings.json' --exclude='storage.json' \
   --exclude='data/' --exclude='logs/' --exclude='node_modules/' --exclude='dist/' \
-  ./ user@host:/path/line-webhook/
-ssh user@host 'cd /path/line-webhook && npm ci && npm run build && pm2 restart line-webhook'
+  ./ user@host:/path/im-webhook/
+ssh user@host 'cd /path/im-webhook && npm ci && npm run build && pm2 restart im-webhook'
 ```
 
 **更保險**：把 runtime 檔案放到部署目錄外，並在 `.env` 指定（見 `.env.example` 的「正式部署建議」）：

@@ -5,7 +5,7 @@ import { nowInTz } from "../../time.js";
 import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "../types.js";
 import { describeWatch } from "../watch.js";
 
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) (compatible; LineHook/1.0)";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) (compatible; ImHook/1.0)";
 const URL_RE = /https?:\/\/[^\s]+/i;
 const TASK = "poll";
 const MAX_SUBS = 10;

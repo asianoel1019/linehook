@@ -153,8 +153,8 @@ const settingsSchema = z.object({
     /** 個人帳號的 session 檔（authToken）位置；對應 WhatsApp Web 的 webAuthPath。 */
     storagePath: z.string().trim().default("./storage.json"),
     device: z.enum(DEVICES).default("DESKTOPWIN"),
-    deviceName: z.string().default("IM Webhook"),
-    modelName: z.string().default("IM Webhook"),
+    deviceName: z.string().default("ImHook"),
+    modelName: z.string().default("ImHook"),
     official: z
       .object({
         channelAccessToken: z.string().trim().default(""),

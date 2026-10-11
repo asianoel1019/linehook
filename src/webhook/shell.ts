@@ -1,4 +1,4 @@
-/* * IM Webhook頁面模板（由 server.ts 拆出，NEXT2 D1）。 */
+/* * ImHook頁面模板（由 server.ts 拆出，NEXT2 D1）。 */
 import { config } from "../config.js";
 import { currentUser } from "../middleware/session.js";
 import { readFileSync } from "node:fs";
@@ -65,7 +65,7 @@ ${langSwitcher}
         : "";
     const sidebar = showNav
         ? `<aside class="sidebar">
-<div class="brand neon-text">IM Webhook</div>
+<div class="brand neon-text">ImHook</div>
 <nav>${nav}</nav>
 ${options.sidebar ?? ""}
 ${userDock}
@@ -149,7 +149,7 @@ ${imOptions.map((p) => `<button type="button" data-platform="${p.id}">${p.icon ?
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>IM Webhook</title>
+<title>ImHook</title>
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>

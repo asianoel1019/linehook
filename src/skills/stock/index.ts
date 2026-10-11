@@ -2,7 +2,7 @@ import { logger } from "../../logger.js";
 import { parseTtl, readCache, writeCache } from "../cache.js";
 import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
-const UA = "Mozilla/5.0 (compatible; LineHook/1.0)";
+const UA = "Mozilla/5.0 (compatible; ImHook/1.0)";
 
 export interface YahooMeta {
   currency?: string;

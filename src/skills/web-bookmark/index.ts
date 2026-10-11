@@ -4,7 +4,7 @@ import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } fro
 
 const TASK = "bookmarks";
 const MAX_BOOKMARKS = 100;
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) (compatible; LineHook/1.0)";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) (compatible; ImHook/1.0)";
 const URL_RE = /https?:\/\/[^\s]+/i;
 
 interface Bookmark {

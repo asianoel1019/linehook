@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: "line-webhook",
+      name: "im-webhook",
       script: "dist/index.js",
       cwd: __dirname,
       // D5：必須維持單一行程。sessions、rate-limit、nonce、idempotency、

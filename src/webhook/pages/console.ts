@@ -1,4 +1,4 @@
-/* * IM Webhook頁面模板（由 server.ts 拆出，NEXT2 D1）。 */
+/* * ImHook頁面模板（由 server.ts 拆出，NEXT2 D1）。 */
 import { config } from "../../config.js";
 import { tr } from "../../i18n.js";
 import { degradedCapabilities } from "../../messaging/capabilities.js";
@@ -561,7 +561,7 @@ export function renderConsoleHtml() {
   });
 
   /* ---- Flex 可視化編輯器 ---- */
-  var FX_DRAFT_KEY = "linehook-flex-draft";
+  var FX_DRAFT_KEY = "imhook-flex-draft";
 
   function escHtml(s) {
     return String(s == null ? "" : s)

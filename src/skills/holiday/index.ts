@@ -4,7 +4,7 @@ import { fetchText as netFetchText } from "../../net.js";
 import { nowInTz } from "../../time.js";
 import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "../types.js";
 
-const UA = "Mozilla/5.0 (compatible; LineHook/1.0)";
+const UA = "Mozilla/5.0 (compatible; ImHook/1.0)";
 /** 台灣國定假日 iCal（Google 公開行事曆，免 key、機器可讀）。 */
 const ICS_URL =
   "https://calendar.google.com/calendar/ical/zh.taiwan%23holiday%40group.v.calendar.google.com/public/basic.ics";

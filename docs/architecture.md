@@ -1,4 +1,4 @@
-# LINE Webhook 轉發器 — 架構
+# ImHook 轉發器 — 架構
 
 將外部端點傳來的訊息，透過一個已登入的 LINE 帳號（selfbot）轉發給指定的好友或群組。
 

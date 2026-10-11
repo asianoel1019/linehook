@@ -32,7 +32,7 @@ describe("secret-scan", () => {
 
   it("一般程式碼與範例字串不誤報", () => {
     const clean = [
-      "# IM Webhook",
+      "# ImHook",
       "TELEGRAM_BOT_TOKEN=",
       "WHATSAPP_ACCESS_TOKEN=EAA...",
       'const placeholder = "sk-";',

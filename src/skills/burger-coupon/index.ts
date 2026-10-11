@@ -3,7 +3,7 @@ import { parseTtl, readCache, writeCache } from "../cache.js";
 import { fetchText as netFetchText } from "../../net.js";
 import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
-const USER_AGENT = "Mozilla/5.0 (compatible; LineHook/1.0)";
+const USER_AGENT = "Mozilla/5.0 (compatible; ImHook/1.0)";
 const CACHE_NAME = "burger-coupon";
 
 interface Brand {

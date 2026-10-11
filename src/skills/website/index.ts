@@ -5,7 +5,7 @@ import { describeWatch } from "../watch.js";
 
 const TASK = "monitor";
 const MAX_SITES = 10;
-const UA = "Mozilla/5.0 (compatible; LineHook/1.0)";
+const UA = "Mozilla/5.0 (compatible; ImHook/1.0)";
 
 export interface SiteState {
   /** 上次是否正常（2xx/3xx）。 */

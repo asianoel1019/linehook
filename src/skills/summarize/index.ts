@@ -2,7 +2,7 @@ import { chat, llmConfigFrom, logLlmError, type ChatMessage } from "../llm.js";
 import { fetchText as netFetchText } from "../../net.js";
 import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
 
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) (compatible; LineHook/1.0)";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) (compatible; ImHook/1.0)";
 const URL_RE = /https?:\/\/[^\s]+/i;
 const DEFAULT_MAX_CHARS = 6000;
 

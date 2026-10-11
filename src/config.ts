@@ -42,8 +42,8 @@ const schema = z.object({
   LANGUAGE: z.enum(["zh", "en", "ja"]).default("zh"),
   TIMEZONE: z.string().default("Asia/Taipei"),
   LINE_DEVICE: z.enum(DEVICES).default("DESKTOPWIN"),
-  LINE_DEVICE_NAME: z.string().default("IM Webhook"),
-  LINE_MODEL_NAME: z.string().default("IM Webhook"),
+  LINE_DEVICE_NAME: z.string().default("ImHook"),
+  LINE_MODEL_NAME: z.string().default("ImHook"),
   // E2：LINE 帳號模式擇一（仿 WhatsApp 的 cloud/web）。personal = selfbot 個人帳號，official = Messaging API。
   LINE_MODE: z.enum(["personal", "official"]).default("personal"),
   STORAGE_PATH: z.string().default("./storage.json"),

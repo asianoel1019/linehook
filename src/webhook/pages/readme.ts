@@ -1,4 +1,4 @@
-/* * IM Webhook頁面模板（由 server.ts 拆出，NEXT2 D1）。 */
+/* * ImHook頁面模板（由 server.ts 拆出，NEXT2 D1）。 */
 import { readFileSync, statSync } from "node:fs";
 import { marked } from "marked";
 import { config } from "../../config.js";

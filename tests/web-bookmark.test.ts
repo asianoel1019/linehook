@@ -44,7 +44,7 @@ function harness(): Harness {
 
 describe("web-bookmark extractTitle / renderList", () => {
   it("取出 title 並收斂空白", () => {
-    assert.equal(extractTitle("<html><head><title>  IM   Webhook </title></head></html>"), "IM Webhook");
+    assert.equal(extractTitle("<html><head><title>  ImHook   測試  </title></head></html>"), "ImHook 測試");
     assert.equal(extractTitle("<TITLE>全大寫</TITLE>"), "全大寫");
   });
 

@@ -49,7 +49,7 @@ async function fetchText(url: string, maxBytes = 2 * 1024 * 1024): Promise<strin
   return netFetchText(
     url,
     {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; LineHook/1.0)" },
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; ImHook/1.0)" },
     },
     { timeoutMs: 15_000, maxBytes },
   );
@@ -198,7 +198,7 @@ const kfcSkill: SkillDefinition = {
         try {
           const res = await fetch(s.url, {
             method: "GET",
-            headers: { "User-Agent": "Mozilla/5.0 (compatible; LineHook/1.0)" },
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; ImHook/1.0)" },
             signal: AbortSignal.timeout(15_000),
           });
           const ok = res.ok;

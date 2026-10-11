@@ -175,7 +175,7 @@ export class WhatsAppWebService implements IMessagingService {
       auth: state,
       version,
       printQRInTerminal: false,
-      browser: ["IM Webhook", "Chrome", "1.0.0"],
+      browser: ["ImHook", "Chrome", "1.0.0"],
       syncFullHistory: false,
     });
     this.sock = sock;

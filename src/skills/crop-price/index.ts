@@ -72,7 +72,7 @@ const cropSkill: SkillDefinition = {
   async health(): Promise<SkillHealth[]> {
     try {
       const res = await fetch(`${MOA_URL}?page=1`, {
-        headers: { "User-Agent": "LineHook/1.0" },
+        headers: { "User-Agent": "ImHook/1.0" },
         signal: AbortSignal.timeout(15_000),
       });
       return [{ name: "農業部資料", ok: res.status < 500, detail: `HTTP ${res.status}` }];
@@ -109,7 +109,7 @@ const cropSkill: SkillDefinition = {
       });
       try {
         const res = await fetch(`${MOA_URL}?${params.toString()}`, {
-          headers: { "User-Agent": "LineHook/1.0" },
+          headers: { "User-Agent": "ImHook/1.0" },
           signal: AbortSignal.timeout(15_000),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
