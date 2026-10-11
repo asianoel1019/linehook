@@ -581,7 +581,7 @@ Git 部署（檔案已在 `.gitignore`，`git pull` 不會動到它們）：
 git pull
 npm ci
 npm run build
-pm2 restart im-webhook
+pm2 restart line-webhook
 ```
 
 > 切勿在伺服器上執行 `git clean -fdx` 或重新 clone，否則會刪掉未追蹤的 runtime 檔案。
@@ -597,8 +597,8 @@ rsync 部署（**不要**用範圍過大的 `--delete`，並排除狀態檔）�
 rsync -av \
   --exclude='.env' --exclude='settings.json' --exclude='storage.json' \
   --exclude='data/' --exclude='logs/' --exclude='node_modules/' --exclude='dist/' \
-  ./ user@host:/path/im-webhook/
-ssh user@host 'cd /path/im-webhook && npm ci && npm run build && pm2 restart im-webhook'
+  ./ user@host:/path/line-webhook/
+ssh user@host 'cd /path/line-webhook && npm ci && npm run build && pm2 restart line-webhook'
 ```
 
 **更保險**：把 runtime 檔案放到部署目錄外，並在 `.env` 指定（見 `.env.example` 的「正式部署建議」）：
