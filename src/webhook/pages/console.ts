@@ -6,17 +6,17 @@ import { page } from "../shell.js";
 
 /** 各平台非原生能力的提示文字（console 送出前提示用）。 */
 function capabilityNotes(): Record<string, string[]> {
-    return {
-        line: degradedCapabilities("line"),
-        telegram: degradedCapabilities("telegram"),
-        whatsapp: degradedCapabilities("whatsapp"),
-        teams: degradedCapabilities("teams"),
-        discord: degradedCapabilities("discord"),
-    };
+  return {
+    line: degradedCapabilities("line"),
+    telegram: degradedCapabilities("telegram"),
+    whatsapp: degradedCapabilities("whatsapp"),
+    teams: degradedCapabilities("teams"),
+    discord: degradedCapabilities("discord"),
+  };
 }
 
 export function renderConsoleHtml() {
-    const body = `
+  const body = `
 <div class="fn-panel active" data-fn="test">
 <h2 style="margin-top:0" data-i18n="panel_test">測試發送</h2>
 <div class="glass glass-hover">
@@ -112,8 +112,18 @@ export function renderConsoleHtml() {
 </details>
 </div>
 </div>
+
+<div class="fn-panel" data-fn="audit">
+<h2 style="margin-top:0">稽核紀錄（登入與管理操作）</h2>
+<div class="glass">
+<details open>
+  <summary>清單（<span id="audit-count">0</span>）　<button type="button" id="audit-purge" style="color:#fb7185">清除全部</button></summary>
+  <table><thead><tr><th>時間</th><th>IP</th><th>使用者</th><th>動作</th><th>說明</th></tr></thead><tbody id="audit"></tbody></table>
+</details>
+</div>
+</div>
 `;
-    const script = `
+  const script = `
   var allTargets = [];
   var currentPlatform = window.LW_PLATFORM || "line";
 
@@ -239,6 +249,7 @@ export function renderConsoleHtml() {
     renderTargets();
     renderScheduled(data.scheduled);
     renderDeadletter();
+    renderAudit();
 
     var logs = data.logs.slice().reverse();
     var logBody = $("logs");
@@ -297,6 +308,42 @@ export function renderConsoleHtml() {
       renderDeadletter();
     });
   });
+
+  function renderAudit() {
+    fetch("/audit.json?limit=100", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        var list = data.audits || [];
+        var countEl = $("audit-count");
+        if (countEl) countEl.textContent = String(list.length);
+        var bodyEl = $("audit");
+        if (!bodyEl) return;
+        if (list.length === 0) {
+          bodyEl.replaceChildren(emptyRow(5));
+          return;
+        }
+        bodyEl.replaceChildren.apply(bodyEl, list.map(function (a) {
+          var action = String(a.action || "");
+          var color = action.indexOf("fail") >= 0 ? "#fb7185" : action === "login.success" ? "#34d399" : "";
+          var actionCell = td(action);
+          if (color) actionCell.style.color = color;
+          return tr(td(a.time), td(a.ip || ""), td(a.user || ""), actionCell, td(a.detail || ""));
+        }));
+      })
+      .catch(function () {});
+  }
+
+  var auditPurge = $("audit-purge");
+  if (auditPurge) {
+    auditPurge.addEventListener("click", function () {
+    if (!window.confirm("確定清除全部稽核紀錄？（此操作本身也會被記入一筆）")) return;
+    post("audit/purge", {}).then(function (r) {
+      if (!r.ok) { alert("清除失敗：" + (r.data.error || "")); return; }
+      renderAudit();
+    });
+    });
+  }
 
   function refreshData() {
     fetch("/status.json?platform=" + encodeURIComponent(currentPlatform), { cache: "no-store" })
@@ -629,7 +676,7 @@ export function renderConsoleHtml() {
   setupCards([], "test");
   setInterval(refreshData, 10000);
 `;
-    const sidebar = `
+  const sidebar = `
 <div class="side-section">${tr(config.language, "section_functions")}</div>
 <div class="fn-list">
   <button type="button" class="fn-card active" data-fn="test">${tr(config.language, "card_test")}</button>
@@ -638,11 +685,12 @@ export function renderConsoleHtml() {
   <button type="button" class="fn-card" data-fn="logs">${tr(config.language, "card_logs")}</button>
   <button type="button" class="fn-card" data-fn="scheduled">${tr(config.language, "card_scheduled")}</button>
   <button type="button" class="fn-card" data-fn="deadletter">死信</button>
+<button type="button" class="fn-card" data-fn="audit">稽核紀錄</button>
 </div>
 <div class="side-section" data-im="line">${tr(config.language, "section_actions")}</div>
 <div class="fn-list" data-im="line">
   <button type="button" class="fn-card" id="btn-refresh">${tr(config.language, "refresh_contacts")}</button>
 </div>
 <p id="action-msg" class="msg" style="align-self:stretch; word-break:break-word; margin:6px 2px 0" data-im="line"></p>`;
-    return page(tr(config.language, "title_console"), "console", body, script, { sidebar });
+  return page(tr(config.language, "title_console"), "console", body, script, { sidebar });
 }

@@ -5,6 +5,10 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
+# 技能庫：library/ 在版控之外，改在 build stage 由腳本從 dist 產生（zip 內含 index.js，
+# 裝進 data/skills 即可直接執行，不需 TS 執行環境）。
+COPY scripts/build-library.mjs ./scripts/build-library.mjs
+RUN node scripts/build-library.mjs
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
@@ -12,6 +16,7 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/library ./library
 COPY README.md ./
 COPY icons ./icons
 COPY public ./public

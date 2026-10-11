@@ -24,6 +24,7 @@ import { DiscordService } from "./discord/client.js";
 import { registerService } from "./messaging/services.js";
 import { createServer } from "./webhook/server.js";
 import { startHealthMonitor } from "./monitor/token.js";
+import { startDigest } from "./monitor/digest.js";
 
 function installProcessGuards(): void {
   process.on("unhandledRejection", (reason) => {
@@ -57,7 +58,7 @@ async function main(): Promise<void> {
   if (!webhookAuthEnabled() && !config.allowOpenWebhook) {
     logger.error(
       "webhook 未啟用任何驗證（HMAC/Token/API Token 皆未設定），拒絕啟動；" +
-      "請至少設定其中一種，或以 ALLOW_OPEN_WEBHOOK=true 明確允許開放模式",
+        "請至少設定其中一種，或以 ALLOW_OPEN_WEBHOOK=true 明確允許開放模式",
     );
     process.exit(1);
   }
@@ -153,6 +154,11 @@ async function main(): Promise<void> {
   });
 
   const monitor = startHealthMonitor();
+  // 每日營運摘要（DIGEST_ENABLED 開啟才排程；/settings 可手動寄送測試）。
+  const digest = startDigest();
+  if (config.digest.enabled) {
+    logger.info("每日摘要已排程", { at: config.digest.at, next: digest.nextRunAt() });
+  }
 
   void line.init().catch((error) => {
     if (config.line.mode === "official") {

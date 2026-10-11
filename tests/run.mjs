@@ -6,11 +6,20 @@ import { spawnSync } from "node:child_process";
 const env = { ...process.env };
 env.STORAGE_KIND = process.env.STORAGE_KIND || "jsonl";
 
+// 測試檔平行度上限：node 預設用 CPU 數-1，在多核機器（20 核 → 19）會把
+// scheduler-tasks 這類用真計時器的測試壓到逾時，本地與 CI 都觀察到偶發 flaky。
+// 4 個同時跑仍能維持整體速度，可用 TEST_CONCURRENCY 覆寫。
+const concurrency = Number(process.env.TEST_CONCURRENCY) > 0 ? Number(process.env.TEST_CONCURRENCY) : 4;
+
 const args = process.argv.slice(2);
 const files = args.length > 0 ? args : ["tests/*.test.ts"];
 
-const result = spawnSync(process.execPath, ["--import", "tsx", "--test", ...files], {
-  stdio: "inherit",
-  env,
-});
+const result = spawnSync(
+  process.execPath,
+  ["--import", "tsx", "--test", `--test-concurrency=${concurrency}`, ...files],
+  {
+    stdio: "inherit",
+    env,
+  },
+);
 process.exit(result.status ?? 1);

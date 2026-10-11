@@ -2,6 +2,7 @@ import { logger } from "../../logger.js";
 import { config } from "../../config.js";
 import { nowInTz } from "../../time.js";
 import { parseTtl } from "../cache.js";
+import { addDays, loadDayStatus } from "../holiday/index.js";
 import { solarToLunar, monthName, dayName, ganzhi, zodiac } from "../lunar/index.js";
 import { fetchWeather } from "../weather/index.js";
 import { getPrices } from "../oil-price/index.js";
@@ -99,6 +100,31 @@ async function compose(city: string): Promise<string> {
     lines.push("匯率：暫無資料");
   }
 
+  try {
+    // 假日判斷（沿用放假技能的假日表；未啟用放假技能也能用，行事曆本身免 key）
+    if ((config.skills.find((s) => s.id === "morning")?.config?.showHoliday ?? "on") !== "off") {
+      const makeup = config.skills.find((s) => s.id === "holiday")?.config?.makeupDays;
+      const now = nowInTz();
+      const p = (n: number) => String(n).padStart(2, "0");
+      const today = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
+      const tomorrow = addDays(today, 1);
+      const st1 = await loadDayStatus(today, makeup);
+      const st2 = await loadDayStatus(tomorrow, makeup);
+      if (st1.off) {
+        const why = st1.reason === "weekend" ? "週末" : st1.name || "假日";
+        lines.push(`☀️ 今天放假（${why}）`);
+      } else {
+        lines.push("💼 今天要上班");
+      }
+      if (st2.off) {
+        const why = st2.reason === "weekend" ? "週末" : st2.name || "假日";
+        lines.push(`明天放假（${why}）`);
+      }
+    }
+  } catch (error) {
+    logger.warn("晨報假日判斷失敗", { error: error instanceof Error ? error.message : String(error) });
+  }
+
   return lines.join("\n");
 }
 
@@ -127,6 +153,15 @@ const morningSkill: SkillDefinition = {
       key: "city",
       label: { zh: "預設城市", en: "Default city", ja: "既定の都市" },
       hint: "例如 台北；指令中也可直接指定（晨報 08:00 高雄）",
+    },
+    {
+      key: "showHoliday",
+      label: { zh: "顯示放假資訊", en: "Show holiday status", ja: "休日情報を表示" },
+      type: "select",
+      options: [
+        { value: "on", label: "顯示（今天/明天是否放假）" },
+        { value: "off", label: "不顯示" },
+      ],
     },
   ],
   async health(): Promise<SkillHealth[]> {
@@ -186,7 +221,10 @@ const morningSkill: SkillDefinition = {
 /** 從參數中取出城市（移除指令字與時間後剩下的文字）。 */
 function extractCity(args: string): string {
   return args
-    .replace(/請幫忙|請幫|幫忙|查詢|晨報|早安|早報|morning|取消|刪除|停止|關閉|現在|立刻|馬上|一次|狀態|查詢|清單|的/g, " ")
+    .replace(
+      /請幫忙|請幫|幫忙|查詢|晨報|早安|早報|morning|取消|刪除|停止|關閉|現在|立刻|馬上|一次|狀態|查詢|清單|的/g,
+      " ",
+    )
     .replace(/\d{1,2}[:：]\d{2}/g, " ")
     .trim();
 }

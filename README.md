@@ -93,6 +93,7 @@ npm run typecheck
 `HEALTH_CHECK_INTERVAL_SEC`、`LOG_LIMIT`、`LOG_MAX_BYTES`、`LOG_MAX_FILES`、`TARGETS`、訊息模板、
 訊息持久化開關、自動回覆（含冷卻秒數）、`SMTP_*`、`MAIL_FROM`、`MAIL_TO`、
 `ALERT_WEBHOOK_URLS`、`ALERT_DEADMAN_URL`、`ALERT_DEADLETTER_THRESHOLD`、`ALERT_RESEND_MINUTES`、
+`DIGEST_ENABLED`、`DIGEST_AT`、`DIGEST_INCLUDE_LLM`（每日營運摘要，走告警的 Email／Webhook 通道寄出）、
 LINE（`LINE_MODE` 擇一：`personal` 自己申請的個人帳號 selfbot ／ `official` 官方 Messaging API，含 `LINE_MODE`、`STORAGE_PATH`、`LINE_OFFICIAL_*`：access token、channel secret、webhook URL、targets）、
 Telegram（`TELEGRAM_*`）、WhatsApp（`WHATSAPP_*`，含 Cloud／個人帳號模式切換）、Teams（`TEAMS_*`）、Discord（`DISCORD_*`）。
 
@@ -296,6 +297,10 @@ curl -sS -X POST "http://localhost:8090/webhook" \
 | `GET /messages.json` | 收到的訊息 JSON（需登入或 read token），支援 `?q=` 關鍵字、`?chat=` 對話過濾、`?since=`／`?until=` 日期（含當日）、`?sinceTs=`／`?untilTs=` 時間（ISO 8601 或 epoch 毫秒，含該時點）、`?chatType=` 平台、`?limit=`（最多 1000） |
 | `POST /messages/purge` | 清除訊息紀錄（需登入，記憶體＋檔案） |
 | `GET /deadletter.json` | 死信列表（需登入或 read token），`?limit=`（最多 500） |
+| `GET /audit.json` | 稽核紀錄（需登入或 read token）：登入成敗、設定變更、技能安裝/移除、平台測試等，`?limit=` |
+| `POST /audit/purge` | 清空稽核紀錄（需登入或 admin token） |
+| `POST /platforms/test` | 平台連線測試（需登入或 admin token），body `{ platform, values }`：以欄位值或已儲存設定呼叫平台官方 API，驗 token／webhook 狀態 |
+| `POST /digest/test` | 立即寄送每日摘要（需登入或 admin token），回傳組裝出的摘要文字 |
 | `GET /settings/backup?password=` | 完整備份下載（需登入，設定＋登入狀態＋排程，一律加密） |
 | `POST /settings/backup/restore` | 還原備份（需登入），body `{ bundle, password }`；還原前自動備份現況 |
 | `GET /metrics` | Prometheus 文字格式指標（需登入或 read token）：發送數、收訊數、驗證失敗、技能執行、LLM tokens、HTTP 耗時、佇列深度、排程數 |

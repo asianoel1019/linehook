@@ -87,6 +87,14 @@ const schema = z.object({
   ALERT_DEADLETTER_THRESHOLD: z.coerce.number().int().min(0).default(10),
   // 同一事由的告警最短重發間隔（分鐘）。
   ALERT_RESEND_MINUTES: z.coerce.number().int().positive().default(30),
+  // 每日營運摘要（走 email／webhook 告警通道）。
+  DIGEST_ENABLED: boolDefault(false),
+  DIGEST_AT: z
+    .string()
+    .trim()
+    .regex(/^([01]?\d|2[0-3])[:：][0-5]\d$/)
+    .default("08:00"),
+  DIGEST_INCLUDE_LLM: boolDefault(true),
   LOG_LIMIT: z.coerce.number().int().positive().default(200),
   LOG_FILE: z.string().default("./logs/app.log"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
@@ -165,6 +173,15 @@ export interface AlertConfig {
   deadletterThreshold: number;
   /** 同一事由的告警最短重發間隔（分鐘）。 */
   resendMinutes: number;
+}
+
+/** 每日營運摘要（走告警的 email／webhook 通道送出）。 */
+export interface DigestConfig {
+  enabled: boolean;
+  /** 每日寄送時間「HH:mm」（以設定時區解讀）。 */
+  at: string;
+  /** 是否附上 LLM 用量與費用估算。 */
+  includeLlm: boolean;
 }
 
 export interface ForwardRule {
@@ -339,6 +356,7 @@ export interface Config {
   replyMaxChars: number;
   smtp: SmtpConfig;
   alert: AlertConfig;
+  digest: DigestConfig;
   forward: ForwardRule[];
   commands: CommandConfig;
   assistant: AssistantConfig;
@@ -356,9 +374,7 @@ if (!parsed.success) {
   const details = parsed.error.issues
     .map((issue) => `  - ${issue.path.join(".") || "(root)"}: ${issue.message}`)
     .join("\n");
-  const hasDeviceIssue = parsed.error.issues.some(
-    (issue) => issue.path.join(".") === "LINE_DEVICE",
-  );
+  const hasDeviceIssue = parsed.error.issues.some((issue) => issue.path.join(".") === "LINE_DEVICE");
   const hint = hasDeviceIssue
     ? "\n提示：LINE_DEVICE 只能填裝置類型（DESKTOPWIN / ANDROID / IOS 等）；要自訂 LINE 顯示的名稱請用 LINE_DEVICE_NAME。"
     : "";
@@ -484,6 +500,11 @@ export const config: Config = {
     deadmanUrl: env.ALERT_DEADMAN_URL,
     deadletterThreshold: env.ALERT_DEADLETTER_THRESHOLD,
     resendMinutes: env.ALERT_RESEND_MINUTES,
+  },
+  digest: {
+    enabled: env.DIGEST_ENABLED,
+    at: env.DIGEST_AT,
+    includeLlm: env.DIGEST_INCLUDE_LLM,
   },
   forward: [],
   commands: {

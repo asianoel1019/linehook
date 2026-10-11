@@ -182,6 +182,17 @@ const settingsSchema = z.object({
       resendMinutes: z.coerce.number().int().positive().default(30),
     })
     .default({ webhookUrls: [], deadmanUrl: "", deadletterThreshold: 10, resendMinutes: 30 }),
+  digest: z
+    .object({
+      enabled: z.boolean().default(false),
+      at: z
+        .string()
+        .trim()
+        .regex(/^([01]?\d|2[0-3])[:：][0-5]\d$/)
+        .default("08:00"),
+      includeLlm: z.boolean().default(true),
+    })
+    .default({ enabled: false, at: "08:00", includeLlm: true }),
   forward: z
     .array(
       z.object({
@@ -314,6 +325,11 @@ export function currentSettings(): EditableSettings {
       deadletterThreshold: config.alert.deadletterThreshold,
       resendMinutes: config.alert.resendMinutes,
     },
+    digest: {
+      enabled: config.digest.enabled,
+      at: config.digest.at,
+      includeLlm: config.digest.includeLlm,
+    },
     forward: config.forward.map((rule) => ({ ...rule })),
     commands: {
       enabled: config.commands.enabled,
@@ -422,6 +438,11 @@ function apply(settings: EditableSettings): void {
     deadletterThreshold: settings.alert.deadletterThreshold,
     resendMinutes: settings.alert.resendMinutes,
   };
+  config.digest = {
+    enabled: settings.digest.enabled,
+    at: settings.digest.at,
+    includeLlm: settings.digest.includeLlm,
+  };
   config.forward = settings.forward.map((rule) => ({ ...rule }));
   config.commands = {
     enabled: settings.commands.enabled,
@@ -491,6 +512,8 @@ export function loadSettings(): void {
       whatsapp: { ...base.whatsapp, ...(data.whatsapp ?? {}) },
       teams: { ...base.teams, ...(data.teams ?? {}) },
       discord: { ...base.discord, ...(data.discord ?? {}) },
+      alert: { ...base.alert, ...(data.alert ?? {}) },
+      digest: { ...base.digest, ...(data.digest ?? {}) },
     });
     logger.info("已載入 settings.json", { path });
   } catch (error) {

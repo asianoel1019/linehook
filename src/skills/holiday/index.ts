@@ -193,6 +193,15 @@ async function loadHolidays(ttlMs: number): Promise<Map<string, string>> {
   return map;
 }
 
+/**
+ * 查詢指定日期的放假狀態（含抓取假日表與快取）。
+ * 供 morning、remind 等兄弟技能共用；抓取失敗時拋錯，呼叫端自行降級。
+ */
+export async function loadDayStatus(ymd: string, makeupRaw: string | undefined): Promise<DayStatus> {
+  const holidays = await loadHolidays(24 * 60 * 60 * 1000);
+  return dayStatus(ymd, holidays, parseMakeupDays(makeupRaw));
+}
+
 function notifyAt(config: Record<string, string>): string {
   const m = /^\s*([01]?\d|2[0-3])\s*[:：]\s*([0-5]\d)\s*$/.exec(config.notifyAt ?? "");
   return m ? `${m[1].padStart(2, "0")}:${m[2]}` : "07:00";

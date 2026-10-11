@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Request } from "express";
 import { config } from "./config.js";
@@ -19,6 +19,45 @@ const MAX_FILES = 3;
 
 function auditPath(): string {
   return `${dirname(config.settingsPath)}/audit.jsonl`;
+}
+
+/** 讀取最近 N 筆稽核紀錄（新的在前）；檔案不存在或損毀行跳過。 */
+export function readAuditEntries(limit = 100): AuditEntry[] {
+  const path = auditPath();
+  if (!existsSync(path)) return [];
+  try {
+    const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+    const out: AuditEntry[] = [];
+    for (const line of lines.slice(-Math.max(limit * 2, limit))) {
+      try {
+        const parsed = JSON.parse(line) as AuditEntry;
+        if (parsed && typeof parsed.action === "string") out.push(parsed);
+      } catch {
+        // 單行損毀不影響其他紀錄
+      }
+    }
+    return out.reverse().slice(0, limit);
+  } catch (error) {
+    logger.warn("讀取稽核失敗", { error: String(error) });
+    return [];
+  }
+}
+
+/** 清空稽核紀錄（保留檔不存在時建立空檔）；回傳清除筆數。 */
+export function purgeAudit(): number {
+  const path = auditPath();
+  let removed = 0;
+  try {
+    if (existsSync(path)) {
+      removed = readFileSync(path, "utf8").split("\n").filter(Boolean).length;
+    }
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, "", "utf8");
+    return removed;
+  } catch (error) {
+    logger.warn("清除稽核失敗", { error: String(error) });
+    return removed;
+  }
 }
 
 /**

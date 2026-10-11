@@ -183,3 +183,41 @@ X-Signature: <HMAC-SHA256(body, secret)>   # 或 ?token=<WEBHOOK_TOKEN> / Author
 6. **統計**：所有 `recordSend` 帶 `platform`；`SendEvent.platform` 未標記者視為 `line`（相容舊資料）。
 7. **測試**：adapter 正規化單元測試 + 路由驗證測試；跑 `npm run typecheck && npm run build && npm test`。
 
+## 維運增強（稽核／平台測試／每日摘要）
+
+### 稽核紀錄（audit）
+
+- `src/audit.ts`：敏感操作 append 到 `data/audit.jsonl`（5MB×3 輪替）。涵蓋**登入成功/失敗**（`login.success` / `login.fail`，失敗分一般與已鎖定）、`settings.save/export/import/backup`、`skills.install/uninstall/restore/save`、`deadletter.retry/purge`、`messages.purge`、`platform.test`、`digest.send`、`audit.purge`。
+- `GET /audit.json?limit=`（read）讀取；`POST /audit/purge`（admin）清空。Console 頁「稽核紀錄」面板檢視（失敗紅字、登入成功綠字）。
+- 與一般 log 分開存放、格式固定可查；備份/清洗資料時記得這份也要一起處理。
+
+### 平台連線測試（一鍵驗證）
+
+- `src/monitor/platform-probe.ts`：以各平台官方 API 驗證憑證與 webhook 狀態——
+  Telegram `getWebhookInfo`（含待處理更新數、最後錯誤）、Discord `users/@me`、
+  WhatsApp Graph phone-number-id、LINE 官方 `channel/webhook/endpoint/info`、
+  Teams Entra client-credentials（驗 appId/password/tenant）。
+- `POST /platforms/test`（admin）：前端送**目前表單值**（未填欄位沿用已儲存設定），不必先儲存就能測；結果只記 audit、不寫入任何設定。
+- LINE selfbot／WhatsApp Web 無 API 可探測，回資訊性結果（登入狀態看 `/dashboard`）。
+- 設定頁每個平台欄位都有「測試連線」按鈕（`data-platform-test`）。
+
+### 每日營運摘要（digest）
+
+- `src/monitor/digest.ts`：每日 `DIGEST_AT`（預設 08:00，以 `TIMEZONE` 解讀）組裝並寄出——
+  平台健康、昨日發送成功率、死信數、技能觸發 TOP5、LLM 呼叫/tokens/費用估算（`DIGEST_INCLUDE_LLM`）。
+- 沿用告警通道（SMTP email＋`ALERT_WEBHOOK_URLS`），不新增通道；`DIGEST_ENABLED=false` 不排程。
+- `POST /digest/test`（admin）立即寄送（回傳摘要文字）；`/settings`「監控 / Log」可線上改 `digest` 區塊（儲存後重啟生效）。
+- 排程失敗只記 log 不影響健康監控；`timer.unref()` 不擋程序結束。
+
+### 測試穩定性
+
+- `tests/run.mjs` 以 `--test-concurrency=4`（可用 `TEST_CONCURRENCY` 覆寫）限制平行檔數：
+  node 預設用 CPU 數-1，多核機器上會把 `scheduler-tasks` 這類真計時器測試壓到逾時。
+
+## 建置與部署（技能庫）
+
+- `library/` 不在版控（部署產物）；建置腳本 `scripts/build-library.mjs` 是版控中唯一的 `scripts/` 例外。
+  **部署前執行 `node scripts/build-library.mjs`**：重新產生 `library/index.html` 與全部技能 zip；
+  有 `dist/` 時 zip 內打包編譯後的 `index.js`（裝進 `data/skills` 即可執行，不需 TS 執行環境）。
+- Docker 在 build stage 自動執行，runtime stage 只 `COPY` 產物（`/library/` 供「前往技能庫下載」）。
+

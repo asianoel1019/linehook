@@ -10,7 +10,6 @@ settings.json
 data
 logs
 library
-scripts
 tests
 docs
 *.log

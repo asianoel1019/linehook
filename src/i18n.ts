@@ -321,6 +321,12 @@ export const DICT: Record<string, Entry> = {
     en: "Minimum gap between repeats of the same alert (first is immediate, then every N minutes); a separate \"recovered\" notice is sent on recovery",
     ja: "同一事由の再送最小間隔（初回は即時、以降は N 分ごと）。回復時は別途「回復」通知。",
   },
+  lbl_platform_test: { zh: "連線測試", en: "Connection test", ja: "接続テスト" },
+  hint_platform_test: { zh: "以目前欄位值呼叫平台官方 API（未填的欄位沿用已儲存設定），驗證 token 與 webhook 狀態；結果不會寫入任何設定。", en: "Calls each platform's official API with the current form values (blank fields fall back to saved settings) to verify tokens and webhooks; nothing is saved.", ja: "現在の入力値で各プラットフォームの公式 API を呼び出し、トークンと webhook を検証します（未入力は保存済み設定を使用）。何も保存されません。" },
+  lbl_digest_enabled: { zh: "啟用每日摘要", en: "Enable daily digest", ja: "デイリーダイジェストを有効化" },
+  lbl_digest_at: { zh: "每日摘要時間", en: "Daily digest time", ja: "デイリーダイジェスト時刻" },
+  lbl_digest_llm: { zh: "摘要附上 LLM 用量", en: "Include LLM usage in digest", ja: "LLM 使用量を含める" },
+  lbl_digest_test: { zh: "寄送測試", en: "Send test", ja: "送信テスト" },
 
   // targets config
   legend_targets: { zh: "目標對照（TARGETS）", en: "Target mapping (TARGETS)", ja: "送信先マッピング（TARGETS）" },

@@ -4,20 +4,20 @@ import { tr } from "../../i18n.js";
 import { page } from "../shell.js";
 
 export function renderSettingsHtml() {
-    const deviceOptions = [
-        "DESKTOPWIN",
-        "DESKTOPMAC",
-        "ANDROID",
-        "ANDROIDSECONDARY",
-        "IOS",
-        "IOSIPAD",
-        "WATCHOS",
-        "WEAROS",
-    ]
-        .map((d) => `<option value="${d}">${d}</option>`)
-        .join("");
-    // 平台專屬設定以資料屬性標記；全域 IM 切換（右上角）改變時由 onPlatformChange 過濾。
-    const body = `
+  const deviceOptions = [
+    "DESKTOPWIN",
+    "DESKTOPMAC",
+    "ANDROID",
+    "ANDROIDSECONDARY",
+    "IOS",
+    "IOSIPAD",
+    "WATCHOS",
+    "WEAROS",
+  ]
+    .map((d) => `<option value="${d}">${d}</option>`)
+    .join("");
+  // 平台專屬設定以資料屬性標記；全域 IM 切換（右上角）改變時由 onPlatformChange 過濾。
+  const body = `
 <p class="msg" data-i18n="settings_note">設定儲存於 <code>settings.json</code>，修改後立即生效（LINE 裝置名稱需重新登入才生效）；點左側卡片切換設定項目。</p>
 
 <form id="settings-form" class="fn-panel active">
@@ -67,6 +67,10 @@ export function renderSettingsHtml() {
         <span style="display:flex;gap:8px;align-items:center"><button type="button" id="line-relogin">${tr(config.language, "btn_line_relogin")}</button><span id="line-relogin-msg" class="msg"></span></span>
         <div class="hint" data-i18n="hint_line_relogin">會先儲存目前設定再觸發重新登入；掃 QR 或輸入 PIN，狀態與 QR 顯示於 <code>/dashboard</code></div>
       </div>
+      <div class="field"><label data-i18n="lbl_platform_test">連線測試</label>
+        <span style="display:flex;gap:8px;align-items:center"><button type="button" data-platform-test="line">測試連線</button><span id="probe-line" class="msg"></span></span>
+        <div class="hint" data-i18n="hint_platform_test">以目前欄位值呼叫平台官方 API（未填的欄位沿用已儲存設定），驗證 token 與 webhook 狀態；結果不會寫入任何設定。</div>
+      </div>
       <div class="field"><div class="hint" data-i18n="hint_lo_personal_targets">目標對照（名稱=mid）在左側「目標對照」卡片，僅在個人帳號模式顯示。</div></div>
     </div>
 
@@ -86,6 +90,9 @@ export function renderSettingsHtml() {
     <div class="field"><label data-i18n="lbl_tg_bot_token">Bot Token</label><input id="tg-botToken" type="text" placeholder="123456:ABC-DEF..."><div class="hint" data-i18n="hint_tg_bot_token">向 @BotFather 申請；留空 = 停用 Telegram</div></div>
     <div class="field"><label data-i18n="lbl_tg_secret">Webhook Secret Token</label><span style="display:flex;gap:8px"><input id="tg-secretToken" type="text" style="flex:1"><button type="button" id="tg-secret-generate" data-i18n="btn_generate">隨機產生</button></span><div class="hint" data-i18n="hint_tg_secret">設定後 Telegram 會以此密鑰傳送 update（X-Telegram-Bot-Api-Secret-Token），建議設定</div></div>
     <div class="field"><label data-i18n="lbl_tg_webhook">Webhook URL</label><input id="tg-webhookUrl" type="text" placeholder="https://example.com/tg/update"><div class="hint" data-i18n="hint_tg_webhook">對外可存取的網址，結尾固定為 /tg/update；設定後重啟會自動註冊</div></div>
+    <div class="field"><label data-i18n="lbl_platform_test">連線測試</label>
+      <span style="display:flex;gap:8px;align-items:center"><button type="button" data-platform-test="telegram">測試連線</button><span id="probe-telegram" class="msg"></span></span>
+    </div>
     <div class="field"><label data-i18n="lbl_tg_targets">目標對照（名稱=chat_id）</label><textarea id="tg-targets" placeholder="每行一筆，例如：我的群組=-1001234567890"></textarea><div class="hint" data-i18n="hint_tg_targets">每行一筆；也可填 @username</div></div>
   </fieldset>
 
@@ -114,6 +121,9 @@ export function renderSettingsHtml() {
     </div>
 
     <div class="field"><label data-i18n="lbl_wa_targets">目標對照（名稱=電話號碼）</label><textarea id="wa-targets" placeholder="每行一筆，例如：小明=886912345678"></textarea><div class="hint" data-i18n="hint_wa_targets">每行一筆，E.164 不含 +</div></div>
+    <div class="field" data-wa-mode="cloud"><label data-i18n="lbl_platform_test">連線測試</label>
+      <span style="display:flex;gap:8px;align-items:center"><button type="button" data-platform-test="whatsapp">測試連線</button><span id="probe-whatsapp" class="msg"></span></span>
+    </div>
     <div class="field" data-wa-mode="cloud"><div class="hint" data-i18n="hint_wa_window">注意：WhatsApp 有 24 小時視窗，主動推播（排程 / 到價通知）可能需改用預審模板</div></div>
   </fieldset>
 
@@ -126,6 +136,9 @@ export function renderSettingsHtml() {
     <div class="field"><label data-i18n="lbl_teams_service_url">Service URL</label><input id="teams-serviceUrl" type="text" placeholder="https://smba.trafficmanager.net/teams"><div class="hint" data-i18n="hint_teams_service_url">Bot Connector 服務端點，通常用預設即可；首次收訊後會自動記憶實際值，主動推播建議先讓 Bot 收到一次訊息</div></div>
     <div class="field"><label data-i18n="lbl_teams_targets">目標對照（名稱=conversation id）</label><textarea id="teams-targets" placeholder="每行一筆，例如：客服頻道=19:abc@thread.v2"></textarea><div class="hint" data-i18n="hint_teams_targets">每行一筆；收到訊息後系統會自動記住對話，無需手填</div></div>
     <div class="field"><div class="hint">Adaptive Card 卡片可在 Teams 直接呈現（非降級）。接收端點 <code>POST /teams/messages</code> 會以微軟公開金鑰驗證 Bearer JWT。</div></div>
+    <div class="field"><label data-i18n="lbl_platform_test">連線測試</label>
+      <span style="display:flex;gap:8px;align-items:center"><button type="button" data-platform-test="teams">測試連線</button><span id="probe-teams" class="msg"></span></span>
+    </div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="discord" data-im="discord">
@@ -134,6 +147,9 @@ export function renderSettingsHtml() {
     <div class="field"><label data-i18n="lbl_dis_bot_token">Bot Token</label><input id="dis-botToken" type="password" placeholder="••••••••"><div class="hint" data-i18n="hint_dis_bot_token">Developer Portal → Bot → Reset Token 取得；需於 Bot 設定開啟 MESSAGE_CONTENT Intent</div></div>
     <div class="field"><label data-i18n="lbl_dis_targets">目標對照（名稱=頻道 ID）</label><textarea id="dis-targets" placeholder="每行一筆，例如：客服=123456789012345678"></textarea><div class="hint" data-i18n="hint_dis_targets">每行一筆；頻道/用戶 ID 為 17–20 碼數字（開發者模式右鍵可複製）</div></div>
     <div class="field"><div class="hint" data-i18n="hint_dis_note">文字/圖片/檔案/影片/語音為原生；貼圖、位置、Flex 會降級（見 /console 能力提示）。發送端點 <code>POST /webhook/discord</code>。</div></div>
+    <div class="field"><label data-i18n="lbl_platform_test">連線測試</label>
+      <span style="display:flex;gap:8px;align-items:center"><button type="button" data-platform-test="discord">測試連線</button><span id="probe-discord" class="msg"></span></span>
+    </div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="send">
@@ -157,6 +173,11 @@ export function renderSettingsHtml() {
     <div class="field"><label data-i18n="lbl_alert_deadman">dead-man ping URL</label><input id="alert-deadmanUrl" type="text" placeholder="https://hc-ping.com/your-uuid"><div class="hint" data-i18n="hint_alert_deadman">每輪健康檢查打一次；程序掛掉就不會 ping，由外部 uptime 服務（healthchecks.io 等）在逾時後告警。留空 = 關閉</div></div>
     <div class="field"><label data-i18n="lbl_alert_deadletter">死信告警閾值（筆）</label><input id="alert-deadletterThreshold" type="number" min="0"><div class="hint" data-i18n="hint_alert_deadletter">死信累積超過此數即告警；0 = 關閉</div></div>
     <div class="field"><label data-i18n="lbl_alert_resend">告警重發間隔（分鐘）</label><input id="alert-resendMinutes" type="number" min="1"><div class="hint" data-i18n="hint_alert_resend">同一事由的最短重發間隔（首次立即，之後每 N 分鐘）；恢復時另發「已恢復」通知</div></div>
+    <div class="field"><div class="hint">每日摘要：彙整平台健康、昨日發送成功率、死信、技能觸發與 LLM 用量，透過上方的 Email／Webhook 通道每日寄送一次。</div></div>
+    <div class="field"><label data-i18n="lbl_digest_enabled">啟用每日摘要</label><input id="digest-enabled" type="checkbox"></div>
+    <div class="field"><label data-i18n="lbl_digest_at">每日摘要時間</label><input id="digest-at" type="text" placeholder="08:00"><div class="hint">HH:mm（以設定的時區解讀）；儲存後重啟生效</div></div>
+    <div class="field"><label data-i18n="lbl_digest_llm">摘要附上 LLM 用量</label><input id="digest-includeLlm" type="checkbox"><div class="hint">附上 LLM 呼叫次數、tokens 與費用估算（已知單價的模型才有金額）</div></div>
+    <div class="field"><label data-i18n="lbl_digest_test">寄送測試</label><span style="display:flex;gap:8px;align-items:center"><button type="button" id="digest-test">立即寄送</button><span id="digest-test-msg" class="msg"></span></span><div class="hint">不等待每日排程，馬上組裝並寄出一份摘要到設定的告警通道</div></div>
   </fieldset>
 
   <fieldset class="fn-panel" data-fn="targets-config" data-im="line" data-line-mode="personal">
@@ -223,7 +244,7 @@ export function renderSettingsHtml() {
   </div>
 </form>
 `;
-    const script = `
+  const script = `
   var CONFIG_SECTIONS = ["security", "line", "telegram", "whatsapp", "teams", "discord", "send", "monitor", "targets-config", "templates", "forward", "commands", "smtp", "backup"];
 
   // LINE 兩種帳號模式擇一（仿 WhatsApp）：帶 data-line-mode 的區塊依模式顯示／隱藏。
@@ -619,6 +640,9 @@ export function renderSettingsHtml() {
     $("alert-deadmanUrl").value = (s.alert && s.alert.deadmanUrl) || "";
     $("alert-deadletterThreshold").value = s.alert && typeof s.alert.deadletterThreshold === "number" ? s.alert.deadletterThreshold : 10;
     $("alert-resendMinutes").value = s.alert && typeof s.alert.resendMinutes === "number" ? s.alert.resendMinutes : 30;
+    $("digest-enabled").checked = !!(s.digest && s.digest.enabled);
+    $("digest-at").value = (s.digest && s.digest.at) || "08:00";
+    $("digest-includeLlm").checked = !s.digest || s.digest.includeLlm !== false;
     $("timezone").value = s.timezone || "Asia/Taipei";
     $("targets").value = Object.keys(s.targets || {}).map(function (k) { return k + "=" + s.targets[k]; }).join("\\n");
     $("smtp-host").value = s.smtp.host || "";
@@ -791,6 +815,11 @@ export function renderSettingsHtml() {
         deadletterThreshold: Math.max(0, Number($("alert-deadletterThreshold").value) || 0),
         resendMinutes: Math.max(1, Number($("alert-resendMinutes").value) || 30)
       },
+      digest: {
+        enabled: $("digest-enabled").checked,
+        at: (/^([01]?\\d|2[0-3])[:：][0-5]\\d$/.test($("digest-at").value.trim()) ? $("digest-at").value.trim() : "08:00"),
+        includeLlm: $("digest-includeLlm").checked
+      },
       commands: {
         enabled: $("commands-enabled").checked,
         prefix: $("commands-prefix").value || "!",
@@ -844,6 +873,66 @@ export function renderSettingsHtml() {
   $("tg-secret-generate").addEventListener("click", function () {
     $("tg-secretToken").value = randomHex(32);
     $("settings-msg").textContent = "已產生新 Telegram Secret Token，儲存並重啟後生效（會重新 setWebhook）";
+  });
+
+  // 平台連線測試：蒐集該平台目前欄位值，交給後端呼叫平台官方 API。
+  var PROBE_INPUTS = {    line: { channelAccessToken: "lo-channelAccessToken" },
+    telegram: { botToken: "tg-botToken", webhookUrl: "tg-webhookUrl" },
+    whatsapp: { accessToken: "wa-accessToken", phoneNumberId: "wa-phoneNumberId", apiVersion: "wa-apiVersion" },
+    teams: { appId: "teams-appId", appPassword: "teams-appPassword", tenantId: "teams-tenantId" },
+    discord: { botToken: "dis-botToken" },
+  };
+  Array.prototype.forEach.call(document.querySelectorAll("[data-platform-test]"), function (btn) {
+    btn.addEventListener("click", function () {
+      var platform = btn.getAttribute("data-platform-test");
+      var out = $("probe-" + platform);
+      var map = PROBE_INPUTS[platform] || {};
+      var values = {};
+      Object.keys(map).forEach(function (key) {
+        var el = $(map[key]);
+        if (el && el.value) values[key] = el.value;
+      });
+      btn.disabled = true;
+      if (out) { out.textContent = "測試中…"; out.style.color = ""; }
+      post("platforms/test", { platform: platform, values: values }).then(function (r) {
+        if (!out) return;
+        out.style.whiteSpace = "pre-line";
+        if (r.ok) {
+          out.textContent = "✅ " + (r.data.detail || "OK");
+          out.style.color = "#34d399";
+        } else {
+          out.textContent = "❌ " + (r.data.detail || r.data.error || "失敗");
+          out.style.color = "#fb7185";
+        }
+      }).catch(function () {
+        if (out) { out.textContent = "❌ 請求失敗"; out.style.color = "#fb7185"; }
+      }).then(function () {
+        btn.disabled = false;
+      });
+    });
+  });
+
+  // 每日摘要：立即寄送測試（不等待每日排程）。
+  $("digest-test").addEventListener("click", function () {
+    var out = $("digest-test-msg");
+    var btn = $("digest-test");
+    btn.disabled = true;
+    if (out) { out.textContent = "寄送中…"; out.style.color = ""; }
+    post("digest/test", {}).then(function (r) {
+      if (!out) return;
+      out.style.whiteSpace = "pre-line";
+      if (r.ok) {
+        out.textContent = "✅ 已寄出\\n" + (r.data.text || "");
+        out.style.color = "#34d399";
+      } else {
+        out.textContent = "❌ " + (r.data.detail || r.data.error || "失敗");
+        out.style.color = "#fb7185";
+      }
+    }).catch(function () {
+      if (out) { out.textContent = "❌ 請求失敗"; out.style.color = "#fb7185"; }
+    }).then(function () {
+      btn.disabled = false;
+    });
   });
 
   $("template-add").addEventListener("click", function () {
@@ -943,7 +1032,7 @@ export function renderSettingsHtml() {
   // loadForm 是非同步；等填完再用目前選擇套用 WhatsApp 模式顯示。
   setTimeout(applyWaMode, 300);
 `;
-    const sidebar = `
+  const sidebar = `
 <div class="side-section">${tr(config.language, "section_settings")}</div>
 <div class="fn-list">
   <button type="button" class="fn-card setting active" data-fn="security">${tr(config.language, "card_security")}</button>
@@ -961,5 +1050,5 @@ export function renderSettingsHtml() {
   <button type="button" class="fn-card setting" data-fn="smtp">${tr(config.language, "card_smtp")}</button>
   <button type="button" class="fn-card setting" data-fn="backup">${tr(config.language, "card_backup")}</button>
 </div>`;
-    return page(tr(config.language, "title_settings"), "settings", body, script, { sidebar });
+  return page(tr(config.language, "title_settings"), "settings", body, script, { sidebar });
 }

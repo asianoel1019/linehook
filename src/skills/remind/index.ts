@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import { config } from "../../config.js";
 import { logger } from "../../logger.js";
 import { nowInTz, zonedTimeToMs } from "../../time.js";
+import { loadDayStatus } from "../holiday/index.js";
 import { solarToLunar } from "../lunar/index.js";
 import type { SkillContext, SkillDefinition, SkillWatchView, SkillTaskContext } from "../types.js";
 
@@ -77,11 +79,22 @@ interface Recurring {
   label: string;
   /** 提醒內容（移除排程關鍵字後的文字）。 */
   content: string;
+  /** 放假的日子不推播（搭配放假技能的假日表）。 */
+  skipHoliday: boolean;
   watch:
     | { cron: string }
     | { everyMinutes: number }
     | { at: string }
     | { lunar: { month: number; day: number }; at: string };
+}
+
+/** 假日跳過的觸發詞（用於 wantsSkipHoliday 與 stripSchedule，兩處必須一致）。 */
+const SKIP_WORDS = "跳過|略過|不提醒|不要響|別響|不用響|不響|靜音";
+const SKIP_FLAG_RE = new RegExp(`(假日|假期|週末|放假日?)[^。，,]{0,4}(?:${SKIP_WORDS})|(?:${SKIP_WORDS})(假日|假期)`);
+
+/** 是否要求放假日子不推播。 */
+function wantsSkipHoliday(text: string): boolean {
+  return SKIP_FLAG_RE.test(text);
 }
 
 const WEEKDAY_CN: Record<string, number> = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
@@ -99,13 +112,14 @@ function timeOf(text: string): { hh: number; mm: number } | null {
 function stripSchedule(text: string, lunar = false): string {
   const base = text
     .replace(/(\d{1,2})\s*[:：]\s*(\d{2})/g, " ")
-    .replace(/每天|每日|平日|工作日|週末|假日/g, " ")
+    .replace(/每天|每日|平日|工作日|週末/g, " ")
     .replace(
       /每週\s*[一二三四五六日天]|每星期\s*[一二三四五六日天]|礼拜\s*[一二三四五六日天]|星期\s*[一二三四五六日天]/g,
       " ",
     )
     .replace(/每月\s*\d{1,2}\s*(號|日)/g, " ")
     .replace(/(?:每隔|每)\s*\d{1,4}\s*(分鐘|小時|分|時)/g, " ")
+    .replace(SKIP_FLAG_RE, " ")
     .replace(/農曆/g, " ")
     .replace(/\d{1,2}\s*(秒|分鐘|分|小時|時|天)\s*(後|之後)?/g, " ")
     .replace(/^(提醒|倒數|提醒我|定時)\s*/g, " ")
@@ -128,6 +142,7 @@ function stripSchedule(text: string, lunar = false): string {
  *  - 農曆 7/15 09:00（舊曆生日/紀念日）
  */
 export function parseRecurring(args: string): Recurring | null {
+  const skip = wantsSkipHoliday(args);
   // 農曆生日 / 舊曆紀念日
   const lunar = /農曆\s*(\d{1,2})\s*(?:月|[\/\-])\s*(\d{1,2})\s*[日號]?/.exec(args);
   if (lunar) {
@@ -138,7 +153,12 @@ export function parseRecurring(args: string): Recurring | null {
     if (!content) return null;
     const at = timeOf(args) ?? { hh: 9, mm: 0 };
     const time = `${pad(at.hh)}:${pad(at.mm)}`;
-    return { label: `農曆 ${month}/${day} ${time}`, content, watch: { lunar: { month, day }, at: time } };
+    return {
+      label: `農曆 ${month}/${day} ${time}`,
+      content,
+      skipHoliday: skip,
+      watch: { lunar: { month, day }, at: time },
+    };
   }
 
   const content = stripSchedule(args);
@@ -152,7 +172,7 @@ export function parseRecurring(args: string): Recurring | null {
     if (minutes < 1 || minutes > 1440) return null;
     if (minutes > 60 && minutes % 60 !== 0) return null; // 底層排程僅支援 60 的倍數
     const label = minutes >= 60 && minutes % 60 === 0 ? `每 ${minutes / 60} 小時` : `每 ${minutes} 分鐘`;
-    return { label, content, watch: { everyMinutes: minutes } };
+    return { label, content, skipHoliday: skip, watch: { everyMinutes: minutes } };
   }
 
   const at = timeOf(args);
@@ -160,27 +180,33 @@ export function parseRecurring(args: string): Recurring | null {
   const time = `${pad(at.hh)}:${pad(at.mm)}`;
 
   if (/每天|每日/.test(args)) {
-    return { label: `每天 ${time}`, content, watch: { cron: `${at.mm} ${at.hh} * * *` } };
+    return { label: `每天 ${time}`, content, skipHoliday: skip, watch: { cron: `${at.mm} ${at.hh} * * *` } };
   }
   if (/平日|工作日/.test(args)) {
-    return { label: `平日 ${time}`, content, watch: { cron: `${at.mm} ${at.hh} * * 1-5` } };
+    return { label: `平日 ${time}`, content, skipHoliday: skip, watch: { cron: `${at.mm} ${at.hh} * * 1-5` } };
   }
   if (/週末|週六|週日|假日/.test(args)) {
-    return { label: `週末 ${time}`, content, watch: { cron: `${at.mm} ${at.hh} * * 6,0` } };
+    // 週末專用提醒不做假日跳過（會把自己的觸發日全部濾掉）
+    return { label: `週末 ${time}`, content, skipHoliday: false, watch: { cron: `${at.mm} ${at.hh} * * 6,0` } };
   }
 
   const weekly = /(每週|每星期|礼拜?|星期)\s*([一二三四五六日天])/.exec(args);
   if (weekly) {
     const dow = WEEKDAY_CN[weekly[2]];
     const label = weekly[1].startsWith("每") ? `每週${weekly[2]} ${time}` : `星期${weekly[2]} ${time}`;
-    return { label, content, watch: { cron: `${at.mm} ${at.hh} * * ${dow}` } };
+    return { label, content, skipHoliday: skip, watch: { cron: `${at.mm} ${at.hh} * * ${dow}` } };
   }
 
   const monthly = /每月\s*(\d{1,2})\s*(號|日)/.exec(args);
   if (monthly) {
     const dom = Number(monthly[1]);
     if (dom < 1 || dom > 31) return null;
-    return { label: `每月 ${dom} 號 ${time}`, content, watch: { cron: `${at.mm} ${at.hh} ${dom} * *` } };
+    return {
+      label: `每月 ${dom} 號 ${time}`,
+      content,
+      skipHoliday: skip,
+      watch: { cron: `${at.mm} ${at.hh} ${dom} * *` },
+    };
   }
 
   return null;
@@ -222,8 +248,9 @@ function renderWatches(watches: SkillWatchView[]): string {
     .map((w) => {
       const text = typeof w.args?.text === "string" ? w.args.text : "（無內容）";
       const lunarTag = w.args?.lunarMonth ? `｜農曆 ${w.args.lunarMonth}/${w.args.lunarDay}` : "";
+      const skipTag = w.args?.skipHoliday ? "｜假日跳過" : "";
       const runAt = w.runAt ? w.runAt.slice(5, 16).replace("T", " ") : "";
-      return `・${text}｜${describeCron(w.cron)}${lunarTag}｜下次 ${runAt}`;
+      return `・${text}｜${describeCron(w.cron)}${lunarTag}${skipTag}｜下次 ${runAt}`;
     })
     .join("\n");
 }
@@ -242,7 +269,7 @@ const remindSkill: SkillDefinition = {
     ja: "一回きりまたは定期リマインダー（毎日・平日・毎週・毎月・N時間毎・旧暦誕生日）。",
   },
   usage: {
-    zh: "提醒 30分鐘後 喝水；提醒 明天 09:00 開會；提醒 每天 08:00 吃藥；提醒 星期一 09:00 開會；提醒 每月 5 號 10:00 繳房租；提醒 每隔 3 小時 喝水；提醒 農曆 7/15 09:00 中元節；提醒 清單；提醒 取消 吃藥",
+    zh: "提醒 30分鐘後 喝水；提醒 明天 09:00 開會；提醒 每天 08:00 吃藥；提醒 每天 09:00 晨會 假日跳過；提醒 星期一 09:00 開會；提醒 每月 5 號 10:00 繳房租；提醒 每隔 3 小時 喝水；提醒 農曆 7/15 09:00 中元節；提醒 清單；提醒 取消 吃藥",
     en: "remind in 30 min water; remind tomorrow 09:00 meeting; remind daily 08:00 pills; remind Monday 09:00 meeting; remind monthly 5th 10:00 rent; remind every 3 hours water; remind lunar 7/15 09:00; remind list; remind cancel pills",
     ja: "リマインド 30分後 水；リマインド 明日 09:00 会議；リマインド 毎日 08:00 薬；リマインド 毎週月曜 09:00 会議；リマインド 毎月5日 10:00 家賃；リマインド 3時間毎 水；リマインド 旧暦 7/15 09:00；リマインド 一覧；リマインド 取消 薬",
   },
@@ -291,7 +318,7 @@ const remindSkill: SkillDefinition = {
 
     if (!args) {
       await ctx.reply(
-        "用法：\n提醒 30分鐘後 喝水（單次）\n提醒 明天 09:00 開會（單次）\n提醒 每天 08:00 吃藥\n提醒 平日 22:30 睡覺\n提醒 星期一 09:00 開會\n提醒 每月 5 號 10:00 繳房租\n提醒 每隔 3 小時 喝水\n提醒 農曆 7/15 09:00 中元節\n提醒 清單｜提醒 取消 吃藥",
+        "用法：\n提醒 30分鐘後 喝水（單次）\n提醒 明天 09:00 開會（單次）\n提醒 每天 08:00 吃藥\n提醒 每天 09:00 晨會 假日跳過（放假不響）\n提醒 平日 22:30 睡覺\n提醒 星期一 09:00 開會\n提醒 每月 5 號 10:00 繳房租\n提醒 每隔 3 小時 喝水\n提醒 農曆 7/15 09:00 中元節\n提醒 清單｜提醒 取消 吃藥",
       );
       return;
     }
@@ -315,7 +342,12 @@ const remindSkill: SkillDefinition = {
         ctx.watch({
           task: taskNameOf(rec.content, rec.watch),
           at: rec.watch.at,
-          args: { text: rec.content, lunarMonth: month, lunarDay: day },
+          args: {
+            text: rec.content,
+            lunarMonth: month,
+            lunarDay: day,
+            ...(rec.skipHoliday ? { skipHoliday: "1" } : {}),
+          },
           state: {},
         });
         logger.info("已建立農曆提醒", { chat: ctx.chat, month, day, at: rec.watch.at });
@@ -329,13 +361,25 @@ const remindSkill: SkillDefinition = {
             ? { everyMinutes: rec.watch.everyMinutes }
             : { at: rec.watch.at };
       try {
-        ctx.watch({ task: taskNameOf(rec.content, rec.watch), ...opts, args: { text: rec.content } });
+        ctx.watch({
+          task: taskNameOf(rec.content, rec.watch),
+          ...opts,
+          args: rec.skipHoliday ? { text: rec.content, skipHoliday: "1" } : { text: rec.content },
+        });
       } catch (error) {
         await ctx.reply(`排程無效：${error instanceof Error ? error.message : String(error)}`);
         return;
       }
-      logger.info("已建立週期提醒", { chat: ctx.chat, rec: rec.label, content: rec.content });
-      await ctx.reply(`好的，將於${rec.label} 提醒你：「${rec.content}」（「提醒 取消 ${rec.content}」可取消）`);
+      logger.info("已建立週期提醒", {
+        chat: ctx.chat,
+        rec: rec.label,
+        content: rec.content,
+        skipHoliday: rec.skipHoliday,
+      });
+      const skipNote = rec.skipHoliday ? "，假日不推播" : "";
+      await ctx.reply(
+        `好的，將於${rec.label} 提醒你：「${rec.content}」${skipNote}（「提醒 取消 ${rec.content}」可取消）`,
+      );
       return;
     }
 
@@ -371,6 +415,25 @@ const remindSkill: SkillDefinition = {
       const today = todayLunar();
       if (today.month !== lm || today.day !== ld) return;
     }
+
+    // 假日跳過：今天放假就不推播（沿用放假技能的假日表與補班日設定）。
+    if (ctx.args?.skipHoliday === "1" || ctx.args?.skipHoliday === true) {
+      try {
+        const now = nowInTz();
+        const p = (n: number) => String(n).padStart(2, "0");
+        const today = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
+        const makeup = config.skills.find((s) => s.id === "holiday")?.config?.makeupDays;
+        const st = await loadDayStatus(today, makeup);
+        if (st.off) {
+          logger.info("提醒遇假日跳過", { chat: ctx.chat, text });
+          return;
+        }
+      } catch (error) {
+        // 假日表抓不到時照舊推播（提醒不該被靜默吞掉）。
+        logger.warn("假日判斷失敗，提醒照常推播", { error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+
     await ctx.reply(`⏰ ${text}`);
   },
 };
