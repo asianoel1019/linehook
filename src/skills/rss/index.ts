@@ -1,6 +1,7 @@
 import { logger } from "../../logger.js";
 import { parseTtl, readCache, writeCache } from "../cache.js";
 import { fetchText as netFetchText } from "../../net.js";
+import { nowInTz } from "../../time.js";
 import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "../types.js";
 import { describeWatch } from "../watch.js";
 
@@ -9,19 +10,34 @@ const URL_RE = /https?:\/\/[^\s]+/i;
 const TASK = "poll";
 const MAX_SUBS = 10;
 const MAX_NEW_PER_FEED = 5;
+const MAX_DIGEST_ITEMS = 20;
 const KEEP_SEEN = 30;
 
 interface Subscription {
   url: string;
   alias: string;
   lastSeen: string[];
+  /** 包含關鍵字（任一命中才推送）；空 = 全部。 */
+  include: string[];
+  /** 排除關鍵字（任一命中就丟棄）。 */
+  exclude: string[];
+  /** 摘要模式：不即時推，累積到 digestAt 一次匯整。 */
+  digest: boolean;
+}
+
+interface DigestBufferItem {
+  alias: string;
+  items: FeedItem[];
 }
 
 interface PollState {
   subs: Subscription[];
+  digestBuffer: DigestBufferItem[];
+  /** 下次摘要沖洗時間（epoch ms）；0 = 未設定。 */
+  nextDigestAt: number;
 }
 
-interface FeedItem {
+export interface FeedItem {
   title: string;
   link: string;
   date: string;
@@ -96,7 +112,12 @@ function itemId(it: FeedItem): string {
 async function fetchFeed(url: string): Promise<Feed> {
   const xml = await netFetchText(
     url,
-    { headers: { "User-Agent": UA, Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" } },
+    {
+      headers: {
+        "User-Agent": UA,
+        Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+      },
+    },
     { timeoutMs: 15_000, maxBytes: 2 * 1024 * 1024 },
   );
   return parseFeed(xml);
@@ -113,7 +134,31 @@ function defaultAlias(url: string, title: string): string {
 
 function readSubs(ctx: { taskState: (t: string) => Record<string, unknown> | undefined }): Subscription[] {
   const state = ctx.taskState(TASK) as Partial<PollState> | undefined;
-  return Array.isArray(state?.subs) ? (state.subs as Subscription[]) : [];
+  return normalizeSubs(state?.subs);
+}
+
+/** 正規化訂閱清單（舊資料相容：補上 include/exclude/digest 預設值）。 */
+function normalizeSubs(raw: unknown): Subscription[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as Array<Partial<Subscription>>).map((s) => ({
+    url: s.url ?? "",
+    alias: s.alias ?? "",
+    lastSeen: Array.isArray(s.lastSeen) ? s.lastSeen : [],
+    include: Array.isArray(s.include) ? s.include : [],
+    exclude: Array.isArray(s.exclude) ? s.exclude : [],
+    digest: s.digest === true,
+  }));
+}
+
+function readDigestState(ctx: { taskState: (t: string) => Record<string, unknown> | undefined }): {
+  buffer: DigestBufferItem[];
+  nextDigestAt: number;
+} {
+  const state = ctx.taskState(TASK) as Partial<PollState> | undefined;
+  return {
+    buffer: Array.isArray(state?.digestBuffer) ? (state.digestBuffer as DigestBufferItem[]) : [],
+    nextDigestAt: typeof state?.nextDigestAt === "number" ? state.nextDigestAt : 0,
+  };
 }
 
 function pollMinutesOf(config: Record<string, string>): number {
@@ -121,32 +166,87 @@ function pollMinutesOf(config: Record<string, string>): number {
   return Number.isInteger(n) && n >= 5 && n <= 1440 ? n : 30;
 }
 
+/** 摘要沖洗時間（預設 08:00）。 */
+export function digestAtOf(config: Record<string, string>): string {
+  const m = /^\s*([01]?\d|2[0-3])\s*[:：]\s*([0-5]\d)\s*$/.exec(config.digestAt ?? "");
+  return m ? `${m[1].padStart(2, "0")}:${m[2]}` : "08:00";
+}
+
+/** 下一個「每日 digestAt」的 epoch ms。 */
+export function nextDigestRun(digestAt: string, from = Date.now()): number {
+  const [hh, mm] = digestAt.split(":").map(Number);
+  const now = nowInTz();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm).getTime();
+  return today > from ? today : today + 86_400_000;
+}
+
+/** 訂閱參數解析：「含:a,b」「排除:c」「摘要」。 */
+export function parseFilters(args: string): { include: string[]; exclude: string[]; digest: boolean } {
+  const include =
+    /含[:：]?\s*([^\s]+)/
+      .exec(args)?.[1]
+      ?.split(/[,，、]+/)
+      .filter(Boolean) ?? [];
+  const exclude =
+    /排(?:除|斥)?[:：]?\s*([^\s]+)/
+      .exec(args)?.[1]
+      ?.split(/[,，、]+/)
+      .filter(Boolean) ?? [];
+  const digest = /摘要|匯整|digest/i.test(args);
+  return { include, exclude, digest };
+}
+
+/** 依 include/exclude 規則過濾項目（標題不分大小寫比對）。 */
+export function filterItems(items: FeedItem[], sub: Pick<Subscription, "include" | "exclude">): FeedItem[] {
+  const inc = (sub.include ?? []).filter(Boolean);
+  const exc = (sub.exclude ?? []).filter(Boolean);
+  return items.filter((it) => {
+    const t = it.title.toLowerCase();
+    if (inc.length > 0 && !inc.some((k) => t.includes(k.toLowerCase()))) return false;
+    if (exc.some((k) => t.includes(k.toLowerCase()))) return false;
+    return true;
+  });
+}
+
+function subBadge(sub: Subscription): string {
+  const parts: string[] = [];
+  if (sub.include.length > 0) parts.push(`含 ${sub.include.join(",")}`);
+  if (sub.exclude.length > 0) parts.push(`排 ${sub.exclude.join(",")}`);
+  if (sub.digest) parts.push("摘要");
+  return parts.length > 0 ? `（${parts.join("・")}）` : "";
+}
+
 const rssSkill: SkillDefinition = {
   id: "rss",
   name: "RSS 訂閱摘要",
   description: {
-    zh: "讀取 RSS/Atom 摘要。",
-    en: "Read RSS/Atom feeds.",
-    ja: "RSS/Atom フィードを読み取ります。",
+    zh: "讀取 RSS/Atom 摘要；訂閱可關鍵字過濾（含/排除）或改每日摘要彙整。",
+    en: "Read RSS/Atom feeds; subscriptions support keyword filters and daily digest mode.",
+    ja: "RSS/Atom フィードを読み取り。購読はキーワード絞り込み（含む/除外）や毎日ダイジェストにも対応。",
   },
   usage: {
-    zh: "rss https://example.com/feed.xml 5；rss 訂閱 https://example.com/feed.xml",
-    en: "rss https://example.com/feed.xml 5; rss subscribe https://example.com/feed.xml",
-    ja: "rss https://example.com/feed.xml 5",
+    zh: "rss https://example.com/feed.xml 5；rss 訂閱 https://example.com/feed.xml 含:apple 排除:rumor 摘要；rss 清單",
+    en: "rss https://example.com/feed.xml 5; rss subscribe https://example.com/feed.xml include:apple exclude:rumor digest; rss list",
+    ja: "rss https://example.com/feed.xml 5；rss 購読 https://example.com/feed.xml 含:apple 除外:rumor ダイジェスト；rss 一覧",
   },
-  category: {
-    zh: "內容訂閱",
-    en: "Feeds",
-    ja: "フィード",
-  },
+  category: { zh: "內容訂閱", en: "Feeds", ja: "フィード" },
   defaultTrigger: "rss",
   triggerAliases: ["訂閱", "摘要", "feed", "訂閱摘要"],
   fields: [
-    { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 30 分鐘；可填 10m、1h" },
+    {
+      key: "cacheTtl",
+      label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" },
+      hint: "預設 30 分鐘；可填 10m、1h",
+    },
     {
       key: "pollMinutes",
       label: { zh: "推播檢查間隔（分鐘）", en: "Poll interval (min)", ja: "チェック間隔（分）" },
       hint: "預設 30；5–1440",
+    },
+    {
+      key: "digestAt",
+      label: { zh: "每日摘要沖洗時間", en: "Daily digest time", ja: "毎日ダイジェスト時刻" },
+      hint: "預設 08:00（HH:mm）",
     },
   ],
   async health(): Promise<SkillHealth[]> {
@@ -160,7 +260,10 @@ const rssSkill: SkillDefinition = {
     if (/退訂|取消|刪除|移除/.test(ctx.args)) {
       const subs = readSubs(ctx);
       const url = URL_RE.exec(ctx.args)?.[0];
-      const key = ctx.args.replace(/請幫忙|請幫|幫忙|退訂|取消|刪除|移除|的/g, " ").replace(url ?? "", " ").trim();
+      const key = ctx.args
+        .replace(/請幫忙|請幫|幫忙|退訂|取消|刪除|移除|的/g, " ")
+        .replace(url ?? "", " ")
+        .trim();
       if (!url && !key) {
         await ctx.reply("用法：阿寶請幫忙 rss 退訂 <別名或網址>");
         return;
@@ -174,12 +277,20 @@ const rssSkill: SkillDefinition = {
       }
       const removed = subs[idx];
       subs.splice(idx, 1);
+      const digestOff = removed.digest && subs.every((s) => !s.digest);
       if (subs.length === 0) {
         ctx.unwatch(TASK);
         await ctx.reply(`已退訂：${removed.alias}（已無訂閱，停止檢查）`);
         return;
       }
-      ctx.watch({ ...watchOpts, state: { subs } });
+      ctx.watch({
+        ...watchOpts,
+        state: {
+          subs,
+          digestBuffer: digestOff ? [] : readDigestState(ctx).buffer,
+          nextDigestAt: digestOff ? 0 : readDigestState(ctx).nextDigestAt,
+        },
+      });
       await ctx.reply(`已退訂：${removed.alias}\n剩下 ${subs.length} 個訂閱。`);
       return;
     }
@@ -191,7 +302,7 @@ const rssSkill: SkillDefinition = {
         await ctx.reply("目前沒有 RSS 訂閱。用法：阿寶請幫忙 rss 訂閱 https://example.com/feed.xml");
         return;
       }
-      const lines = subs.map((s, i) => `${i + 1}. ${s.alias}\n  ${s.url}`);
+      const lines = subs.map((s, i) => `${i + 1}. ${s.alias}${subBadge(s)}\n  ${s.url}`);
       await ctx.reply(`RSS 訂閱共 ${subs.length} 個（${describeWatch(watchOpts)}檢查）：\n${lines.join("\n")}`);
       return;
     }
@@ -207,7 +318,7 @@ const rssSkill: SkillDefinition = {
     if (subscribe) {
       const subs = readSubs(ctx);
       if (subs.some((s) => s.url === url)) {
-        await ctx.reply("已經訂閱過這個網址了。");
+        await ctx.reply("已經訂閱過這個網址了。（可退訂後重新訂閱以修改過濾條件）");
         return;
       }
       if (subs.length >= MAX_SUBS) {
@@ -226,14 +337,40 @@ const rssSkill: SkillDefinition = {
         await ctx.reply("這個網址讀不到項目，請確認是否為 RSS/Atom feed。");
         return;
       }
-      const alias = ctx.args.replace(/請幫忙|請幫|幫忙|訂閱|的/g, " ").replace(url, " ").trim() || defaultAlias(url, feed.title);
-      subs.push({ url, alias, lastSeen: feed.items.slice(0, KEEP_SEEN).map(itemId) });
-      ctx.watch({ ...watchOpts, state: { subs } });
-      await ctx.reply(`已訂閱：${alias}（${describeWatch(watchOpts)}檢查新文章）\n${url}`);
+      const filters = parseFilters(ctx.args.replace(url, " "));
+      const alias =
+        ctx.args
+          .replace(/請幫忙|請幫|幫忙|訂閱|的/g, " ")
+          .replace(url, " ")
+          .replace(/含[:：]?\s*[^\s]+/g, " ")
+          .replace(/排(?:除|斥)?[:：]?\s*[^\s]+/g, " ")
+          .replace(/摘要|匯整/g, " ")
+          .trim() || defaultAlias(url, feed.title);
+      const sub: Subscription = {
+        url,
+        alias,
+        lastSeen: feed.items.slice(0, KEEP_SEEN).map(itemId),
+        include: filters.include,
+        exclude: filters.exclude,
+        digest: filters.digest,
+      };
+      subs.push(sub);
+      const digestState = readDigestState(ctx);
+      const nextDigestAt =
+        filters.digest && digestState.nextDigestAt === 0
+          ? nextDigestRun(digestAtOf(ctx.config))
+          : digestState.nextDigestAt;
+      ctx.watch({ ...watchOpts, state: { subs, digestBuffer: digestState.buffer, nextDigestAt } });
+      const modeNote = filters.digest
+        ? `，採每日摘要（${digestAtOf(ctx.config)} 匯整）`
+        : filters.include.length + filters.exclude.length > 0
+          ? `，已套用過濾${subBadge(sub)}`
+          : "";
+      await ctx.reply(`已訂閱：${alias}${modeNote}（${describeWatch(watchOpts)}檢查新文章）\n${url}`);
       return;
     }
 
-    // 單次摘要（原行為）
+    // 單次摘要（原行為；已訂閱者套用其過濾條件）
     const numMatch = ctx.args.replace(url, "").match(/(\d{1,2})/);
     const limit = Math.min(Math.max(numMatch ? Number(numMatch[1]) : 8, 1), 20);
     const ttlMs = parseTtl(ctx.config.cacheTtl, 30);
@@ -255,7 +392,13 @@ const rssSkill: SkillDefinition = {
       writeCache(cacheKey, feed);
     }
 
-    const items = feed.items.slice(0, limit);
+    const sub = readSubs(ctx).find((s) => s.url === url);
+    const visible = sub ? filterItems(feed.items, sub) : feed.items;
+    if (visible.length === 0) {
+      await ctx.reply(sub ? `「${sub.alias}」沒有符合過濾條件的項目。` : "這個網址讀不到項目。");
+      return;
+    }
+    const items = visible.slice(0, limit);
     const lines = items.map((it) => {
       const date = it.date ? ` (${shortDate(it.date)})` : "";
       return `・${it.title}${date}${it.link ? `\n  ${it.link}` : ""}`;
@@ -265,9 +408,15 @@ const rssSkill: SkillDefinition = {
     await ctx.reply(`${head}最新 ${items.length} 則：\n${lines.join("\n")}`);
   },
   async onTask(ctx: SkillTaskContext): Promise<void> {
-    const state = ctx.state as { subs?: Subscription[] };
-    const subs: Subscription[] = Array.isArray(state.subs) ? state.subs : [];
+    const state = ctx.state as Partial<PollState>;
+    const subs = normalizeSubs(state.subs);
     if (subs.length === 0) return;
+
+    const buffer: DigestBufferItem[] = Array.isArray(state.digestBuffer) ? [...state.digestBuffer] : [];
+    let nextDigestAt = typeof state.nextDigestAt === "number" ? state.nextDigestAt : 0;
+    const hasDigest = subs.some((s) => s.digest);
+    if (hasDigest && nextDigestAt === 0) nextDigestAt = nextDigestRun(digestAtOf(ctx.config));
+
     let changed = false;
     for (const sub of subs) {
       let feed: Feed;
@@ -283,15 +432,42 @@ const rssSkill: SkillDefinition = {
       const seen = new Set(sub.lastSeen);
       const fresh = feed.items.filter((it) => !seen.has(itemId(it)));
       if (fresh.length === 0) continue;
-      const show = fresh.slice(0, MAX_NEW_PER_FEED);
-      const lines = show.map((it) => `・${it.title}${it.link ? `\n  ${it.link}` : ""}`);
-      const more = fresh.length > show.length ? `\n（另有 ${fresh.length - show.length} 則未列出）` : "";
-      await ctx.reply(`📰 ${sub.alias} 有 ${fresh.length} 則更新：\n${lines.join("\n")}${more}`);
+
+      const matched = filterItems(fresh, sub);
+      if (matched.length > 0 && sub.digest) {
+        // 摘要模式：進緩衝區，不即時推播。
+        const slot = buffer.find((b) => b.alias === sub.alias) ?? { alias: sub.alias, items: [] };
+        slot.items = [...slot.items, ...matched].slice(-MAX_DIGEST_ITEMS);
+        if (!buffer.includes(slot)) buffer.push(slot);
+        changed = true;
+      } else if (matched.length > 0) {
+        const show = matched.slice(0, MAX_NEW_PER_FEED);
+        const lines = show.map((it) => `・${it.title}${it.link ? `\n  ${it.link}` : ""}`);
+        const more = matched.length > show.length ? `\n（另有 ${matched.length - show.length} 則未列出）` : "";
+        const filtered = fresh.length !== matched.length ? `（過濾掉 ${fresh.length - matched.length} 則）` : "";
+        await ctx.reply(`📰 ${sub.alias} 有 ${matched.length} 則更新${filtered}：\n${lines.join("\n")}${more}`);
+      }
       sub.lastSeen = [...fresh.map(itemId), ...sub.lastSeen].slice(0, KEEP_SEEN);
       changed = true;
     }
+
+    // 每日摘要沖洗
+    if (hasDigest && buffer.length > 0 && Date.now() >= nextDigestAt) {
+      const blocks: string[] = [];
+      let total = 0;
+      for (const slot of buffer) {
+        total += slot.items.length;
+        const lines = slot.items.map((it) => `・${it.title}${it.link ? `\n  ${it.link}` : ""}`);
+        blocks.push(`【${slot.alias}】\n${lines.join("\n")}`);
+      }
+      await ctx.reply(`📬 RSS 每日摘要（共 ${total} 則）：\n${blocks.join("\n\n")}`);
+      buffer.length = 0;
+      nextDigestAt = nextDigestRun(digestAtOf(ctx.config));
+      changed = true;
+    }
+
     if (changed) {
-      await ctx.saveState({ subs });
+      await ctx.saveState({ subs, digestBuffer: buffer, nextDigestAt });
     }
   },
 };

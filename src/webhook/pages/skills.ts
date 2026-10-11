@@ -41,7 +41,7 @@ export function renderSkillsHtml() {
   <div class="field"><label data-i18n="lbl_assistant_name">助理名稱</label><input id="assistant-name" type="text" placeholder="阿寶"></div>
   <div class="actions"><button type="button" id="skills-save" data-i18n="save_settings">儲存</button><span id="skills-msg" class="msg"></span></div>
 </div>
-<div style="margin:10px 0 6px"><input id="skill-filter" data-i18n-ph="ph_filter_skills" placeholder="快速篩選：名稱、ID、觸發詞、說明…" style="width:100%;max-width:460px"></div>
+<div style="margin:10px 0 6px;display:flex;gap:12px;align-items:center;flex-wrap:wrap"><input id="skill-filter" data-i18n-ph="ph_filter_skills" placeholder="快速篩選：名稱、ID、觸發詞、說明…" style="width:100%;max-width:460px"><label style="display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer"><input id="skill-filter-disabled" type="checkbox"><span data-i18n="lbl_disabled_only">只看未啟用</span></label></div>
 <div id="skillList"></div>
 </div>
 
@@ -601,13 +601,15 @@ export function renderSkillsHtml() {
     return true;
   }
 
-  function filterBlocks(hostId, filterId, itemSelector) {
+  function filterBlocks(hostId, filterId, itemSelector, extra) {
     var q = (($(filterId) && $(filterId).value) || "").trim().toLowerCase();
     var host = $(hostId);
     if (!host) return;
     Array.prototype.forEach.call(host.querySelectorAll(itemSelector), function (el) {
       var hay = el.getAttribute("data-search") || "";
-      el.style.display = !q || hay.indexOf(q) !== -1 ? "" : "none";
+      var show = !q || hay.indexOf(q) !== -1;
+      if (show && extra) show = extra(el);
+      el.style.display = show ? "" : "none";
     });
     Array.prototype.forEach.call(host.querySelectorAll(".skill-group"), function (g) {
       var visible = 0;
@@ -619,7 +621,11 @@ export function renderSkillsHtml() {
   }
 
   function applySkillFilter() {
-    filterBlocks("skillList", "skill-filter", ".skill-card");
+    var onlyDisabled = $("skill-filter-disabled") && $("skill-filter-disabled").checked;
+    filterBlocks("skillList", "skill-filter", ".skill-card", onlyDisabled ? function (card) {
+      var enabled = card.querySelector(".sk-enabled");
+      return !enabled || !enabled.checked;
+    } : null);
   }
 
   function applyManageFilter() {
@@ -741,6 +747,7 @@ export function renderSkillsHtml() {
   });
 
   $("skill-filter").addEventListener("input", applySkillFilter);
+  $("skill-filter-disabled").addEventListener("change", applySkillFilter);
   $("manage-filter").addEventListener("input", applyManageFilter);
 
   loadSkills();
