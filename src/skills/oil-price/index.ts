@@ -1,6 +1,6 @@
-import { logger } from "../../logger.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import type { SkillContext, SkillDefinition } from "../types.js";
+import { logger } from "@lw/logger";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import type { SkillContext, SkillDefinition } from "@lw/skills/types";
 
 const SOURCE = "https://vipmbr.cpc.com.tw/openData/MainProdListPrice";
 const CACHE_NAME = "oil-price";

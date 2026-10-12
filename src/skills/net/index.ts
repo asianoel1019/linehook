@@ -1,7 +1,7 @@
 import { promises as dns } from "node:dns";
-import { logger } from "../../logger.js";
-import { fetchText } from "../../net.js";
-import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
+import { logger } from "@lw/logger";
+import { fetchText } from "@lw/net";
+import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const IP_APIS = ["https://api.ipify.org", "https://ipinfo.io/ip"];
 

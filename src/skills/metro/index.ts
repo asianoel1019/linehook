@@ -1,7 +1,7 @@
-import { logger } from "../../logger.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import { fetchJson as netFetchJson } from "../../net.js";
-import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
+import { logger } from "@lw/logger";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import { fetchJson as netFetchJson } from "@lw/net";
+import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const TDX_AUTH = "https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token";
 const TDX_BASE = "https://tdx.transportdata.tw/api/basic/v2/Rail/Metro";

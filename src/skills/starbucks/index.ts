@@ -1,8 +1,8 @@
-import { logger } from "../../logger.js";
-import { nowInTz } from "../../time.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import { fetchText as netFetchText } from "../../net.js";
-import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
+import { logger } from "@lw/logger";
+import { nowInTz } from "@lw/time";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import { fetchText as netFetchText } from "@lw/net";
+import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) (compatible; ImHook/1.0)";
 const SOURCE = "https://starbucks.user.today/";

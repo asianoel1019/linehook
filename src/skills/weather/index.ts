@@ -1,10 +1,10 @@
-import { logger } from "../../logger.js";
-import { config } from "../../config.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import { fetchBuffer, fetchJson as netFetchJson } from "../../net.js";
+import { logger } from "@lw/logger";
+import { config } from "@lw/config";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import { fetchBuffer, fetchJson as netFetchJson } from "@lw/net";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
+import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const CACHE_NAME = "weather";
 const UA = "Mozilla/5.0 (compatible; ImHook/1.0)";

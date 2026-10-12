@@ -1,6 +1,6 @@
-import { logger } from "../../logger.js";
-import { nowInTz } from "../../time.js";
-import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "../types.js";
+import { logger } from "@lw/logger";
+import { nowInTz } from "@lw/time";
+import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
 
 const TASK = "daily";
 const MAX_ITEMS = 30;

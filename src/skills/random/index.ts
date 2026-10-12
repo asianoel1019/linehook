@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
+import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const FOODS = [
   "拉麵",

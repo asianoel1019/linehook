@@ -1,7 +1,7 @@
-import { logger } from "../../logger.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import { fetchJson as netFetchJson } from "../../net.js";
-import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
+import { logger } from "@lw/logger";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import { fetchJson as netFetchJson } from "@lw/net";
+import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const CACHE_NAME = "air-quality";
 const USER_AGENT = "Mozilla/5.0 (compatible; ImHook/1.0)";

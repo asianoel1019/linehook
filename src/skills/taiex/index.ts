@@ -1,7 +1,7 @@
-import { logger } from "../../logger.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import { fetchChart } from "../stock/index.js";
-import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
+import { logger } from "@lw/logger";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import { fetchChart } from "@lw/skills/stock";
+import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const CACHE_NAME = "taiex";
 

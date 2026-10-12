@@ -6,9 +6,9 @@ import {
   pushHistory,
   toVisionContent,
   type ChatMessage,
-} from "../llm.js";
-import { runAgent } from "../agent.js";
-import type { SkillContext, SkillDefinition } from "../types.js";
+} from "@lw/skills/llm";
+import { runAgent } from "@lw/skills/agent";
+import type { SkillContext, SkillDefinition } from "@lw/skills/types";
 
 const TOOL_HINT = [
   "你可以使用工具查即時資料（天氣／台股股價／匯率）。",

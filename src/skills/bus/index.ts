@@ -1,7 +1,7 @@
-import { logger } from "../../logger.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "../types.js";
-import { describeWatch } from "../watch.js";
+import { logger } from "@lw/logger";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
+import { describeWatch } from "@lw/skills/watch";
 
 const TDX_AUTH = "https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token";
 const TDX_BASE = "https://tdx.transportdata.tw/api/basic/v2/Bus";

@@ -1,7 +1,7 @@
-import { logger } from "../../logger.js";
-import { nowInTz } from "../../time.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
+import { logger } from "@lw/logger";
+import { nowInTz } from "@lw/time";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const RID = "a6e90031-7ec4-4089-afb5-361a4efe7202";
 const API = `https://data.taipei/api/v1/dataset/${RID}?scope=resourceAquire`;

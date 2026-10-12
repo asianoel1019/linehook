@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { config } from "../../config.js";
-import { logger } from "../../logger.js";
-import { nowInTz, zonedTimeToMs } from "../../time.js";
-import { loadDayStatus } from "../holiday/index.js";
-import { solarToLunar } from "../lunar/index.js";
-import type { SkillContext, SkillDefinition, SkillWatchView, SkillTaskContext } from "../types.js";
+import { config } from "@lw/config";
+import { logger } from "@lw/logger";
+import { nowInTz, zonedTimeToMs } from "@lw/time";
+import { loadDayStatus } from "@lw/skills/holiday";
+import { solarToLunar } from "@lw/skills/lunar";
+import type { SkillContext, SkillDefinition, SkillWatchView, SkillTaskContext } from "@lw/skills/types";
 
 function pad(n: number): string {
   return ("0" + n).slice(-2);

@@ -1,6 +1,6 @@
-import { logger } from "../../logger.js";
-import { nowInTz } from "../../time.js";
-import type { SkillContext, SkillDefinition } from "../types.js";
+import { logger } from "@lw/logger";
+import { nowInTz } from "@lw/time";
+import type { SkillContext, SkillDefinition } from "@lw/skills/types";
 
 // 1900-2100 農曆資料表（每年一個 16 進位值：低 4 位為閏月，其餘為 12 個月大小月）。
 const LUNAR_INFO = [

@@ -1,8 +1,8 @@
-import { logger } from "../../logger.js";
-import { nowInTz } from "../../time.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import { fetchText as netFetchText } from "../../net.js";
-import type { SkillContext, SkillDefinition } from "../types.js";
+import { logger } from "@lw/logger";
+import { nowInTz } from "@lw/time";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import { fetchText as netFetchText } from "@lw/net";
+import type { SkillContext, SkillDefinition } from "@lw/skills/types";
 
 const CACHE_NAME = "lottery-invoice";
 const USER_AGENT = "Mozilla/5.0 (compatible; ImHook/1.0)";

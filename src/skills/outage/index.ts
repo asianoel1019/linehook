@@ -1,7 +1,7 @@
-import { logger } from "../../logger.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import { fetchJson as netFetchJson, fetchText as netFetchText } from "../../net.js";
-import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
+import { logger } from "@lw/logger";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import { fetchJson as netFetchJson, fetchText as netFetchText } from "@lw/net";
+import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const WATER_URL = "https://web.water.gov.tw/wateroffapi/openData/export/json";
 const NEWS_URL = "https://news.google.com/rss/search?q=%E5%81%9C%E9%9B%BB%20%E5%8F%B0%E7%81%A3&hl=zh-TW&gl=TW&ceid=TW:zh-Hant";

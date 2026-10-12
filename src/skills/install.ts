@@ -7,6 +7,15 @@ import { hideSkill, isBuiltinSkill, reloadSkills, listSkills } from "./loader.js
 
 const builtinDir = fileURLToPath(new URL(".", import.meta.url));
 
+/**
+ * 技能 API 版本：技能用 `@lw/*` 別名匯入宿主的共享模組（llm/cache/net/…）與其他技能，
+ * 這份清單由主機提供。升級若破壞相容性就提高這個數字；安裝較新的技能會被擋下。
+ */
+export const SKILL_API_VERSION = 1;
+
+/** 別名匯入面（寫文件用；實際解析由專案根的 alias-hooks.mjs 負責）。 */
+export const SKILL_ALIAS_PREFIX = "@lw/";
+
 // fflate 為選用依賴：延遲載入，避免未安裝時整個服務啟動失敗。
 async function loadFflate(): Promise<{
   unzipSync: (data: Uint8Array) => Record<string, Uint8Array>;
@@ -116,10 +125,16 @@ export async function installZip(buffer: Buffer): Promise<{ id: string; files: n
   const manifestKey = names.find((n) => n.endsWith("skill.json"));
   if (manifestKey) {
     try {
-      const m = JSON.parse(Buffer.from(files[manifestKey]).toString("utf8")) as { id?: string };
+      const m = JSON.parse(Buffer.from(files[manifestKey]).toString("utf8")) as { id?: string; api?: unknown };
       if (m.id) id = safeName(m.id);
-    } catch {
-      // ignore
+      // 技能 API 版本：技能以 @lw/* 別名匯入宿主模組，主機版本較舊就明確拒絕，
+      // 而不是裝了一個載入時才默默消失的技能。
+      if (typeof m.api === "number" && m.api > SKILL_API_VERSION) {
+        throw new Error(`技能需要更新的主機（api ${m.api} > 本機 ${SKILL_API_VERSION}），請先更新 IM Webhook`);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("api ")) throw error;
+      // manifest 壞掉不阻止安裝（退回用資料夾名當 id）
     }
   }
   if (!id) {
@@ -139,11 +154,7 @@ export async function installZip(buffer: Buffer): Promise<{ id: string; files: n
   for (const name of names) {
     const rel = singleRoot ? name.split("/").slice(1).join("/") : name;
     if (!rel) continue;
-    const clean = rel
-      .split("/")
-      .map(safeName)
-      .filter(Boolean)
-      .join("/");
+    const clean = rel.split("/").map(safeName).filter(Boolean).join("/");
     if (!clean) continue;
     const target = resolve(destDir, clean);
     if (!target.startsWith(destDir)) continue; // 防目錄穿越
@@ -152,7 +163,11 @@ export async function installZip(buffer: Buffer): Promise<{ id: string; files: n
     count++;
   }
 
-  if (!existsSync(join(destDir, "index.js")) && !existsSync(join(destDir, "index.mjs")) && !existsSync(join(destDir, "index.cjs"))) {
+  if (
+    !existsSync(join(destDir, "index.js")) &&
+    !existsSync(join(destDir, "index.mjs")) &&
+    !existsSync(join(destDir, "index.cjs"))
+  ) {
     rmSync(destDir, { recursive: true, force: true });
     throw new Error("技能缺少 index.js（或 index.mjs）進入點");
   }
@@ -204,9 +219,23 @@ export async function buildSkillZip(
   },
 ): Promise<Buffer | null> {
   const dir = join(builtinDir, id);
+  // 優先打包已編譯的 dist 版（Docker／正式機裝了就能跑）；本機沒 build 才退回 src。
+  const appRoot = fileURLToPath(new URL("../..", import.meta.url));
+  const compiled = join(appRoot, "dist", "skills", id, "index.js");
   let entry = "";
-  if (existsSync(join(dir, "index.js"))) entry = "index.js";
-  else if (existsSync(join(dir, "index.ts"))) entry = "index.ts";
+  let entryName = "";
+  if (existsSync(compiled)) {
+    entry = compiled;
+    entryName = "index.js";
+  } else {
+    for (const f of ["index.js", "index.ts"]) {
+      if (existsSync(join(dir, f))) {
+        entry = join(dir, f);
+        entryName = f;
+        break;
+      }
+    }
+  }
   if (!entry) return null;
 
   const { zipSync } = await loadFflate();
@@ -221,6 +250,7 @@ export async function buildSkillZip(
         ...(meta.category ? { category: meta.category } : {}),
         ...(meta.defaultTrigger ? { defaultTrigger: meta.defaultTrigger } : {}),
         ...(meta.triggerAliases && meta.triggerAliases.length > 0 ? { triggerAliases: meta.triggerAliases } : {}),
+        api: SKILL_API_VERSION,
         version: meta.version ?? "1.0.0",
       },
       null,
@@ -228,6 +258,6 @@ export async function buildSkillZip(
     ),
     "utf8",
   );
-  files[entry] = readFileSync(join(dir, entry));
+  files[entryName] = readFileSync(entry);
   return Buffer.from(zipSync(files));
 }

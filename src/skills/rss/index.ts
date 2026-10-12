@@ -1,9 +1,9 @@
-import { logger } from "../../logger.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import { fetchText as netFetchText } from "../../net.js";
-import { nowInTz } from "../../time.js";
-import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "../types.js";
-import { describeWatch } from "../watch.js";
+import { logger } from "@lw/logger";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import { fetchText as netFetchText } from "@lw/net";
+import { nowInTz } from "@lw/time";
+import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
+import { describeWatch } from "@lw/skills/watch";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) (compatible; ImHook/1.0)";
 const URL_RE = /https?:\/\/[^\s]+/i;

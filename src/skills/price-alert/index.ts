@@ -1,9 +1,9 @@
-import { logger } from "../../logger.js";
-import { fetchChart, resolveSymbol } from "../stock/index.js";
-import { getRates, toCode } from "../exchange-rate/index.js";
-import { parseTtl } from "../cache.js";
-import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "../types.js";
-import { describeWatch } from "../watch.js";
+import { logger } from "@lw/logger";
+import { fetchChart, resolveSymbol } from "@lw/skills/stock";
+import { getRates, toCode } from "@lw/skills/exchange-rate";
+import { parseTtl } from "@lw/skills/cache";
+import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
+import { describeWatch } from "@lw/skills/watch";
 
 const TASK = "check";
 const MAX_ALERTS = 20;

@@ -1,7 +1,7 @@
 import { connect } from "node:tls";
-import { fetchWithLimits } from "../../net.js";
-import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "../types.js";
-import { describeWatch } from "../watch.js";
+import { fetchWithLimits } from "@lw/net";
+import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
+import { describeWatch } from "@lw/skills/watch";
 
 const TASK = "monitor";
 const MAX_SITES = 10;

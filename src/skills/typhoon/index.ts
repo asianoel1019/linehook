@@ -1,9 +1,9 @@
-import { config } from "../../config.js";
-import { logger } from "../../logger.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import { fetchJson as netFetchJson } from "../../net.js";
-import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "../types.js";
-import { describeWatch } from "../watch.js";
+import { config } from "@lw/config";
+import { logger } from "@lw/logger";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import { fetchJson as netFetchJson } from "@lw/net";
+import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
+import { describeWatch } from "@lw/skills/watch";
 
 const UA = "Mozilla/5.0 (compatible; ImHook/1.0)";
 const WARN_API = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/W-C0033-005";

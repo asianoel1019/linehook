@@ -1,5 +1,5 @@
-import { logger } from "../../logger.js";
-import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "../types.js";
+import { logger } from "@lw/logger";
+import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
 
 const TASK = "polls";
 const MAX_POLLS = 5;

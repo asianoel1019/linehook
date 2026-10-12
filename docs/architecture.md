@@ -240,13 +240,55 @@ X-Signature: <HMAC-SHA256(body, secret)>   # 或 ?token=<WEBHOOK_TOKEN> / Author
   `renderSimulation()` 另產純文字版（log/測試用）。
 - 已知近似：限流與自動回覆冷卻顯示**當下真實狀態**（只讀）；模擬不回答「技能跑了會回什麼」。
 
+## 技能的模組解析（@lw/* 別名）
+
+技能要能被 zip 自包含分享，就不能用 `../../logger.js` 這種依賴目錄結構的相對匯入
+（zip 只帶 `index.js`，裝到 `data/skills/<id>/` 後 `..` 就指到別處，載入直接失敗）。
+
+- **約定**：技能一律以 `@lw/*` 裸指定字匯入宿主要提供的東西：
+  - `@lw/logger`、`@lw/config`、`@lw/net`、`@lw/time` → `src/<模組>`
+  - `@lw/skills/llm`、`@lw/skills/cache`、`@lw/skills/watch` → `src/skills/<模組>`
+  - `@lw/skills/weather` → `src/skills/weather/index`（可依賴其他技能，由宿主提供實例）
+- **解析**：`alias.mjs`（`--import` 載入）→ `module.register` 掛上 `alias-hooks.mjs` 的 resolve hook，
+  依「開發（argv 是 .ts → src）／正式（dist）」選 base，把別名對應到實際檔案。
+  因為指向宿主那一份，`config`/`logger`/`cache` 等單例不會被複製。
+- **啟動方式**（三處都要帶，否則技能載入會失敗並在 log 給 hint）：
+  `npm run dev`／`npm start`、`tests/run.mjs`、`ecosystem.config.cjs` 的 `interpreter_args`、Dockerfile `CMD`。
+- **型別**：tsconfig `paths` 把 `@lw/*` 對應到 `./src/*.ts` 與 `./src/*/index.ts`（tsc 不改寫匯入，輸出仍是別名，執行時由 hook 解析）。
+- **版本把關**：`skill.json` 帶 `api`（`SKILL_API_VERSION`）；安裝時若高於主機就明確拒絕，
+  不會裝一個載入時才默默消失的技能。build-library 與 buildSkillZip 都會標上。
+- **迴歸保證**：`tests/skill-sharing.test.ts` 斷言 (a) 每個內建技能 dist 版 `index.js`
+  **沒有任何相對匯入**、(b) zip 只含 `skill.json`+`index.js`、(c) 外部技能只用別名就能載入並呼叫宿主模組、
+  (d) `@lw/..` 穿越與未知別名都被拒絕。
+
+### 寫一個外部技能（最小範例）
+
+```js
+// data/skills/my-skill/index.js
+import { chat } from "@lw/skills/llm";          // 宿主的 LLM 介面
+import { fetchWeather } from "@lw/skills/weather"; // 宿主的天氣技能
+import { logger } from "@lw/logger";
+
+export default {
+  id: "my-skill",
+  name: "我的技能",
+  defaultTrigger: "我的",
+  fields: [],
+  async run(ctx) {
+    logger.info("我的技能被觸發", { chat: ctx.chat });
+    await ctx.reply("你好，" + ctx.fromName);
+  },
+};
+```
+
+不需要 `package.json`、不需要帶任何依賴檔、不需要知道專案目錄結構。
+
 ## 建置與部署（技能庫）
 
 - `library/` 不在版控（部署產物）；建置腳本 `scripts/build-library.mjs` 是版控中唯一的 `scripts/` 例外。
   **部署前執行 `node scripts/build-library.mjs`**：重新產生 `library/index.html` 與全部技能 zip；
   有 `dist/` 時 zip 內打包編譯後的 `index.js`（裝進 `data/skills` 即可執行，不需 TS 執行環境）。
 - Docker 在 build stage 自動執行，runtime stage 只 `COPY` 產物（`/library/` 供「前往技能庫下載」）。
-- **已知限制**：zip 只打包技能自己的進入點；引用共享模組的技能（LLM 系列依賴 `llm.js`，
-  AI 工具呼叫另依賴 `agent.js` / `tools.js`）從 zip 安裝後無法解析相對路徑，
-  這類技能請以內建（src）路徑使用；其餘自含技能不受影響。
+- zip 只含 `skill.json` + `index.js`：技能其餘依賴全部走 `@lw/*` 別名向宿主要（見上一節），
+  因此每個技能都是自包含的、裝到任何位置都能跑。
 

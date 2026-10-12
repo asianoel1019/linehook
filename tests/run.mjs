@@ -11,12 +11,16 @@ env.STORAGE_KIND = process.env.STORAGE_KIND || "jsonl";
 // 4 個同時跑仍能維持整體速度，可用 TEST_CONCURRENCY 覆寫。
 const concurrency = Number(process.env.TEST_CONCURRENCY) > 0 ? Number(process.env.TEST_CONCURRENCY) : 4;
 
+// 技能用 @lw/* 別名匯入宿主模組；測試也必須註冊同一個 hook，
+// 否則「從 data/skills 載入外部技能」的測試會解析不到別名。
+const alias = new URL("../alias.mjs", import.meta.url).href;
+
 const args = process.argv.slice(2);
 const files = args.length > 0 ? args : ["tests/*.test.ts"];
 
 const result = spawnSync(
   process.execPath,
-  ["--import", "tsx", "--test", `--test-concurrency=${concurrency}`, ...files],
+  ["--import", "tsx", "--import", alias, "--test", `--test-concurrency=${concurrency}`, ...files],
   {
     stdio: "inherit",
     env,

@@ -1,6 +1,6 @@
 import QRCode from "qrcode";
-import { logger } from "../../logger.js";
-import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
+import { logger } from "@lw/logger";
+import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const URL_RE = /https?:\/\/[^\s]+/i;
 

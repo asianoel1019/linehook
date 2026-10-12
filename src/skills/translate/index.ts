@@ -1,5 +1,5 @@
-import { logger } from "../../logger.js";
-import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
+import { logger } from "@lw/logger";
+import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const GOOGLE = "https://translate.googleapis.com/translate_a/single";
 

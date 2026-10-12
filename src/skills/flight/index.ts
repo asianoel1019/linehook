@@ -1,7 +1,7 @@
-import { logger } from "../../logger.js";
-import { nowInTz } from "../../time.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import type { SkillContext, SkillDefinition, SkillHealth } from "../types.js";
+import { logger } from "@lw/logger";
+import { nowInTz } from "@lw/time";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const UA = "Mozilla/5.0 (compatible; ImHook/1.0)";
 

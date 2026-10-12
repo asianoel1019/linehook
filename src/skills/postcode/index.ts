@@ -1,4 +1,4 @@
-import type { SkillContext, SkillDefinition } from "../types.js";
+import type { SkillContext, SkillDefinition } from "@lw/skills/types";
 
 /** 郵遞區號資料：縣市 → 區鄉鎮市 → 3+2 碼（取前 3 碼為主，附後 2 碼） */
 const DATA: Record<string, Record<string, string>> = {

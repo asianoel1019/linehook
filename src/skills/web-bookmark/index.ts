@@ -1,6 +1,6 @@
-import { logger } from "../../logger.js";
-import { fetchText as netFetchText } from "../../net.js";
-import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "../types.js";
+import { logger } from "@lw/logger";
+import { fetchText as netFetchText } from "@lw/net";
+import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
 
 const TASK = "bookmarks";
 const MAX_BOOKMARKS = 100;

@@ -1,8 +1,8 @@
-import { logger } from "../../logger.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import { fetchText as netFetchText } from "../../net.js";
-import { nowInTz } from "../../time.js";
-import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "../types.js";
+import { logger } from "@lw/logger";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import { fetchText as netFetchText } from "@lw/net";
+import { nowInTz } from "@lw/time";
+import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
 
 const UA = "Mozilla/5.0 (compatible; ImHook/1.0)";
 /** 台灣國定假日 iCal（Google 公開行事曆，免 key、機器可讀）。 */

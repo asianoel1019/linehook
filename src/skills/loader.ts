@@ -14,12 +14,7 @@ function toSkill(mod: unknown): SkillDefinition | null {
   const value = mod as { default?: unknown };
   for (const c of [value?.default, mod]) {
     const def = c as Partial<SkillDefinition> | undefined;
-    if (
-      def &&
-      typeof def.id === "string" &&
-      typeof def.name === "string" &&
-      typeof def.run === "function"
-    ) {
+    if (def && typeof def.id === "string" && typeof def.name === "string" && typeof def.run === "function") {
       return def as SkillDefinition;
     }
   }
@@ -35,7 +30,15 @@ async function tryImportFolder(dir: string): Promise<SkillDefinition | null> {
       const def = toSkill(mod);
       if (def) return def;
     } catch (error) {
-      logger.warn("載入技能失敗", { path: target, error: String(error) });
+      const message = String(error);
+      logger.warn("載入技能失敗", {
+        path: target,
+        error: message,
+        // @lw/* 解析不到的兩種原因：忘了帶 --import ./alias.mjs，或技能用了不相容的別名
+        ...(/@lw\//.test(message)
+          ? { hint: "技能以 @lw/* 匯入宿主持序模組：請確認以 --import ./alias.mjs 啟動，且該別名存在於本機" }
+          : {}),
+      });
     }
   }
   return null;
@@ -148,7 +151,5 @@ export function skillsLoaded(): boolean {
 }
 
 export function isBuiltinSkill(id: string): boolean {
-  return (
-    existsSync(join(builtinDir, id, "index.js")) || existsSync(join(builtinDir, id, "index.ts"))
-  );
+  return existsSync(join(builtinDir, id, "index.js")) || existsSync(join(builtinDir, id, "index.ts"));
 }

@@ -1,6 +1,6 @@
-import { logger } from "../../logger.js";
-import { parseTtl, readCache, writeCache } from "../cache.js";
-import type { SkillContext, SkillDefinition } from "../types.js";
+import { logger } from "@lw/logger";
+import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import type { SkillContext, SkillDefinition } from "@lw/skills/types";
 
 const API = "https://open.er-api.com/v6/latest";
 const CACHE_NAME = "exchange-rate";

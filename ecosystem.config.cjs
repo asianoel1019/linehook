@@ -3,6 +3,8 @@ module.exports = {
     {
       name: "line-webhook",
       script: "dist/index.js",
+      // 技能以 @lw/* 匯入宿主持序模組；PM2 不走 npm scripts，這裡補上 hook。
+      interpreter_args: "--import ./alias.mjs",
       cwd: __dirname,
       // D5：必須維持單一行程。sessions、rate-limit、nonce、idempotency、
       // stats/message 記憶體視窗、LINE/Baileys 長連線全部都在行程內，

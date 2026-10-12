@@ -1,5 +1,5 @@
-import { logger } from "../../logger.js";
-import type { SkillContext, SkillDefinition } from "../types.js";
+import { logger } from "@lw/logger";
+import type { SkillContext, SkillDefinition } from "@lw/skills/types";
 
 export interface Unit {
   name: string;

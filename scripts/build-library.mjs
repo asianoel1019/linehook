@@ -127,6 +127,8 @@ function zipSkill(dir, id, meta) {
         ...(meta.category ? { category: meta.category } : {}),
         ...(meta.defaultTrigger ? { defaultTrigger: meta.defaultTrigger } : {}),
         ...(meta.triggerAliases && meta.triggerAliases.length ? { triggerAliases: meta.triggerAliases } : {}),
+        // 技能 API 版本：zip 只帶 index.js，其餘靠 @lw/* 別名向宿主要
+        api: 1,
         version: meta.version,
       },
       null,
