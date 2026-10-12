@@ -29,6 +29,14 @@ export interface IncomingMessage {
   text: string;
   /** 平台原生訊息 ID（去重用；無則不去重）。 */
   messageId?: string;
+  /** 隨訊息附帶的圖片（base64 inline）；供 AI 圖片理解等技能使用。 */
+  images?: IncomingImage[];
+}
+
+/** 收到訊息的圖片附件（已轉 base64，附 mimeType）。 */
+export interface IncomingImage {
+  base64: string;
+  mimeType: string;
 }
 
 export interface StickerInput {
@@ -92,10 +100,7 @@ export interface IMessagingService {
   sendAdvanced(inputs: SendInput[]): Promise<void>;
 
   schedule(inputs: SendInput[], runAt: number, repeat?: string): ScheduledJobView;
-  updateScheduled(
-    id: string,
-    patch: { runAt?: number; repeat?: string | null },
-  ): ScheduledJobView | null;
+  updateScheduled(id: string, patch: { runAt?: number; repeat?: string | null }): ScheduledJobView | null;
   listScheduled(): ScheduledJobView[];
   cancelScheduled(id: string): boolean;
 

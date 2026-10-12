@@ -20,12 +20,11 @@ import { chunkReplyText } from "../messaging/text.js";
 import { resolveLocalMediaPath } from "../messaging/media.js";
 import type { FlexInput, IMessagingService, LocationInput, SendInput, StickerInput } from "../messaging/types.js";
 import { NotLoggedInError, TargetNotFoundError } from "../messaging/types.js";
-export type {
-  FlexInput,
-  LocationInput,
-  SendInput,
-  StickerInput,
-} from "../messaging/types.js";
+import type { IncomingImage } from "../messaging/types.js";
+
+/** 收到圖片轉 base64 的上限（LLM 請求體限制；超過就略過附件）。 */
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+export type { FlexInput, LocationInput, SendInput, StickerInput } from "../messaging/types.js";
 import { fetchBuffer } from "../net.js";
 
 const AUTH_KEY = ".auth";
@@ -64,12 +63,7 @@ interface LooseContactRaw {
 
 function contactName(raw: unknown): string | undefined {
   const value = raw as LooseContactRaw | undefined;
-  return (
-    value?.contact?.displayName ||
-    value?.targetProfileDetail?.profileName ||
-    value?.displayName ||
-    undefined
-  );
+  return value?.contact?.displayName || value?.targetProfileDetail?.profileName || value?.displayName || undefined;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -107,12 +101,7 @@ function extFor(kind: string, mime?: string): string {
   return "bin";
 }
 
-async function withRetry<T>(
-  label: string,
-  fn: () => Promise<T>,
-  attempts = 3,
-  baseMs = 800,
-): Promise<T> {
+async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 3, baseMs = 800): Promise<T> {
   let lastError: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
@@ -264,20 +253,8 @@ export class LineService implements IMessagingService {
     // 自訂登入時顯示的裝置名稱（LINE 會顯示「您目前已在「X」上登入」）
     const loginProcess = base.loginProcess;
     const originalForSecure = loginProcess.qrCodeLoginV2ForSecure.bind(loginProcess);
-    loginProcess.qrCodeLoginV2ForSecure = (
-      authSessionId,
-      nonce,
-      _modelName,
-      _systemName,
-      autoLoginIsRequired,
-    ) =>
-      originalForSecure(
-        authSessionId,
-        nonce,
-        config.line.modelName,
-        config.line.deviceName,
-        autoLoginIsRequired,
-      );
+    loginProcess.qrCodeLoginV2ForSecure = (authSessionId, nonce, _modelName, _systemName, autoLoginIsRequired) =>
+      originalForSecure(authSessionId, nonce, config.line.modelName, config.line.deviceName, autoLoginIsRequired);
 
     base.on("qrcall", (url) => {
       logger.warn("需要 QR 驗證，請用手機 LINE 掃描（終端機或狀態頁）", { url });
@@ -294,11 +271,14 @@ export class LineService implements IMessagingService {
       setState({ status: "待驗證", pin, qrUrl: undefined });
     });
     base.on("update:authtoken", (token) => {
-      void this.storage.set(AUTH_KEY, token).then(() => {
-        logger.info("authToken 已更新並儲存");
-      }).catch((error) => {
-        logger.error("authToken 儲存失敗", { error: String(error) });
-      });
+      void this.storage
+        .set(AUTH_KEY, token)
+        .then(() => {
+          logger.info("authToken 已更新並儲存");
+        })
+        .catch((error) => {
+          logger.error("authToken 儲存失敗", { error: String(error) });
+        });
     });
 
     const cached = await this.storage.get(AUTH_KEY);
@@ -422,7 +402,13 @@ export class LineService implements IMessagingService {
       } catch (error) {
         errors.push(error);
         messages.push(`${input.to}: ${error instanceof Error ? error.message : String(error)}`);
-        recordSend({ time: new Date().toISOString(), to: input.to, type: inputType(input), ok: false, platform: "line" });
+        recordSend({
+          time: new Date().toISOString(),
+          to: input.to,
+          type: inputType(input),
+          ok: false,
+          platform: "line",
+        });
         writeDeadLetter({
           platform: "line",
           kind: "send",
@@ -561,8 +547,7 @@ export class LineService implements IMessagingService {
     }
 
     const ext = extname(name).toLowerCase();
-    const oType =
-      kind === "image" ? (ext === ".gif" ? "gif" : "image") : kind;
+    const oType = kind === "image" ? (ext === ".gif" ? "gif" : "image") : kind;
     const blob = new Blob([data], { type: mimeFor(ext) });
 
     await client.base.obs.uploadMediaByE2EE({ data: blob, oType, to, filename: name });
@@ -585,10 +570,7 @@ export class LineService implements IMessagingService {
     return this.scheduler.add(inputs, runAt, repeat);
   }
 
-  updateScheduled(
-    id: string,
-    patch: { runAt?: number; repeat?: string | null },
-  ): ScheduledJobView | null {
+  updateScheduled(id: string, patch: { runAt?: number; repeat?: string | null }): ScheduledJobView | null {
     return this.scheduler.update(id, patch);
   }
 
@@ -662,6 +644,23 @@ export class LineService implements IMessagingService {
       const fromName = this.midToName.get(message.from.id) ?? "";
       const chatName = this.midToName.get(chat) ?? "";
 
+      // 圖片訊息：抓 blob 轉 base64 帶給技能（AI 圖片理解用）；只在 IMAGE（1）時抓
+      let images: IncomingImage[] | undefined;
+      const contentType = (message.raw as { contentType?: number | string }).contentType;
+      if (contentType === 1 || contentType === "IMAGE") {
+        try {
+          const blob = await message.getData();
+          const buf = Buffer.from(await blob.arrayBuffer());
+          if (buf.length > 0 && buf.length <= MAX_IMAGE_BYTES) {
+            images = [{ base64: buf.toString("base64"), mimeType: "image/jpeg" }];
+          } else if (buf.length > MAX_IMAGE_BYTES) {
+            logger.warn("收到過大的圖片，略過附件", { bytes: buf.length });
+          }
+        } catch (error) {
+          logger.warn("讀取圖片訊息失敗", { error: String(error) });
+        }
+      }
+
       recordMessage({
         time: new Date().toISOString(),
         fromMid: message.from.id,
@@ -680,6 +679,7 @@ export class LineService implements IMessagingService {
           chatName,
           text,
           messageId: rawId == null ? undefined : String(rawId),
+          ...(images ? { images } : {}),
         },
         this.dispatchDeps(),
       );

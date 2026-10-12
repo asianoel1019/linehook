@@ -183,6 +183,19 @@ X-Signature: <HMAC-SHA256(body, secret)>   # 或 ?token=<WEBHOOK_TOKEN> / Author
 6. **統計**：所有 `recordSend` 帶 `platform`；`SendEvent.platform` 未標記者視為 `line`（相容舊資料）。
 7. **測試**：adapter 正規化單元測試 + 路由驗證測試；跑 `npm run typecheck && npm run build && npm test`。
 
+## AI 進階能力（工具呼叫與圖片理解）
+
+- `src/skills/tools.ts`：工具註冊表（`get_weather` / `get_stock` / `get_exchange_rate`）——
+  全部包既有免 key／兄弟技能資料源，只接受宣告過的 JSON Schema 參數。
+- `src/skills/agent.ts`：agent 迴圈（預設 3 輪、上限 5），兩種協定都支援：
+  OpenAI 相容（assistant.tool_calls → role:tool）與 Gemini 原生（functionCall → functionResponse）；
+  Antigravity CLI（agy）模式不走 function calling 協定：AI 技能自動降為單輪問答（agy 內部仍可自行用工具後回最終文字）。
+- `src/skills/llm.ts`：`ChatMessage.content` 可為 parts（text＋image_url），`toVisionContent()` 組裝；
+  Gemini 端把 data URL 轉 `inlineData`。LLM 用量仍照舊計入 `llm_tokens_total`。
+- 圖片進管線：`IncomingMessage.images`（base64＋mimeType，上限 4MB）；LINE（`TalkMessage.getData()`）與
+  Telegram（getFile → 下載）會帶；**純圖片訊息也能觸發 any 模式技能**（dispatch 的 `runSkills` 不再要求非空文字）。
+- AI 技能的 `tools` 欄位可關閉（純問答）；系統提示附上工具使用原則（要查即時值、別拿舊記憶回答）。
+
 ## 維運增強（稽核／平台測試／每日摘要）
 
 ### 稽核紀錄（audit）
@@ -233,4 +246,7 @@ X-Signature: <HMAC-SHA256(body, secret)>   # 或 ?token=<WEBHOOK_TOKEN> / Author
   **部署前執行 `node scripts/build-library.mjs`**：重新產生 `library/index.html` 與全部技能 zip；
   有 `dist/` 時 zip 內打包編譯後的 `index.js`（裝進 `data/skills` 即可執行，不需 TS 執行環境）。
 - Docker 在 build stage 自動執行，runtime stage 只 `COPY` 產物（`/library/` 供「前往技能庫下載」）。
+- **已知限制**：zip 只打包技能自己的進入點；引用共享模組的技能（LLM 系列依賴 `llm.js`，
+  AI 工具呼叫另依賴 `agent.js` / `tools.js`）從 zip 安裝後無法解析相對路徑，
+  這類技能請以內建（src）路徑使用；其餘自含技能不受影響。
 

@@ -14,17 +14,29 @@ import type { WatchOptions } from "../skills/types.js";
 import { dispatchIncoming, dispatchSkillTask, type DispatchDeps } from "../messaging/dispatch.js";
 import { chunkReplyText } from "../messaging/text.js";
 import { resolveLocalMediaPath } from "../messaging/media.js";
+import { fetchBuffer } from "../net.js";
 import { fetchWithLimits } from "../net.js";
 import {
   NotLoggedInError,
   TargetNotFoundError,
   type FlexInput,
   type IMessagingService,
+  type IncomingImage,
   type IncomingMessage,
   type LocationInput,
   type SendInput,
   type StickerInput,
 } from "../messaging/types.js";
+
+/** 收到圖片轉 base64 的上限（LLM 請求體限制；超過就略過附件）。 */
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+/** 取 JSON（Bot API 包一層 TgApiResult）。 */
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as T;
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -70,6 +82,8 @@ export interface TgUpdate {
     chat: TgChat;
     text?: string;
     caption?: string;
+    /** 圖片訊息（多種尺寸；取最大的）。 */
+    photo?: Array<{ file_id?: string; file_unique_id?: string; width?: number; height?: number }>;
   };
 }
 
@@ -79,21 +93,23 @@ interface TgApiResult<T> {
   description?: string;
 }
 
-/** 把 Telegram update 正規化成平台無關訊息；非文字訊息或機器人自己回 null。 */
+/** 把 Telegram update 正規化成平台無關訊息；純非文字且非圖片訊息回 null。 */
 export function normalizeTelegramUpdate(update: TgUpdate): IncomingMessage | null {
   const msg = update?.message;
   if (!msg || !msg.from || !msg.chat) return null;
   if (msg.from.is_bot) return null;
   const text = (msg.text ?? msg.caption ?? "").trim();
-  if (!text) return null;
+  const photo = (msg.photo ?? []).slice().sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0];
+  if (!text && !photo?.file_id) return null;
   const chat = String(msg.chat.id);
   const fromId = String(msg.from.id);
   const fromName = msg.from.username
     ? `@${msg.from.username}`
     : `${msg.from.first_name ?? ""} ${msg.from.last_name ?? ""}`.trim() || fromId;
-  const chatName = msg.chat.title
-    || (msg.chat.username ? `@${msg.chat.username}` : "")
-    || `${msg.chat.first_name ?? ""} ${msg.chat.last_name ?? ""}`.trim();
+  const chatName =
+    msg.chat.title ||
+    (msg.chat.username ? `@${msg.chat.username}` : "") ||
+    `${msg.chat.first_name ?? ""} ${msg.chat.last_name ?? ""}`.trim();
   return { chat, fromId, fromName, chatName, text, messageId: String(update.update_id) };
 }
 
@@ -115,11 +131,17 @@ export class TelegramService implements IMessagingService {
         if (error instanceof TargetNotFoundError || error instanceof NotLoggedInError) return true;
         const message = error instanceof Error ? error.message : String(error);
         // 明顯的暫時性錯誤（限流/逾時/連線）一定要重試。
-        if (/429|rate|頻繁|timeout|逾時|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|socket hang up|retry after/i.test(message)) {
+        if (
+          /429|rate|頻繁|timeout|逾時|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|socket hang up|retry after/i.test(
+            message,
+          )
+        ) {
           return false;
         }
         // 參數/驗證類錯誤重試也不會成功，直接失敗避免卡住佇列。
-        return /40[0-4]|422|chat not found|bot was blocked|deactivated|unauthorized|wrong|驗證失敗|參數錯誤|不支援|格式錯誤|找不到/i.test(message);
+        return /40[0-4]|422|chat not found|bot was blocked|deactivated|unauthorized|wrong|驗證失敗|參數錯誤|不支援|格式錯誤|找不到/i.test(
+          message,
+        );
       },
     }));
     this.scheduler = new SendScheduler(
@@ -270,6 +292,14 @@ export class TelegramService implements IMessagingService {
   async handleUpdate(update: TgUpdate): Promise<void> {
     const msg = this.normalizeUpdate(update);
     if (!msg) return;
+
+    // 圖片訊息：getFile → 下載轉 base64 帶給技能（AI 圖片理解用）
+    const photo = (update.message?.photo ?? []).slice().sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0];
+    if (photo?.file_id) {
+      const image = await this.fetchTelegramPhoto(photo.file_id);
+      if (image) msg.images = [image];
+    }
+
     recordMessage({
       time: new Date().toISOString(),
       fromMid: msg.fromId,
@@ -279,6 +309,29 @@ export class TelegramService implements IMessagingService {
       text: msg.text,
     });
     await dispatchIncoming(msg, this.dispatchDeps());
+  }
+
+  /** 下載 Telegram 圖片（getFile → file_path →  bytes），失敗回 null。 */
+  private async fetchTelegramPhoto(fileId: string): Promise<IncomingImage | null> {
+    const token = config.telegram.botToken?.trim();
+    if (!token) return null;
+    try {
+      const info = await fetchJson<TgApiResult<{ file_path?: string }>>(
+        `https://api.telegram.org/bot${encodeURIComponent(token)}/getFile?file_id=${encodeURIComponent(fileId)}`,
+      );
+      const filePath = info.result?.file_path;
+      if (!filePath) return null;
+      const buf = await fetchBuffer(
+        `https://api.telegram.org/file/bot${encodeURIComponent(token)}/${filePath}`,
+        undefined,
+        { timeoutMs: 15_000, maxBytes: MAX_IMAGE_BYTES },
+      );
+      if (buf.length === 0 || buf.length > MAX_IMAGE_BYTES) return null;
+      return { base64: buf.toString("base64"), mimeType: "image/jpeg" };
+    } catch (error) {
+      logger.warn("下載 Telegram 圖片失敗", { error: error instanceof Error ? error.message : String(error) });
+      return null;
+    }
   }
 
   /** IMessagingService 接收入口：把原始 update payload 交給 handleUpdate。 */
@@ -371,7 +424,13 @@ export class TelegramService implements IMessagingService {
       } catch (error) {
         errors.push(error);
         messages.push(`${input.to}: ${error instanceof Error ? error.message : String(error)}`);
-        recordSend({ time: new Date().toISOString(), to: input.to, type: this.inputType(input), ok: false, platform: "telegram" });
+        recordSend({
+          time: new Date().toISOString(),
+          to: input.to,
+          type: this.inputType(input),
+          ok: false,
+          platform: "telegram",
+        });
         writeDeadLetter({
           platform: "telegram",
           kind: "send",
@@ -411,7 +470,13 @@ export class TelegramService implements IMessagingService {
     if (input.flex) await this.sendFlex(id, input.flex);
     if (input.text) await this.rawSendText(id, input.text);
 
-    recordSend({ time: new Date().toISOString(), to: input.to, type: this.inputType(input), ok: true, platform: "telegram" });
+    recordSend({
+      time: new Date().toISOString(),
+      to: input.to,
+      type: this.inputType(input),
+      ok: true,
+      platform: "telegram",
+    });
     setState({ lastSendAt: new Date().toISOString(), lastSendTo: this.chatToName.get(id) ?? id });
   }
 
@@ -438,7 +503,11 @@ export class TelegramService implements IMessagingService {
     }
   }
 
-  private async loadMediaBytes(source: string, kind: string, filename?: string): Promise<{ data: Buffer; name: string }> {
+  private async loadMediaBytes(
+    source: string,
+    kind: string,
+    filename?: string,
+  ): Promise<{ data: Buffer; name: string }> {
     const maxBytes = Math.max(1, config.maxBodyMb) * 1024 * 1024;
     const dataUrl = /^data:([^;,]*);base64,(.*)$/is.exec(source);
     if (dataUrl) {
@@ -467,7 +536,8 @@ export class TelegramService implements IMessagingService {
     kind: "image" | "video" | "audio" | "file",
     filename?: string,
   ): Promise<void> {
-    const method = kind === "image" ? "sendPhoto" : kind === "video" ? "sendVideo" : kind === "audio" ? "sendAudio" : "sendDocument";
+    const method =
+      kind === "image" ? "sendPhoto" : kind === "video" ? "sendVideo" : kind === "audio" ? "sendAudio" : "sendDocument";
     const field = kind === "image" ? "photo" : kind === "video" ? "video" : kind === "audio" ? "audio" : "document";
     if (/^https?:\/\//i.test(source)) {
       await this.api(method, { chat_id: chatId, [field]: source });
@@ -478,7 +548,10 @@ export class TelegramService implements IMessagingService {
     const form = new FormData();
     form.append("chat_id", chatId);
     const ext = extname(name).toLowerCase();
-    const mime = kind === "image" ? `image/${ext === ".png" ? "png" : ext === ".gif" ? "gif" : "jpeg"}` : "application/octet-stream";
+    const mime =
+      kind === "image"
+        ? `image/${ext === ".png" ? "png" : ext === ".gif" ? "gif" : "jpeg"}`
+        : "application/octet-stream";
     form.append(field, new Blob([data], { type: mime }), name);
     await this.api(method, undefined, form);
     logger.info("已傳送媒體（Telegram 上傳）", { to: chatId, kind, file: name, bytes: data.length });
@@ -519,10 +592,7 @@ export class TelegramService implements IMessagingService {
     return this.scheduler.add(inputs, runAt, repeat);
   }
 
-  updateScheduled(
-    id: string,
-    patch: { runAt?: number; repeat?: string | null },
-  ): ScheduledJobView | null {
+  updateScheduled(id: string, patch: { runAt?: number; repeat?: string | null }): ScheduledJobView | null {
     return this.scheduler.update(id, patch);
   }
 

@@ -7,6 +7,7 @@ import { effectiveMode, skillListText, skillUsageText } from "../skills/help.js"
 import type { SkillContext, SkillTaskContext, SkillWatchView, WatchOptions } from "../skills/types.js";
 import type { Job as ScheduledJob, ScheduledJobView } from "../line/scheduler.js";
 import type { IncomingMessage, SendInput } from "./types.js";
+import type { IncomingImage } from "./types.js";
 import { seenInbound } from "./dedup.js";
 import { writeDeadLetter } from "../deadletter.js";
 import { recordMetric } from "../metrics.js";
@@ -239,7 +240,7 @@ export async function dispatchIncoming(msg: IncomingMessage, deps: DispatchDeps)
     }
     recordMetric("im_inbound_total", 1, { platform: deps.platform, dedup: "false" });
     await runCommand(msg.text, msg.chat, msg.fromId, deps);
-    await runSkills(msg.text, msg.chat, msg.fromName, msg.fromId, deps);
+    await runSkills(msg.text, msg.chat, msg.fromName, msg.fromId, deps, msg.images);
     await runForwardRules(msg.text, msg.chat, msg.fromName, msg.chatName, deps);
   } catch (error) {
     logger.error("處理收到的訊息失敗", { error: String(error) });
@@ -309,8 +310,9 @@ async function runSkills(
   fromName: string,
   fromMid: string,
   deps: DispatchDeps,
+  images?: IncomingImage[],
 ): Promise<void> {
-  if (!text) return;
+  if (!text && (!images || images.length === 0)) return;
 
   const { assistant, rest, hasPrefix } = analyzeAssistantPrefix(text, config.assistant.name, config.language);
 
@@ -370,6 +372,7 @@ async function runSkills(
         chat,
         fromMid,
         config: skill.config,
+        ...(images && images.length > 0 ? { images } : {}),
         reply: (t) => deps.replyTo(chat, t),
         sendImage: async (source, filename) => {
           try {

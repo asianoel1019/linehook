@@ -1,4 +1,5 @@
 import type { SkillConfig } from "../config.js";
+import type { IncomingImage } from "../messaging/types.js";
 
 /** 技能自帶的多語文字（zh/en/ja）。任一語言缺漏時回退到 zh。 */
 export interface LocalizedText {
@@ -23,6 +24,8 @@ export interface SkillContext {
   chat: string;
   fromMid: string;
   config: Record<string, string>;
+  /** 隨訊息附上的圖片（LINE 圖片訊息等）；供 AI 視覺技能使用。 */
+  images?: IncomingImage[];
   reply: (text: string) => Promise<void>;
   sendImage: (source: string, filename?: string) => Promise<void>;
   sendFile: (source: string, filename?: string) => Promise<void>;
