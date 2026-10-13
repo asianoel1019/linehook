@@ -4,7 +4,6 @@ import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
 import { fetchText as netFetchText } from "@lw/net";
 import type { SkillContext, SkillDefinition } from "@lw/skills/types";
 
-const CACHE_NAME = "lottery-invoice";
 const USER_AGENT = "Mozilla/5.0 (compatible; ImHook/1.0)";
 
 interface InvoiceResult {
@@ -32,9 +31,6 @@ async function fetchText(url: string): Promise<string> {
 }
 
 // ===== 統一發票 =====
-function rocYear(): number {
-  return nowInTz().getFullYear() - 1911;
-}
 
 /** 最近一期「已開獎」期別（單月）。
  *  統一發票期別為 1,3,5,7,9,11 月（涵蓋 2 個月），開獎日為「期別+2」月的 25 日。

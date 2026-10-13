@@ -201,7 +201,7 @@ X-Signature: <HMAC-SHA256(body, secret)>   # 或 ?token=<WEBHOOK_TOKEN> / Author
 ### 稽核紀錄（audit）
 
 - `src/audit.ts`：敏感操作 append 到 `data/audit.jsonl`（5MB×3 輪替）。涵蓋**登入成功/失敗**（`login.success` / `login.fail`，失敗分一般與已鎖定）、`settings.save/export/import/backup`、`skills.install/uninstall/restore/save`、`deadletter.retry/purge`、`messages.purge`、`platform.test`、`digest.send`、`audit.purge`。
-- `GET /audit.json?limit=`（read）讀取；`POST /audit/purge`（admin）清空。Console 頁「稽核紀錄」面板檢視（失敗紅字、登入成功綠字）。
+- `GET /audit.json?limit=`（read）讀取；`POST /audit/purge`（admin）清空。Console 頁「稽核紀錄」面板檢視（失敗紅字、登入成功綠字）與 **CSV 匯出**（死信面板同）。
 - 與一般 log 分開存放、格式固定可查；備份/清洗資料時記得這份也要一起處理。
 
 ### 平台連線測試（一鍵驗證）

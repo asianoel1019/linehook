@@ -41,8 +41,8 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Coverage baseline (report only, no thresholds)
-        run: npm run test:coverage
+      - name: Coverage gate (fails below COVERAGE_MIN_LINES, default 35%)
+        run: npm run coverage:gate
 
       - name: Security audit (high and above)
         run: node .github/audit-gate.mjs

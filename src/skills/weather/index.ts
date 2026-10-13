@@ -6,7 +6,6 @@ import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
-const CACHE_NAME = "weather";
 const UA = "Mozilla/5.0 (compatible; ImHook/1.0)";
 /** 雷達回波圖：CWA 對非瀏覽器 UA 回 403，必須帶完整 UA＋Referer 才抓得到。 */
 const BROWSER_UA =

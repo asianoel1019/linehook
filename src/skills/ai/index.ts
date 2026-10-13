@@ -8,7 +8,13 @@ import {
   type ChatMessage,
 } from "@lw/skills/llm";
 import { runAgent } from "@lw/skills/agent";
+import { config } from "@lw/config";
 import type { SkillContext, SkillDefinition } from "@lw/skills/types";
+
+/** 天氣工具的 CWA key：AI 技能沒有這個欄位，沿用天氣技能已填好的 key（沒填就免 key 備援）。 */
+function cwaKeyOf(): string {
+  return (config.skills.find((s) => s.id === "weather")?.config?.cwaKey ?? "").trim();
+}
 
 const TOOL_HINT = [
   "你可以使用工具查即時資料（天氣／台股股價／匯率）。",
@@ -134,7 +140,7 @@ const aiSkill: SkillDefinition = {
         prompt,
         history,
         tools: toolsOn,
-        toolContext: { cwaKey: (ctx.config.cwaKey ?? "").trim() },
+        toolContext: { cwaKey: cwaKeyOf() },
         tag: { skill: "ai" },
       });
       await ctx.reply(result.text);

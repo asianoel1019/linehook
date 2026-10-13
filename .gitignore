@@ -9,6 +9,8 @@ library/
 # scripts/ 僅納入建置用腳本（其餘為本機工具，維持忽略）
 scripts/*
 !scripts/build-library.mjs
+!scripts/coverage-gate.mjs
+!scripts/gen-skill-doc.mjs
 # 例外：CI 的 secret scanning 放在 .github/scripts/（專案根的 scripts/ 仍忽略）
 !.github/scripts/
 *.log

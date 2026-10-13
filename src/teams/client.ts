@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, join } from "node:path";
 import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { config } from "../config.js";
 import { logger } from "../logger.js";

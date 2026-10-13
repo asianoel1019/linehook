@@ -107,7 +107,7 @@ export function renderConsoleHtml() {
 <h2 style="margin-top:0">死信（發送失敗紀錄）</h2>
 <div class="glass">
 <details open>
-  <summary>清單（<span id="deadletter-count">0</span>）　<button type="button" id="deadletter-purge" style="color:#fb7185">清除全部</button></summary>
+  <summary>清單（<span id="deadletter-count">0</span>）　<button type="button" id="deadletter-csv">CSV</button>　<button type="button" id="deadletter-purge" style="color:#fb7185">清除全部</button></summary>
   <table><thead><tr><th>時間</th><th>平台</th><th>種類</th><th>對象</th><th>內容</th><th>錯誤</th><th>操作</th></tr></thead><tbody id="deadletter"></tbody></table>
 </details>
 </div>
@@ -117,7 +117,7 @@ export function renderConsoleHtml() {
 <h2 style="margin-top:0">稽核紀錄（登入與管理操作）</h2>
 <div class="glass">
 <details open>
-  <summary>清單（<span id="audit-count">0</span>）　<button type="button" id="audit-purge" style="color:#fb7185">清除全部</button></summary>
+  <summary>清單（<span id="audit-count">0</span>）　<button type="button" id="audit-csv">CSV</button>　<button type="button" id="audit-purge" style="color:#fb7185">清除全部</button></summary>
   <table><thead><tr><th>時間</th><th>IP</th><th>使用者</th><th>動作</th><th>說明</th></tr></thead><tbody id="audit"></tbody></table>
 </details>
 </div>
@@ -139,6 +139,24 @@ export function renderConsoleHtml() {
   const script = `
   var allTargets = [];
   var currentPlatform = window.LW_PLATFORM || "line";
+  // 報表匯出：記住最近一次抓到的死信/稽核，CSV 由前端組（與 /messages 同做法）。
+  var lastDeadletters = [];
+  var lastAudits = [];
+
+  function csvCell(v) {
+    var s = String(v == null ? "" : v);
+    return /[",\\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function downloadCsv(name, rows) {
+    var text = rows.map(function (r) { return r.join(","); }).join("\\n");
+    var blob = new Blob(["\\ufeff" + text], { type: "text/csv;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
 
   // E3：送出前即時提示該平台的降級項目（由後端能力表生成）。
   var CAPABILITY_NOTES = ${JSON.stringify(Object.fromEntries(Object.entries(capabilityNotes())))};
@@ -281,6 +299,7 @@ export function renderConsoleHtml() {
       .then(function (data) {
         if (!data) return;
         var list = data.deadletters || [];
+        lastDeadletters = list;
         $("deadletter-count").textContent = String(list.length);
         var bodyEl = $("deadletter");
         if (list.length === 0) {
@@ -322,12 +341,22 @@ export function renderConsoleHtml() {
     });
   });
 
+  $("deadletter-csv").addEventListener("click", function () {
+    if (lastDeadletters.length === 0) { alert("目前沒有死信可匯出"); return; }
+    var rows = [["time", "platform", "kind", "to", "summary", "error"]];
+    lastDeadletters.forEach(function (d) {
+      rows.push([d.time, d.platform, d.kind, (d.to || []).join(" "), d.summary, d.error].map(csvCell));
+    });
+    downloadCsv("deadletters.csv", rows);
+  });
+
   function renderAudit() {
     fetch("/audit.json?limit=100", { cache: "no-store" })
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (data) {
         if (!data) return;
         var list = data.audits || [];
+        lastAudits = list;
         var countEl = $("audit-count");
         if (countEl) countEl.textContent = String(list.length);
         var bodyEl = $("audit");
@@ -355,6 +384,18 @@ export function renderConsoleHtml() {
       if (!r.ok) { alert("清除失敗：" + (r.data.error || "")); return; }
       renderAudit();
     });
+    });
+  }
+
+  var auditCsv = $("audit-csv");
+  if (auditCsv) {
+    auditCsv.addEventListener("click", function () {
+      if (lastAudits.length === 0) { alert("目前沒有稽核紀錄可匯出"); return; }
+      var rows = [["time", "ip", "user", "action", "detail"]];
+      lastAudits.forEach(function (a) {
+        rows.push([a.time, a.ip, a.user, a.action, a.detail].map(csvCell));
+      });
+      downloadCsv("audit.csv", rows);
     });
   }
 

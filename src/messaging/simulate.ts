@@ -16,7 +16,8 @@ import {
   parseCommandInput,
 } from "./dispatch.js";
 import { SKILL_RATE_LIMIT_DEFAULT, SKILL_RATE_LIMIT_STRICT } from "./dispatch.js";
-import { activeRules, isCooling, matchAutoReplyRule } from "../skills/auto-reply/index.js";
+import { resolveAutoReply } from "../skills/auto-reply/index.js";
+import { nowInTz } from "../time.js";
 
 export interface SimulateInput {
   text: string;
@@ -168,29 +169,24 @@ export function simulateDispatch(input: SimulateInput): SimulateResult {
         continue;
       }
 
-      // hit：附上模式、觸發詞、參數；另報限流與自動回覆冷卻（皆為當下唯讀近似）
+      // hit：附上模式、觸發詞、參數；另報限流與自動回覆判定（皆為當下唯讀近似）
       const mode = def ? effectiveMode(skill, def) : "assistant";
       const parts: string[] = [mode === "any" ? "每則訊息模式" : `助理模式・觸發詞「${decision.trigger}」`];
       if (decision.args) parts.push(`參數：「${decision.args}」`);
       let outcome: SimulateOutcome = "hit";
       if (skill.id === "auto-reply") {
-        const rules = activeRules(skill.config);
-        const rule = matchAutoReplyRule(rules, text);
-        const cooldownSec = Number(skill.config.cooldownSec ?? "10");
+        // 與真實 run 同一支決策函式：關鍵字 → 時段/星期 → 每來源冷卻
+        const verdict = resolveAutoReply(skill.config, text, input.chat, input.fromId, nowInTz());
         parts.length = 0;
-        if (!rule) {
-          stages.push({
-            stage: "skill",
-            outcome: "miss",
-            label: name,
-            detail: `沒有符合的關鍵字規則（共 ${rules.length} 條啟用中）`,
-          });
+        if (verdict.outcome === "miss") {
+          stages.push({ stage: "skill", outcome: "miss", label: name, detail: verdict.reason });
           continue;
         }
-        parts.push(`命中規則「${rule.keyword}」（${rule.match ?? "exact"}）`);
-        if (rule.text) parts.push(`回覆：「${rule.text.slice(0, 60)}${rule.text.length > 60 ? "…" : ""}」`);
-        if (isCooling(input.chat, cooldownSec)) {
-          parts.push(`但冷卻中（${cooldownSec} 秒內已回覆過）→ 實際不會送出`);
+        parts.push(`命中規則「${verdict.rule.keyword}」（${verdict.rule.match ?? "exact"}）`);
+        if (verdict.rule.text)
+          parts.push(`回覆：「${verdict.rule.text.slice(0, 60)}${verdict.rule.text.length > 60 ? "…" : ""}」`);
+        if (verdict.outcome === "blocked") {
+          parts.push(`${verdict.reason} → 實際不會送出`);
           outcome = "blocked";
         }
       } else if (isSkillThrottledNow(skill.id, input.chat)) {

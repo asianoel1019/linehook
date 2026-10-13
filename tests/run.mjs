@@ -6,10 +6,11 @@ import { spawnSync } from "node:child_process";
 const env = { ...process.env };
 env.STORAGE_KIND = process.env.STORAGE_KIND || "jsonl";
 
-// 測試檔平行度上限：node 預設用 CPU 數-1，在多核機器（20 核 → 19）會把
-// scheduler-tasks 這類用真計時器的測試壓到逾時，本地與 CI 都觀察到偶發 flaky。
-// 4 個同時跑仍能維持整體速度，可用 TEST_CONCURRENCY 覆寫。
-const concurrency = Number(process.env.TEST_CONCURRENCY) > 0 ? Number(process.env.TEST_CONCURRENCY) : 4;
+// 測試檔平行度上限：node 預設用 CPU 數-1，在多核開發機（20 核 → 19）不只把
+// scheduler-tasks 這類真計時器測試壓到逾時，偶爾還引發整批 HTTP/timing 測試連鎖失敗。
+// 2 個同時跑在本機約 34 秒、CI（2–4 核）也不會變慢，穩定性遠比 4 好。
+// 可用 TEST_CONCURRENCY 覆寫（1 = 完全序列，約 66 秒，最穩定）。
+const concurrency = Number(process.env.TEST_CONCURRENCY) > 0 ? Number(process.env.TEST_CONCURRENCY) : 2;
 
 // 技能用 @lw/* 別名匯入宿主模組；測試也必須註冊同一個 hook，
 // 否則「從 data/skills 載入外部技能」的測試會解析不到別名。

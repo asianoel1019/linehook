@@ -162,7 +162,6 @@ function parseSolar(text: string): Date | null {
 
 /** 解析農曆輸入：年（可選）月、日，支援中文與數字。 */
 function parseLunar(text: string): LunarDate | null {
-  const now = nowInTz();
   const yearMatch = text.match(/(\d{4})\s*年?/) || text.match(/年/);
   let year = yearMatch ? Number((yearMatch[1] ?? "").trim()) : NaN;
 

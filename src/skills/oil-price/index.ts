@@ -5,17 +5,6 @@ import type { SkillContext, SkillDefinition } from "@lw/skills/types";
 const SOURCE = "https://vipmbr.cpc.com.tw/openData/MainProdListPrice";
 const CACHE_NAME = "oil-price";
 
-interface RawPrice {
-  類別名稱?: string;
-  產品編號?: string;
-  產品名稱?: string;
-  包裝?: string;
-  銷售對象?: string;
-  計價單位?: string;
-  參考牌價_含稅?: number;
-  營業稅_稅率?: string;
-}
-
 export interface OilPrice {
   name: string;
   price: number;

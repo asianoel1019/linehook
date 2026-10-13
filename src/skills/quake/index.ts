@@ -4,7 +4,6 @@ import { fetchJson as netFetchJson } from "@lw/net";
 import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const USGS = "https://earthquake.usgs.gov/fdsnws/event/1/query";
-const CACHE_NAME = "quake";
 
 interface UsgsFeature {
   properties?: {

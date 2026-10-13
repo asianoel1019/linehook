@@ -3,7 +3,6 @@ import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
 import { fetchJson as netFetchJson } from "@lw/net";
 import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
-const CACHE_NAME = "air-quality";
 const USER_AGENT = "Mozilla/5.0 (compatible; ImHook/1.0)";
 
 export interface AqiReading {
