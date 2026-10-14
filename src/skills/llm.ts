@@ -542,9 +542,10 @@ async function opencodeCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { 
   const prompt = system ? `${system}\n\n${clean}` : clean;
   const ocBin = findOpencodePath();
   // 每次呼叫用全新的空目錄跑，避免 agent 動到部署目錄。
+  // 注意：不用 CLI 的 --dir 旗標（舊版沒有，會直接報錯），改用 spawn 的 cwd，同樣效果且版本無關。
   const sandbox = mkdtempSync(join(tmpdir(), "imhook-oc-"));
   // --model 只接受 provider/model 形式；裸 id（如 muse-spark-1.3）不傳，沿用 CLI 預設模型。
-  const args = ["run", "--format", "json", "--dir", sandbox, ...(cfg.model.includes("/") ? ["--model", cfg.model] : []), prompt];
+  const args = ["run", "--format", "json", ...(cfg.model.includes("/") ? ["--model", cfg.model] : []), prompt];
   const timeoutMs = Math.max(cfg.timeoutMs, 300_000); // agent 含工具往返，至少等 5 分鐘
 
   return new Promise((resolve, reject) => {
@@ -553,6 +554,7 @@ async function opencodeCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { 
     logger.info("OpenCode CLI 啟動", { bin: ocBin, dir: sandbox, timeoutMs, promptChars: prompt.length });
     const proc = spawn(ocBin, args, {
       timeout: timeoutMs,
+      cwd: sandbox,
       env: { ...process.env, HOME: process.env.HOME || homedir() },
       stdio: ["ignore", "pipe", "pipe"],
     });
