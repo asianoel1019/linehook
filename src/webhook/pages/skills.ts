@@ -63,7 +63,7 @@ export function renderSkillsHtml() {
   <div class="field"><label>Provider</label><select id="ai-provider" class="sf"><option value="openai">OpenAI</option><option value="gemini">Gemini（API Key）</option><option value="gemini-cli">Antigravity CLI（帳戶登入）</option><option value="opencode">OpenCode</option><option value="opencode-cli">OpenCode CLI（本機登入）</option><option value="local">本地自建</option><option value="custom">自訂端點</option></select></div>
   <div class="field"><label>Base URL</label><input id="ai-baseUrl" type="text" placeholder="留空用各供應商預設"></div>
   <div class="field"><label>API Key</label><input id="ai-apiKey" type="password" placeholder="CLI 模式／本地自建可留空"></div>
-  <div class="field"><label>Model</label><input id="ai-model" type="text" placeholder="留空用預設"></div>
+  <div class="field"><label>Model</label><span style="display:flex;gap:8px;align-items:center"><input id="ai-model" type="text" placeholder="留空用預設" style="flex:1" list="ai-models-list"><button type="button" id="ai-models-btn" data-i18n="btn_list_models">列出模型</button><span id="ai-models-msg" class="msg"></span></span><datalist id="ai-models-list"></datalist><div class="hint">opencode-cli 等 CLI 模式：填 provider/model 形式才會鎖定模型（如 opencode/muse-spark-1.3），只填裸 id 會沿用 CLI 自己的預設</div></div>
   <div class="field"><label>System Prompt</label><textarea id="ai-systemPrompt" placeholder="選填"></textarea></div>
   <div class="field"><label>Temperature</label><input id="ai-temperature" type="text" placeholder="0.7"></div>
   <div class="field"><label>Max Tokens</label><input id="ai-maxTokens" type="text" placeholder="2048"></div>
@@ -105,6 +105,33 @@ export function renderSkillsHtml() {
       })
       .catch(function () {});
   }
+
+  $("ai-models-btn").addEventListener("click", function () {
+    var msg = $("ai-models-msg");
+    msg.textContent = "…";
+    var cfg = {
+      provider: $("ai-provider").value,
+      baseUrl: $("ai-baseUrl").value.trim(),
+      apiKey: $("ai-apiKey").value.trim(),
+      model: $("ai-model").value.trim()
+    };
+    fetch("/skills/llm/models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cfg)
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, data: d }; });
+    }).then(function (r) {
+      if (!r.ok) { msg.textContent = "失敗：" + (r.data.error || ""); return; }
+      var dl = $("ai-models-list");
+      dl.replaceChildren.apply(dl, (r.data.models || []).map(function (m) {
+        var o = document.createElement("option");
+        o.value = m;
+        return o;
+      }));
+      msg.textContent = "共 " + (r.data.models || []).length + " 個（點輸入框下拉選擇）";
+    }).catch(function () { msg.textContent = "讀取失敗"; });
+  });
 
   $("ai-save").addEventListener("click", function () {
     $("ai-msg").textContent = "儲存中…";
