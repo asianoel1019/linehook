@@ -335,6 +335,47 @@ Discord 與 LINE 同屬**長連線**模式：收訊不靠 webhook，由本程式
 
 ---
 
+## 6. OpenCode CLI 無瀏覽器登入（AI 功能用）
+
+AI 技能選 `opencode-cli` provider 時，主機上的 `opencode` CLI 必須先登入（帳戶登入、免 API key）。無桌面的主機跑 `opencode auth login` 選 Console 帳戶後會直接報錯：
+
+```
+Error: Executable not found in $PATH: "xdg-open"
+```
+
+這只是「幫你開瀏覽器」這步失敗，但它會順手把等授權的輪詢一起帶走，導致授權完了 token 也沒存下來。device-code 流程本來就允許在**別台裝置**的瀏覽器完成授權，解法是讓 spawn 成功、輪詢活著：
+
+```bash
+# 給它一個假的 xdg-open（直接成功返回，什麼都不做）
+printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/xdg-open > /dev/null
+sudo chmod +x /usr/local/bin/xdg-open
+```
+
+無 sudo 時放家目錄（須在 `$PATH` 內）：
+
+```bash
+mkdir -p ~/.local/bin
+printf '#!/bin/sh\nexit 0\n' > ~/.local/bin/xdg-open
+chmod +x ~/.local/bin/xdg-open
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+然後重走流程（舊 code 幾分鐘就過期，每次重跑拿新的）：
+
+```bash
+opencode auth login
+# 選 OpenCode Console account → 抄新網址去自己電腦的瀏覽器開起來授權
+# 回主機等它自己走完（別 Ctrl+C）
+opencode auth list
+```
+
+有列出 opencode 才算登入成功。注意：
+
+- 登入要用**跑服務的那個系統使用者**（憑證存在該使用者的 `~/.local/share/opencode/auth.json`，pm2 跑誰就誰登）。
+- 這管的只是 CLI 本體；ImHook 這邊 `opencode`（Zen HTTP）provider 仍要另外的 API key，只有 `opencode-cli` provider 是吃本機這個登入態。
+
+---
+
 ## 共用驗證（`/webhook*` 發送端點）
 
 LINE（個人帳號／官方兩種模式擇一）、Telegram、WhatsApp、Teams、Discord 的**發送**端點共用同一套驗證（任一通過即可）：
