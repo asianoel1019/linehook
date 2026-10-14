@@ -73,7 +73,7 @@ function providerDefaults(provider: LlmProvider): { baseUrl: string; model: stri
     case "gemini-cli":
       return { baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-2.0-flash" };
     case "opencode":
-      return { baseUrl: "https://opencode.ai/zen/v1", model: "opencode/deepseek-v4.1-flash" };
+      return { baseUrl: "https://opencode.ai/zen/v1", model: "muse-spark-1.3" };
     case "local":
       return { baseUrl: "http://localhost:11434/v1", model: "llama3.1" };
     case "custom":
