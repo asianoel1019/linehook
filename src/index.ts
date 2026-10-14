@@ -68,6 +68,17 @@ async function main(): Promise<void> {
   initMessages();
   initStats();
   initTokenStats();
+  try {
+    import.meta.resolve("@lw/logger");
+  } catch {
+    // 沒有註冊 --import ./alias.mjs，@lw/* 全滅，只剩純型別引用的技能載得起來。
+    // 大聲報錯別讓使用者對著空技能表發呆：pm2 必須用 ecosystem（含 interpreter_args）啟動。
+    logger.error(
+      "技能別名 hook 未註冊：@lw/* 無法解析，引用宿主模組的技能將全部載入失敗；" +
+        "請用 npm start 或 pm2 ecosystem（含 --import ./alias.mjs）啟動，不要直接 node dist/index.js；" +
+        "若 pm2 是舊行程沿用至今，請 pm2 delete 後用 ecosystem.config.cjs 重建",
+    );
+  }
   await loadSkills();
   sweepCache();
   setInterval(() => sweepCache(), 24 * 60 * 60 * 1000).unref?.();
