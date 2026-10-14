@@ -695,6 +695,18 @@ pm2 restart line-webhook
 > 首次以 sqlite 啟動時會自動把既有的 `messages/stats/deadletter` JSONL 遷移進 `DB_PATH`，原檔改名 `.migrated` 保留。
 >
 > **每次部署都要跑 `npm ci`**：若新版本新增了依賴（例如 WhatsApp 個人帳號模式需要 `@whiskeysockets/baileys`），沒安裝會導致該功能載入失敗（嚴重時服務起不來 → nginx 502）。
+>
+> ### 重大改版前檢查清單（2026-10 血淚換來的）
+>
+> 1. **先備份登入 session**：`storage.json` 裡是 LINE selfbot 的活 session（authToken＋E2EE 密鑰），丟了就要重新掃 QR——而 QR 簽發可能被 LINE 擋（實測：主機出口 IP 建不出 QR 會話，家用網路才建得出來）。`.\scripts\scp-update.ps1` 現在上傳前會自動備份遠端 `storage.json`／`settings.json` 到 `backups/`（留最近 10 份）；手動備份：
+>    ```sh
+>    ssh user@host 'cp /usr/share/nginx/Line_webhook/storage.json /tmp/storage.json.bak'
+>    ```
+> 2. **pm2 用 restart，不要 delete＋start**：舊行程沒死透就起新的，兩個實例拿同一 session 併發，LINE 可能直接撤銷 token（`V3_TOKEN_CLIENT_LOGGED_OUT`，救不回來）。真要重建：`pm2 delete` → `ps` 確認死了 → 數 30 秒 → 再 start。
+> 3. **覆蓋檔案一律用蓋的，不用附加**：`storage.json` 是整包 JSON，`>>` 或編輯器貼上會黏成兩團導致解析失敗（`Unexpected non-whitespace character after JSON`）。用 `cp`／`scp` 整檔覆蓋，蓋完先驗再 restart：
+>    ```sh
+>    node -e "JSON.parse(require('fs').readFileSync('storage.json','utf8'));console.log('OK')"
+>    ```
 
 rsync 部署（**不要**用範圍過大的 `--delete`，並排除狀態檔）：
 
