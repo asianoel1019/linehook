@@ -65,7 +65,14 @@ export function renderSettingsHtml() {
       <div class="field"><label data-i18n="lbl_line_storage">Session 儲存目錄</label><input id="line-storagePath" type="text" placeholder="./storage.json"><div class="hint" data-i18n="hint_line_storage">登入憑證（authToken）儲存位置；改完路徑按下方「重新登入」即以新位置重新登入，舊檔不會自動搬移</div></div>
       <div class="field"><label data-i18n="lbl_line_relogin">重新登入</label>
         <span style="display:flex;gap:8px;align-items:center"><button type="button" id="line-relogin">${tr(config.language, "btn_line_relogin")}</button><span id="line-relogin-msg" class="msg"></span></span>
-        <div class="hint" data-i18n="hint_line_relogin">會先儲存目前設定再觸發重新登入；掃 QR 或輸入 PIN，狀態與 QR 顯示於 <code>/dashboard</code></div>
+        <div class="hint" data-i18n="hint_line_relogin">會先儲存目前設定再觸發重新登入；掃 QR 或輸入 PIN，QR 會顯示於下方</div>
+      </div>
+      <div class="field" data-line-mode="personal"><label data-i18n="lbl_line_qr">掃碼登入</label>
+        <div id="line-qrbox" hidden>
+          <p class="msg" id="line-qr-status"></p>
+          <img id="line-qrimg" alt="QR" style="width:240px;height:240px;background:#fff;border:1px solid #ddd;padding:8px;display:none">
+          <div id="line-qrwrap" class="msg"></div>
+        </div>
       </div>
       <div class="field"><label data-i18n="lbl_platform_test">連線測試</label>
         <span style="display:flex;gap:8px;align-items:center"><button type="button" data-platform-test="line">測試連線</button><span id="probe-line" class="msg"></span></span>
@@ -863,7 +870,7 @@ export function renderSettingsHtml() {
       }
       msg.textContent = "重登中…";
       return post("settings/relogin").then(function (q) {
-        msg.textContent = q.ok ? "已觸發重新登入（狀態與 QR 見 /dashboard）" : ("失敗：" + ((q.data && q.data.error) || ""));
+        msg.textContent = q.ok ? "已觸發重新登入（QR 見下方）" : ("失敗：" + ((q.data && q.data.error) || ""));
       });
     }).catch(function () {
       msg.textContent = "請求失敗";
@@ -1031,6 +1038,49 @@ export function renderSettingsHtml() {
   loadForm();
   // loadForm 是非同步；等填完再用目前選擇套用 WhatsApp 模式顯示。
   setTimeout(applyWaMode, 300);
+
+  // LINE 掃碼登入 QR（與 dashboard 共用同一份狀態；有 QR/PIN 才顯示）。
+  function refreshLineQr() {
+    var box = $("line-qrbox");
+    if (!box) return;
+    fetch("/status.json?platform=line", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data || !data.state) return;
+        var st = data.state;
+        var show = st.status === "待驗證" || !!st.qrUrl || !!st.pin;
+        box.hidden = !show;
+        if (!show) return;
+        $("line-qr-status").textContent = "狀態：" + (st.status || "") + (st.lastError ? "（" + st.lastError + "）" : "");
+        var img = $("line-qrimg");
+        var wrap = $("line-qrwrap");
+        wrap.replaceChildren();
+        if (st.qrUrl) {
+          if (img.getAttribute("data-q") !== st.qrUrl) {
+            img.setAttribute("data-q", st.qrUrl);
+            img.src = "/status/qr?platform=line&t=" + Date.now();
+          }
+          img.style.display = "";
+          var a = document.createElement("a");
+          a.href = st.qrUrl;
+          a.target = "_blank";
+          a.textContent = "或點此在手機開啟驗證連結";
+          wrap.appendChild(a);
+        } else {
+          img.style.display = "none";
+          img.removeAttribute("data-q");
+          if (st.pin) {
+            var b = document.createElement("b");
+            b.style.fontSize = "28px";
+            b.textContent = st.pin;
+            wrap.appendChild(b);
+          }
+        }
+      })
+      .catch(function () {});
+  }
+  refreshLineQr();
+  setInterval(refreshLineQr, 5000);
 `;
   const sidebar = `
 <div class="side-section">${tr(config.language, "section_settings")}</div>

@@ -160,10 +160,11 @@ export const DICT: Record<string, Entry> = {
   lbl_line_relogin: { zh: "重新登入", en: "Re-login", ja: "再ログイン" },
   btn_line_relogin: { zh: "儲存並重新登入", en: "Save & re-login", ja: "保存して再ログイン" },
   hint_line_relogin: {
-    zh: "會先儲存目前設定再觸發重新登入；依提示掃 QR 或輸入 PIN，狀態與 QR 顯示於 /dashboard",
-    en: "Saves the current settings first, then triggers a re-login; scan the QR or enter the PIN. Status and QR appear on /dashboard",
-    ja: "現在の設定を保存してから再ログインを実行します。QR をスキャンまたは PIN を入力。状態と QR は /dashboard に表示されます",
+    zh: "會先儲存目前設定再觸發重新登入；依提示掃 QR 或輸入 PIN，QR 會顯示於下方",
+    en: "Saves the current settings first, then triggers a re-login; scan the QR or enter the PIN. The QR appears below",
+    ja: "現在の設定を保存してから再ログインを実行します。QR をスキャンまたは PIN を入力。QR は下に表示されます",
   },
+  lbl_line_qr: { zh: "掃碼登入", en: "QR login", ja: "QRログイン" },
 
   // line official mode（E2：Messaging API，由 line.mode 擇一啟用）
   hint_lo_personal_targets: {
