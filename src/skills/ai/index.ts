@@ -9,7 +9,11 @@ import {
 } from "@lw/skills/llm";
 import { runAgent } from "@lw/skills/agent";
 import { config } from "@lw/config";
+import { logger } from "@lw/logger";
 import type { SkillContext, SkillDefinition } from "@lw/skills/types";
+import { readFileSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, extname, resolve, sep } from "node:path";
 
 /** 天氣工具的 CWA key：AI 技能沒有這個欄位，沿用天氣技能已填好的 key（沒填就免 key 備援）。 */
 function cwaKeyOf(): string {
@@ -25,6 +29,84 @@ const TOOL_HINT = [
 /** 是否啟用工具呼叫迴圈：CLI 模式（gemini-cli／opencode-cli）不走 function calling 協定，強制單輪問答。 */
 export function resolveToolsEnabled(rawTools: string | undefined, provider: string): boolean {
   return (rawTools || "on") !== "off" && provider !== "gemini-cli" && provider !== "opencode-cli";
+}
+
+const REPLY_IMAGE_EXTS: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+};
+/** 一則回覆最多自動傳幾張圖（避免洗版）。 */
+const REPLY_IMAGE_MAX_COUNT = 4;
+
+function replyImageMime(ext: string): string | null {
+  return REPLY_IMAGE_EXTS[ext] ?? null;
+}
+
+/**
+ * 從回覆文字中找出本機圖片檔（CLI 產圖後寫出的路徑），供自動傳送。
+ * 只收 tmp／上傳／快取目錄內的圖、副檔名為常見圖片、大小在上限內；其餘一律略過。
+ */
+export function findReplyImages(
+  text: string,
+  opts: { roots?: string[]; maxCount?: number; maxBytes?: number } = {},
+): Array<{ path: string; filename: string; dataUrl: string }> {
+  const roots = (opts.roots ?? [tmpdir(), config.uploadsPath, config.cachePath]).map((r) => {
+    const p = resolve(r);
+    return p.endsWith(sep) ? p : p + sep;
+  });
+  const maxCount = Math.max(1, opts.maxCount ?? REPLY_IMAGE_MAX_COUNT);
+  const maxBytes = Math.max(1, opts.maxBytes ?? Math.max(1, config.maxBodyMb) * 1024 * 1024);
+  const seen = new Set<string>();
+  const out: Array<{ path: string; filename: string; dataUrl: string }> = [];
+  // Unix 絕對路徑與 Windows 磁碟路徑，副檔名為常見圖片。
+  const re = /(?:[A-Za-z]:)?[\\/][^\s:*?"'<>|()[\]]+?\.(?:png|jpe?g|gif|webp|bmp)/gi;
+  for (const m of String(text ?? "").matchAll(re)) {
+    if (out.length >= maxCount) break;
+    // 剝掉緊貼在後面的標點（中英文皆是）：`"…png。"、"…png,"、"…png)" 等。
+    const p = m[0].replace(/[.,;:!?'")\]}。，；：！？」』）]+$/u, "");
+    const abs = resolve(p);
+    if (seen.has(abs)) continue;
+    seen.add(abs);
+    const mime = replyImageMime(extname(abs).toLowerCase());
+    if (!mime) continue;
+    if (!roots.some((r) => abs.startsWith(r))) continue;
+    let st;
+    try {
+      st = statSync(abs);
+    } catch {
+      continue;
+    }
+    if (!st.isFile() || st.size <= 0 || st.size > maxBytes) continue;
+    let buf;
+    try {
+      buf = readFileSync(abs);
+    } catch {
+      continue;
+    }
+    out.push({ path: abs, filename: basename(abs), dataUrl: `data:${mime};base64,${buf.toString("base64")}` });
+  }
+  return out;
+}
+
+/** 把回覆中提到的本機圖片自動傳到對話；回傳送出張數（單張失敗不影響其他與文字回覆）。 */
+export async function sendReplyImages(ctx: SkillContext, text: string): Promise<number> {
+  let sent = 0;
+  for (const img of findReplyImages(text)) {
+    try {
+      await ctx.sendImage(img.dataUrl, img.filename);
+      sent += 1;
+    } catch (error) {
+      logger.warn("回覆圖片自動傳送失敗", {
+        path: img.path,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return sent;
 }
 
 const aiSkill: SkillDefinition = {
@@ -125,6 +207,9 @@ const aiSkill: SkillDefinition = {
     if (cfg.systemPrompt) systemParts.push(cfg.systemPrompt);
     if (toolsOn) systemParts.push(TOOL_HINT);
     if (images.length > 0) systemParts.push("使用者傳了圖片：只看圖片內容回答，不要臆測圖片外的資訊。");
+    if (cfg.provider === "gemini-cli" || cfg.provider === "opencode-cli") {
+      systemParts.push("若你產生了圖片檔案，務必在回覆文字中寫出完整檔案路徑（例如 /tmp/xxx.png），系統會自動傳送到對話中。");
+    }
     const system = systemParts.join("\n\n");
 
     // G4：使用者原文標記為不可信內容，避免被當成系統指令。
@@ -144,6 +229,7 @@ const aiSkill: SkillDefinition = {
         toolContext: { cwaKey: cwaKeyOf() },
         tag: { skill: "ai" },
       });
+      await sendReplyImages(ctx, result.text);
       await ctx.reply(result.text);
       if (memoryOn) {
         pushHistory(
