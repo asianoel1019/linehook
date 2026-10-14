@@ -168,7 +168,8 @@ export function resolveAutoReply(
 
   const sec = cooldownSecOf(rule, config.cooldownSec);
   const key = fromMid ? `${chat}:${fromMid}` : chat;
-  if (isCooling(key, sec, now.getTime())) {
+  // 冷卻用真實時間比對：now 可能是 nowInTz() 的平移假 epoch（getTime 不可比），只能取欄位。
+  if (isCooling(key, sec)) {
     return { outcome: "blocked", reason: `命中規則「${rule.keyword}」但冷卻中（${sec} 秒內已回覆過）`, rule };
   }
   return { outcome: "hit", rule };

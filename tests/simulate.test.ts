@@ -11,7 +11,7 @@ import {
 import { renderSimulation, simulateDispatch } from "../src/messaging/simulate.js";
 import type { SkillDefinition } from "../src/skills/types.js";
 import { loadSkills } from "../src/skills/loader.js";
-import autoReplySkill from "../src/skills/auto-reply/index.js";
+import autoReplySkill, { resolveAutoReply } from "../src/skills/auto-reply/index.js";
 
 // 整合測試需要真的技能定義（getSkill 才有東西）
 await loadSkills();
@@ -428,6 +428,36 @@ describe("simulateDispatch 端到端", () => {
     assert.equal(skills[0].outcome, "blocked");
     assert.match(skills[0].detail, /冷卻中/);
     assert.match(skills[0].detail, /實際不會送出/);
+  });
+
+  it("冷卻判定用真實時間：now 被平移也不影響（UTC 機器上 nowInTz 回假 epoch）", async () => {
+    const chat = "tz-shift-chat";
+    const skillConfig = {
+      cooldownSec: "60",
+      rules: JSON.stringify([{ keyword: "報價", text: "私訊", enabled: true }]),
+    };
+    config.skills = [{ id: "auto-reply", enabled: true, trigger: "", allowedUsers: [], config: skillConfig }];
+    await autoReplySkill.run({
+      text: "報價",
+      args: "報價",
+      fromName: "小明",
+      chat,
+      fromMid: "u1",
+      config: skillConfig,
+      reply: async () => {},
+      sendImage: async () => {},
+      sendFile: async () => {},
+      schedule: () => "",
+      watch: () => "",
+      unwatch: () => true,
+      watches: () => [],
+      taskState: () => undefined,
+    });
+
+    // 直接傳一個平移 +8 小時的 now（等同 UTC 機器上 nowInTz() 的 getTime），冷卻照樣要命中
+    const shiftedNow = new Date(Date.now() + 8 * 3600 * 1000);
+    const d = resolveAutoReply(skillConfig, "報價", chat, "u1", shiftedNow);
+    assert.equal(d.outcome, "blocked");
   });
 
   it("模擬不改變冷卻狀態（重複模擬結果一致）", () => {
