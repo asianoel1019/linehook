@@ -230,6 +230,13 @@ describe("runAgent", () => {
       /不支援工具呼叫/,
     );
   });
+
+  it("OpenCode CLI 模式不支援工具 → 明確錯誤", async () => {
+    await assert.rejects(
+      runAgent({ ...openAiCfg(), provider: "opencode-cli" }, { system: "", prompt: "hi", tools: true }),
+      /不支援工具呼叫/,
+    );
+  });
 });
 
 describe("executeTool 參數驗證", () => {

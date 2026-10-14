@@ -230,5 +230,7 @@ describe("resolveToolsEnabled", () => {
     assert.equal(resolveToolsEnabled("off", "openai"), false);
     assert.equal(resolveToolsEnabled(undefined, "gemini-cli"), false);
     assert.equal(resolveToolsEnabled("on", "gemini-cli"), false);
+    assert.equal(resolveToolsEnabled(undefined, "opencode-cli"), false);
+    assert.equal(resolveToolsEnabled("on", "opencode-cli"), false);
   });
 });

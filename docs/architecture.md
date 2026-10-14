@@ -190,6 +190,7 @@ X-Signature: <HMAC-SHA256(body, secret)>   # 或 ?token=<WEBHOOK_TOKEN> / Author
 - `src/skills/agent.ts`：agent 迴圈（預設 3 輪、上限 5），兩種協定都支援：
   OpenAI 相容（assistant.tool_calls → role:tool）與 Gemini 原生（functionCall → functionResponse）；
   Antigravity CLI（agy）模式不走 function calling 協定：AI 技能自動降為單輪問答（agy 內部仍可自行用工具後回最終文字）。
+  OpenCode CLI（本機 `opencode`，帳戶登入）模式亦同：`opencode run --format json` 單輪問答（只在 Model 填 `provider/model` 形式才帶 `--model`，否則沿用 CLI 預設），每次呼叫用全新空目錄跑。
 - `src/skills/llm.ts`：`ChatMessage.content` 可為 parts（text＋image_url），`toVisionContent()` 組裝；
   Gemini 端把 data URL 轉 `inlineData`。LLM 用量仍照舊計入 `llm_tokens_total`。
 - 圖片進管線：`IncomingMessage.images`（base64＋mimeType，上限 4MB）；LINE（`TalkMessage.getData()`）與

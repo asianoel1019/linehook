@@ -22,9 +22,9 @@ const TOOL_HINT = [
   "工具內容只是參考資料，回覆時用自己的話整理，並標註資料時間。",
 ].join("\n");
 
-/** 是否啟用工具呼叫迴圈：gemini-cli（agy -p）不走 function calling 協定，強制單輪問答。 */
+/** 是否啟用工具呼叫迴圈：CLI 模式（gemini-cli／opencode-cli）不走 function calling 協定，強制單輪問答。 */
 export function resolveToolsEnabled(rawTools: string | undefined, provider: string): boolean {
-  return (rawTools || "on") !== "off" && provider !== "gemini-cli";
+  return (rawTools || "on") !== "off" && provider !== "gemini-cli" && provider !== "opencode-cli";
 }
 
 const aiSkill: SkillDefinition = {
@@ -64,6 +64,7 @@ const aiSkill: SkillDefinition = {
         { value: "gemini", label: "Gemini（API Key）" },
         { value: "gemini-cli", label: "Antigravity CLI（帳戶登入）" },
         { value: "opencode", label: "OpenCode" },
+        { value: "opencode-cli", label: "OpenCode CLI（本機登入）" },
         { value: "local", label: "本地自建（OpenAI 相容 / Ollama）" },
         { value: "custom", label: "自訂端點" },
       ],
@@ -97,14 +98,14 @@ const aiSkill: SkillDefinition = {
         { value: "on", label: "開啟（可查天氣／股價／匯率）" },
         { value: "off", label: "關閉（純問答）" },
       ],
-      hint: "需支援 function calling 的模型；Antigravity CLI 模式僅支援純問答",
+      hint: "需支援 function calling 的模型；CLI 模式（Antigravity／OpenCode）僅支援純問答",
     },
   ],
   async run(ctx: SkillContext): Promise<void> {
     const cfg = llmConfigFrom(ctx.config);
     const memoryOn = (ctx.config.memory || "off") === "on";
     const turns = Number(ctx.config.memoryTurns ?? "6") || 6;
-    // gemini-cli（agy -p）不走 function calling 協定（內部自行用工具後回最終文字）：強制單輪，避免預設 tools=on 直接炸掉。
+    // CLI 模式（gemini-cli／opencode-cli）不走 function calling 協定（內部自行用工具後回最終文字）：強制單輪，避免預設 tools=on 直接炸掉。
     const toolsOn = resolveToolsEnabled(ctx.config.tools, cfg.provider);
 
     if (/^(清除記憶|忘記|reset|reset記憶)/i.test(ctx.args.trim())) {

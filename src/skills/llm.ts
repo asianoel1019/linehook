@@ -2,9 +2,11 @@ import { logger } from "../logger.js";
 import { recordMetric } from "../metrics.js";
 import { config } from "../config.js";
 import { execSync, spawn } from "node:child_process";
-import { homedir } from "node:os";
+import { mkdtempSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 
-export type LlmProvider = "openai" | "gemini" | "gemini-cli" | "opencode" | "local" | "custom";
+export type LlmProvider = "openai" | "gemini" | "gemini-cli" | "opencode" | "opencode-cli" | "local" | "custom";
 
 export interface LlmConfig {
   provider: LlmProvider;
@@ -73,6 +75,7 @@ function providerDefaults(provider: LlmProvider): { baseUrl: string; model: stri
     case "gemini-cli":
       return { baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-2.0-flash" };
     case "opencode":
+    case "opencode-cli":
       return { baseUrl: "https://opencode.ai/zen/v1", model: "muse-spark-1.3" };
     case "local":
       return { baseUrl: "http://localhost:11434/v1", model: "llama3.1" };
@@ -110,6 +113,7 @@ function numOr(value: string | undefined, fallback: number): number {
 export async function chat(cfg: LlmConfig, messages: ChatMessage[], tag?: { skill?: string }): Promise<string> {
   if (!cfg.model) throw new Error("未設定模型（model）");
   if (cfg.provider === "gemini-cli") return geminiCliChat(cfg, messages, tag);
+  if (cfg.provider === "opencode-cli") return opencodeCliChat(cfg, messages, tag);
   if (cfg.provider === "gemini") return geminiChat(cfg, messages, tag);
   return openaiCompatChat(cfg, messages, cfg.provider !== "local", tag);
 }
@@ -422,6 +426,180 @@ async function geminiCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { sk
   });
 }
 
+/** OpenCode CLI（帳戶登入）單輪問答：spawn `opencode run --format json` 取回覆（免 API key）。 */
+function findOpencodePath(): string {
+  try {
+    const result = execSync("where opencode 2>nul || which opencode 2>/dev/null", { timeout: 5000, encoding: "utf8" });
+    const path = result.split("\n")[0]?.trim();
+    if (path) return path;
+  } catch {
+    /* fallthrough */
+  }
+  return "opencode";
+}
+
+/** opencode run --format json 的用量（step_finish 內 tokens；cost 為 USD）。 */
+export interface OpencodeUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+}
+
+function numOrUndefined(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+/** 從 error 事件欄位抽可讀訊息（字串或 { message }／{ data.message }／{ name } 物件皆可）。 */
+function opencodeErrorText(errorField: unknown): string {
+  if (typeof errorField === "string") return errorField.trim();
+  if (errorField && typeof errorField === "object") {
+    const m = errorField as { message?: unknown; data?: unknown; name?: unknown };
+    if (typeof m.message === "string" && m.message.trim()) return m.message.trim();
+    if (m.data && typeof m.data === "object") {
+      const inner = (m.data as { message?: unknown }).message;
+      if (typeof inner === "string" && inner.trim()) return inner.trim();
+    }
+    if (typeof m.name === "string" && m.name.trim()) return m.name.trim();
+  }
+  return "";
+}
+
+/**
+ * 解析 `opencode run --format json` 的 JSONL 輸出（每行一個事件）。
+ * 成功回 { text, usage }；失敗回 { error }（錯誤訊息帶可操作的說明）。
+ * 沒有任何事件行（舊版 CLI 忽略 --format）時退回把 stdout 當純文字答案。
+ */
+export function parseOpencodeResult(
+  rawOut: string,
+  rawErr: string,
+  code: number | null,
+): { text: string; usage?: OpencodeUsage } | { error: string } {
+  const texts: string[] = [];
+  let sawEvent = false;
+  let lastError = "";
+  let usage: OpencodeUsage = {};
+  for (const line of String(rawOut ?? "").split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(t);
+    } catch {
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object") continue;
+    const ev = parsed as {
+      type?: unknown;
+      part?: { type?: unknown; text?: unknown };
+      error?: unknown;
+    };
+    if (typeof ev.type !== "string") continue;
+    sawEvent = true;
+    if (ev.type === "text") {
+      const txt = typeof ev.part?.text === "string" ? ev.part.text : "";
+      if (txt) texts.push(txt);
+    } else if (ev.type === "step_finish") {
+      const part = (ev as { part?: { tokens?: Record<string, unknown>; cost?: unknown } }).part ?? {};
+      const tok = part.tokens ?? {};
+      usage = {
+        inputTokens: numOrUndefined(tok.input),
+        outputTokens: numOrUndefined(tok.output),
+        costUsd: numOrUndefined(part.cost),
+      };
+    } else if (ev.type === "error") {
+      const detail = opencodeErrorText(ev.error);
+      lastError = detail || "unknown error";
+    }
+  }
+  const text = texts.join("").trim();
+  if (text) return { text, usage };
+  if (lastError) return { error: `OpenCode CLI 錯誤：${lastError.slice(0, 300)}` };
+  if (!sawEvent) {
+    // 舊版 CLI 可能不支援 --format json：把 stdout 當純文字答案（去掉 > 開頭的狀態列）。
+    const fallback = String(rawOut ?? "")
+      .split("\n")
+      .map((l) => l.trimEnd())
+      .filter((l) => l.trim() && !l.trim().startsWith(">"))
+      .join("\n")
+      .trim();
+    if (fallback) return { text: fallback };
+  }
+  const err = String(rawErr ?? "").trim();
+  if (err) return { error: `OpenCode CLI 失敗：${err.slice(0, 300)}` };
+  return {
+    error: `OpenCode CLI 未回傳內容（exit ${code}）。容器化環境已知有事件遺失問題；若持續發生請確認 CLI 版本與登入狀態（opencode auth list）`,
+  };
+}
+
+async function opencodeCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { skill?: string }): Promise<string> {
+  const system = messages
+    .filter((m) => m.role === "system")
+    .map((m) => textOf(m.content))
+    .join("\n");
+  const last = messages.filter((m) => m.role !== "system").pop();
+  const raw = textOf(last?.content ?? "");
+  const clean = raw.replace(/<\/?untrusted-(?:user|web)-content>/g, "").trim();
+  const prompt = system ? `${system}\n\n${clean}` : clean;
+  const ocBin = findOpencodePath();
+  // 每次呼叫用全新的空目錄跑，避免 agent 動到部署目錄。
+  const sandbox = mkdtempSync(join(tmpdir(), "imhook-oc-"));
+  // --model 只接受 provider/model 形式；裸 id（如 muse-spark-1.3）不傳，沿用 CLI 預設模型。
+  const args = ["run", "--format", "json", "--dir", sandbox, ...(cfg.model.includes("/") ? ["--model", cfg.model] : []), prompt];
+  const timeoutMs = Math.max(cfg.timeoutMs, 300_000); // agent 含工具往返，至少等 5 分鐘
+
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const proc = spawn(ocBin, args, {
+      timeout: timeoutMs,
+      env: { ...process.env, HOME: process.env.HOME || homedir() },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let out = "";
+    let err = "";
+    proc.stdout?.on("data", (d: Buffer) => {
+      out += d.toString("utf8");
+    });
+    proc.stderr?.on("data", (d: Buffer) => {
+      err += d.toString("utf8");
+    });
+
+    proc.on("error", (e) => {
+      if (done) return;
+      done = true;
+      const hint = /ENOENT/i.test(e.message) ? "請先在主機安裝 OpenCode CLI 並完成登入（opencode auth login）" : "";
+      logger.error("OpenCode CLI spawn 失敗", { error: e.message });
+      reject(new Error(`OpenCode CLI 無法啟動：${e.message}${hint ? `（${hint}）` : ""}`));
+    });
+
+    proc.on("close", (code, signal) => {
+      if (done) return;
+      done = true;
+      if (signal) {
+        reject(
+          new Error(
+            `OpenCode CLI 逾時或被終止（${signal}，上限約 ${Math.round(timeoutMs / 1000)} 秒）；agent 任務複雜時請調高技能的逾時設定`,
+          ),
+        );
+        return;
+      }
+      const r = parseOpencodeResult(out, err, code);
+      if ("text" in r) {
+        recordLlmUsage(cfg, tag?.skill, r.usage?.inputTokens, r.usage?.outputTokens);
+        resolve(r.text);
+      } else {
+        logger.error("OpenCode CLI 呼叫失敗", {
+          bin: ocBin,
+          code,
+          stdout: out.trim().slice(0, 300),
+          stderr: err.trim().slice(0, 300),
+        });
+        reject(new Error(r.error));
+      }
+    });
+  });
+}
+
 /** G2：記錄 LLM token 用量（供 /metrics 的 llm_tokens_total）。缺 usage 時記 0 佔位。 */
 function recordLlmUsage(cfg: LlmConfig, skill: string | undefined, prompt?: number, completion?: number): void {
   const labels = { provider: cfg.provider, model: cfg.model, skill: skill ?? "unknown" };
@@ -446,6 +624,8 @@ export async function chatWithTools(
   }
   if (cfg.provider === "gemini") return geminiChatWithTools(cfg, messages, tools, tag);
   if (cfg.provider === "gemini-cli") throw new Error("Antigravity CLI 模式不支援工具呼叫，請改用 API key 或關閉工具");
+  if (cfg.provider === "opencode-cli")
+    throw new Error("OpenCode CLI 模式不支援工具呼叫（CLI 內部會自行用工具），請改用 API key 或關閉工具");
   return openaiCompatChatWithTools(cfg, messages, tools, tag);
 }
 
@@ -587,8 +767,34 @@ function safeArgs(raw: string | undefined): Record<string, unknown> {
 /** 列出供應商支援的模型 id。 */
 export async function listModels(cfg: LlmConfig): Promise<string[]> {
   if (cfg.provider === "gemini-cli") return antigravityListModels();
+  if (cfg.provider === "opencode-cli") return opencodeListModels();
   if (cfg.provider === "gemini") return geminiListModels(cfg);
   return openaiCompatListModels(cfg);
+}
+
+async function opencodeListModels(): Promise<string[]> {
+  const ocBin = findOpencodePath();
+  return new Promise((resolve) => {
+    const proc = spawn(ocBin, ["models"], {
+      timeout: 15_000,
+      env: { ...process.env, HOME: process.env.HOME || homedir() },
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    let out = "";
+    proc.stdout?.on("data", (d: Buffer) => {
+      out += d.toString("utf8");
+    });
+    proc.on("close", () => {
+      const models = out
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => /^[^/\s]+\/[^/\s]+$/.test(l));
+      resolve([...new Set(models)]);
+    });
+    proc.on("error", () => {
+      resolve([]);
+    });
+  });
 }
 
 async function antigravityListModels(): Promise<string[]> {
