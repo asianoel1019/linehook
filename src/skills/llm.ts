@@ -549,6 +549,8 @@ async function opencodeCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { 
 
   return new Promise((resolve, reject) => {
     let done = false;
+    const startedAt = Date.now();
+    logger.info("OpenCode CLI 啟動", { bin: ocBin, dir: sandbox, timeoutMs, promptChars: prompt.length });
     const proc = spawn(ocBin, args, {
       timeout: timeoutMs,
       env: { ...process.env, HOME: process.env.HOME || homedir() },
@@ -591,6 +593,7 @@ async function opencodeCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { 
         logger.error("OpenCode CLI 呼叫失敗", {
           bin: ocBin,
           code,
+          elapsedMs: Date.now() - startedAt,
           stdout: out.trim().slice(0, 300),
           stderr: err.trim().slice(0, 300),
         });
