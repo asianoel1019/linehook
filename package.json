@@ -43,21 +43,5 @@
     "tsx": "^4.19.0",
     "typescript": "^5.5.4",
     "typescript-eslint": "^8.71.0"
-  },
-  "main": "index.js",
-  "directories": {
-    "doc": "docs",
-    "test": "tests"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/asianoel1019/linehook.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/asianoel1019/linehook/issues"
-  },
-  "homepage": "https://github.com/asianoel1019/linehook#readme"
+  }
 }
