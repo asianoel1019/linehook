@@ -28,6 +28,22 @@ interface DebounceState {
   notified: boolean;
   recovering: boolean;
   lastAlertAt: number;
+  /** 連續重登失敗次數（成功即歸零）。 */
+  failCount: number;
+  /** 上次重登失敗的時間（deps.now()）。 */
+  lastFailAt: number;
+}
+
+/** 連敗幾次後開始退避（避免對拒絕中的端點每分鐘重試）。 */
+export const RECOVER_BACKOFF_AFTER = 3;
+/** 退避基底 5 分鐘、上限 30 分鐘（指數退避）。 */
+export const RECOVER_BACKOFF_BASE_MS = 5 * 60 * 1000;
+export const RECOVER_BACKOFF_MAX_MS = 30 * 60 * 1000;
+
+/** 依連敗次數算本次應等待的毫秒（3 次→5 分、4 次→10 分、5 次→20 分、6 次以上→30 分封頂）。 */
+export function recoverBackoffMs(failCount: number): number {
+  const steps = Math.max(0, failCount - RECOVER_BACKOFF_AFTER);
+  return Math.min(RECOVER_BACKOFF_MAX_MS, RECOVER_BACKOFF_BASE_MS * 2 ** steps);
 }
 
 export function startHealthMonitor(overrides: Partial<MonitorDeps> = {}): HealthMonitor {
@@ -54,7 +70,7 @@ export function startHealthMonitor(overrides: Partial<MonitorDeps> = {}): Health
   const stateFor = (key: string): DebounceState => {
     let s = states.get(key);
     if (!s) {
-      s = { healthy: true, notified: false, recovering: false, lastAlertAt: 0 };
+      s = { healthy: true, notified: false, recovering: false, lastAlertAt: 0, failCount: 0, lastFailAt: 0 };
       states.set(key, s);
     }
     return s;
@@ -114,6 +130,8 @@ export function startHealthMonitor(overrides: Partial<MonitorDeps> = {}): Health
         }
         st.healthy = true;
         st.notified = false;
+        st.failCount = 0;
+        st.lastFailAt = 0;
         continue;
       }
 
@@ -141,10 +159,42 @@ export function startHealthMonitor(overrides: Partial<MonitorDeps> = {}): Health
         );
       }
 
+      // 連敗退避：同一個服務連續重登失敗達標後拉長間隔（告警照舊去抖發送，只跳過重試）。
+      if (st.failCount >= RECOVER_BACKOFF_AFTER) {
+        const waitMs = recoverBackoffMs(st.failCount);
+        const elapsed = deps.now() - st.lastFailAt;
+        if (elapsed < waitMs) {
+          logger.info("自動重登退避中，跳過本次重試", {
+            platform: svc.platform,
+            failCount: st.failCount,
+            retryInSec: Math.ceil((waitMs - elapsed) / 1000),
+          });
+          continue;
+        }
+      }
+
       st.recovering = true;
-      void svc.recover().finally(() => {
-        st.recovering = false;
-      });
+      void svc
+        .recover()
+        .then(
+          (succeeded) => {
+            if (succeeded) {
+              st.failCount = 0;
+              st.lastFailAt = 0;
+            } else {
+              st.failCount += 1;
+              st.lastFailAt = deps.now();
+            }
+          },
+          (error) => {
+            st.failCount += 1;
+            st.lastFailAt = deps.now();
+            logger.warn("自動重登拋出例外（已計入連敗）", { platform: svc.platform, error: String(error) });
+          },
+        )
+        .finally(() => {
+          st.recovering = false;
+        });
     }
   };
 

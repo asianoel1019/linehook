@@ -2,7 +2,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { config } from "../src/config.js";
 import { getState, setState } from "../src/state.js";
-import { startHealthMonitor, type MonitorDeps } from "../src/monitor/token.js";
+import { startHealthMonitor, recoverBackoffMs, type MonitorDeps } from "../src/monitor/token.js";
 import type { IMessagingService } from "../src/messaging/types.js";
 
 interface Harness {
@@ -196,6 +196,79 @@ describe("startHealthMonitor", () => {
       await monitor.tick();
       await monitor.tick();
       assert.equal(h.pings, 2);
+    } finally {
+      monitor.stop();
+    }
+  });
+
+  it("recoverBackoffMs：5/10/20 分鐘後 30 分鐘封頂", () => {
+    assert.equal(recoverBackoffMs(3), 5 * 60 * 1000);
+    assert.equal(recoverBackoffMs(4), 10 * 60 * 1000);
+    assert.equal(recoverBackoffMs(5), 20 * 60 * 1000);
+    assert.equal(recoverBackoffMs(6), 30 * 60 * 1000);
+    assert.equal(recoverBackoffMs(99), 30 * 60 * 1000);
+  });
+
+  it("連續重登失敗達 3 次後退避：間隔指數拉長，成功即重置", async () => {
+    let healthy = false;
+    const recoverOk = false;
+    const recoveries = { count: 0 };
+    const svc = {
+      platform: "telegram",
+      healthCheck: async () => healthy,
+      recover: async () => {
+        recoveries.count++;
+        return recoverOk;
+      },
+    } as unknown as IMessagingService;
+    const h = harness([svc]);
+    const monitor = startHealthMonitor(h.deps);
+    try {
+      await monitor.tick(); // 失敗 1
+      await monitor.tick(); // 失敗 2
+      await monitor.tick(); // 失敗 3 → 之後退避 5 分鐘
+      assert.equal(recoveries.count, 3);
+      await monitor.tick(); // 同一時刻 → 退避中，跳過
+      assert.equal(recoveries.count, 3);
+      h.clock.now += 6 * 60 * 1000;
+      await monitor.tick(); // 過 5 分鐘退避 → 第 4 次（仍失敗，退避拉到 10 分鐘）
+      assert.equal(recoveries.count, 4);
+      await monitor.tick(); // 同一時刻 → 退避中（10 分鐘），跳過
+      assert.equal(recoveries.count, 4);
+      h.clock.now += 11 * 60 * 1000;
+      await monitor.tick(); // 過 10 分鐘 → 第 5 次
+      assert.equal(recoveries.count, 5);
+
+      // 成功一次即重置：下次失敗從第 1 次重算，不退避
+      healthy = true;
+      await monitor.tick();
+      healthy = false;
+      await monitor.tick();
+      assert.equal(recoveries.count, 6, "重置後立即重試，不退避");
+    } finally {
+      monitor.stop();
+    }
+  });
+
+  it("recover 拋例外也計入連敗（不產生未處理 rejection）", async () => {
+    const recoveries = { count: 0 };
+    const svc = {
+      platform: "telegram",
+      healthCheck: async () => false,
+      recover: async () => {
+        recoveries.count++;
+        throw new Error("boom");
+      },
+    } as unknown as IMessagingService;
+    const h = harness([svc]);
+    const monitor = startHealthMonitor(h.deps);
+    try {
+      await monitor.tick();
+      await monitor.tick();
+      await monitor.tick();
+      assert.equal(recoveries.count, 3);
+      await monitor.tick(); // 退避中，跳過
+      assert.equal(recoveries.count, 3);
     } finally {
       monitor.stop();
     }
