@@ -6,16 +6,13 @@ import { page } from "../shell.js";
 export function renderMessagesHtml() {
     const body = `
 <div class="glass glass-hover msg-page">
-<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between">
   <span class="range-chips msg-tabs" id="message-tabs">
     <button type="button" class="active" data-tab="received" data-i18n="tab_received">收到的訊息</button>
     <button type="button" data-tab="syslog" data-i18n="tab_syslog">系統紀錄</button>
   </span>
-</div>
-<div class="msg-tabs-div"></div>
-<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-  <span style="position:relative;display:inline-block">
-    <button type="button" id="message-range-btn" data-i18n="lbl_range_all">全部</button>
+  <span class="range-chips" style="position:relative;display:inline-block">
+    <button type="button" id="message-range-btn">📅</button>
     <span id="message-range-pop" class="range-pop" hidden>
       <div class="range-pop-head"><span data-i18n="rng_quick">快速選擇</span><span><button type="button" id="range-collapse" class="range-arrow">‹</button><button type="button" id="range-expand" class="range-arrow">›</button></span></div>
       <div class="range-quick-row" id="range-quick-row">
@@ -59,6 +56,7 @@ export function renderMessagesHtml() {
     </span>
   </span>
 </div>
+<div class="msg-tabs-div"></div>
 <div id="tab-received">
 <div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
   <input id="message-search" data-i18n-ph="ph_search" placeholder="搜尋關鍵字" style="width:220px">
@@ -142,7 +140,9 @@ export function renderMessagesHtml() {
   }
 
   function paintRangeButton() {
-    $("message-range-btn").textContent = rangeLabel();
+    var btn = $("message-range-btn");
+    btn.title = rangeLabel();
+    btn.classList.toggle("active", rangeSpec.type !== "all");
   }
 
   function currentTimeWindow() {
