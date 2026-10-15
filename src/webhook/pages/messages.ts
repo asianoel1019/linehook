@@ -13,10 +13,7 @@ export function renderMessagesHtml() {
     <button type="button" data-tab="syslog" data-i18n="tab_syslog">系統紀錄</button>
   </span>
 </div>
-<div id="tab-received">
 <div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-  <input id="message-search" data-i18n-ph="ph_search" placeholder="搜尋關鍵字" style="width:220px">
-  <input id="message-chat" placeholder="MID" style="width:200px">
   <span class="range-chips" id="message-range">
     <button type="button" class="active" data-range="all" data-i18n="lbl_range_all">全部</button>
     <button type="button" data-range="10m" data-i18n="lbl_range_10m">10 分鐘</button>
@@ -31,6 +28,11 @@ export function renderMessagesHtml() {
     <label for="message-until" data-i18n="lbl_until" class="msg">訖</label>
     <input id="message-until" type="datetime-local" style="width:180px">
   </span>
+</div>
+<div id="tab-received">
+<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+  <input id="message-search" data-i18n-ph="ph_search" placeholder="搜尋關鍵字" style="width:220px">
+  <input id="message-chat" placeholder="MID" style="width:200px">
   <select id="message-platform" style="width:140px">
     <option value="" data-i18n="opt_all_platforms">全部平台</option>
     <option value="line" data-i18n="platform_line">LINE</option>
@@ -74,6 +76,21 @@ export function renderMessagesHtml() {
   var RANGE_MS = { "10m": 600000, "1h": 3600000, "8h": 28800000, "1d": 86400000 };
   var rangeMode = "all";
 
+  function currentTimeWindow() {
+    var sinceMs = null;
+    var untilMs = null;
+    if (rangeMode === "custom") {
+      var s = $("message-since").value;
+      var u = $("message-until").value;
+      if (s) { var st = new Date(s).getTime(); if (isFinite(st)) sinceMs = st; }
+      if (u) { var ut = new Date(u).getTime(); if (isFinite(ut)) untilMs = ut; }
+    } else if (rangeMode !== "all") {
+      var ms = RANGE_MS[rangeMode] || 0;
+      if (ms) sinceMs = Date.now() - ms;
+    }
+    return { sinceMs: sinceMs, untilMs: untilMs };
+  }
+
   function queryString() {
     var parts = [];
     var q = $("message-search").value.trim();
@@ -82,15 +99,9 @@ export function renderMessagesHtml() {
     if (q) parts.push("q=" + encodeURIComponent(q));
     if (chat) parts.push("chat=" + encodeURIComponent(chat));
     if (plat) parts.push("chatType=" + encodeURIComponent(plat));
-    if (rangeMode === "custom") {
-      var since = $("message-since").value;
-      var until = $("message-until").value;
-      if (since) parts.push("sinceTs=" + encodeURIComponent(new Date(since).toISOString()));
-      if (until) parts.push("untilTs=" + encodeURIComponent(new Date(until).toISOString()));
-    } else if (rangeMode !== "all") {
-      var ms = RANGE_MS[rangeMode] || 0;
-      if (ms) parts.push("sinceTs=" + encodeURIComponent(new Date(Date.now() - ms).toISOString()));
-    }
+    var w = currentTimeWindow();
+    if (w.sinceMs != null) parts.push("sinceTs=" + encodeURIComponent(new Date(w.sinceMs).toISOString()));
+    if (w.untilMs != null) parts.push("untilTs=" + encodeURIComponent(new Date(w.untilMs).toISOString()));
     return parts.length > 0 ? "?" + parts.join("&") : "";
   }
 
@@ -125,7 +136,15 @@ export function renderMessagesHtml() {
       })
       .then(function (data) {
         if (!data) return;
-        var list = (data.logs || []).slice().reverse();
+        var w = currentTimeWindow();
+        var list = (data.logs || []).filter(function (l) {
+          if (w.sinceMs == null && w.untilMs == null) return true;
+          var t = Date.parse(l.time || "");
+          if (!isFinite(t)) return false;
+          if (w.sinceMs != null && t < w.sinceMs) return false;
+          if (w.untilMs != null && t > w.untilMs) return false;
+          return true;
+        }).reverse();
         var bodyEl = $("syslogs");
         if (list.length === 0) {
           bodyEl.replaceChildren(emptyRow(4));
