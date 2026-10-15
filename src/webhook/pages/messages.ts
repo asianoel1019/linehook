@@ -6,13 +6,13 @@ import { page } from "../shell.js";
 export function renderMessagesHtml() {
     const body = `
 <div class="glass glass-hover msg-page">
-<h2 style="margin-top:0" data-i18n="title_messages">訊息/LOG</h2>
 <div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-  <span class="range-chips" id="message-tabs">
+  <span class="range-chips msg-tabs" id="message-tabs">
     <button type="button" class="active" data-tab="received" data-i18n="tab_received">收到的訊息</button>
     <button type="button" data-tab="syslog" data-i18n="tab_syslog">系統紀錄</button>
   </span>
 </div>
+<div class="msg-tabs-div"></div>
 <div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
   <span style="position:relative;display:inline-block">
     <button type="button" id="message-range-btn" data-i18n="lbl_range_all">全部</button>
