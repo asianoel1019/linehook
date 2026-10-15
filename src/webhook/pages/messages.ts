@@ -14,19 +14,49 @@ export function renderMessagesHtml() {
   </span>
 </div>
 <div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-  <span class="range-chips" id="message-range">
-    <button type="button" class="active" data-range="all" data-i18n="lbl_range_all">全部</button>
-    <button type="button" data-range="10m" data-i18n="lbl_range_10m">10 分鐘</button>
-    <button type="button" data-range="1h" data-i18n="lbl_range_1h">1 小時</button>
-    <button type="button" data-range="8h" data-i18n="lbl_range_8h">8 小時</button>
-    <button type="button" data-range="1d" data-i18n="lbl_range_1d">1 天</button>
-    <button type="button" data-range="custom" data-i18n="lbl_range_custom">自訂區間</button>
-  </span>
-  <span id="message-custom-range" hidden>
-    <label for="message-since" data-i18n="lbl_since" class="msg">起</label>
-    <input id="message-since" type="datetime-local" style="width:180px">
-    <label for="message-until" data-i18n="lbl_until" class="msg">訖</label>
-    <input id="message-until" type="datetime-local" style="width:180px">
+  <span style="position:relative;display:inline-block">
+    <button type="button" id="message-range-btn" data-i18n="lbl_range_all">全部</button>
+    <span id="message-range-pop" class="range-pop" hidden>
+      <div class="range-pop-head"><span data-i18n="rng_quick">快速選擇</span><span><button type="button" id="range-collapse" class="range-arrow">‹</button><button type="button" id="range-expand" class="range-arrow">›</button></span></div>
+      <div class="range-quick-row" id="range-quick-row">
+        <select id="range-dir"><option value="last" data-i18n="rng_last">過去</option></select>
+        <input id="range-num" type="number" min="1" value="1">
+        <select id="range-unit">
+          <option value="minute" data-i18n="unit_minute">分鐘</option>
+          <option value="hour" selected data-i18n="unit_hour">小時</option>
+          <option value="day" data-i18n="unit_day">天</option>
+          <option value="week" data-i18n="unit_week">週</option>
+        </select>
+        <button type="button" id="range-apply" data-i18n="btn_apply">套用</button>
+      </div>
+      <div class="range-pop-head"><span data-i18n="rng_common">常用</span></div>
+      <div class="range-presets">
+        <div>
+          <button type="button" data-preset="all" data-i18n="lbl_range_all">全部</button>
+          <button type="button" data-preset="today" data-i18n="rng_today">今天</button>
+          <button type="button" data-preset="week" data-i18n="rng_week">本週</button>
+          <button type="button" data-preset="1m" data-i18n="rng_1m">近 1 分鐘</button>
+          <button type="button" data-preset="15m" data-i18n="rng_15m">近 15 分鐘</button>
+          <button type="button" data-preset="30m" data-i18n="rng_30m">近 30 分鐘</button>
+          <button type="button" data-preset="1h" data-i18n="rng_1h">近 1 小時</button>
+        </div>
+        <div>
+          <button type="button" data-preset="24h" data-i18n="rng_24h">近 24 小時</button>
+          <button type="button" data-preset="7d" data-i18n="rng_7d">近 7 天</button>
+          <button type="button" data-preset="30d" data-i18n="rng_30d">近 30 天</button>
+          <button type="button" data-preset="90d" data-i18n="rng_90d">近 90 天</button>
+          <button type="button" data-preset="1y" data-i18n="rng_1y">近 1 年</button>
+        </div>
+      </div>
+      <div class="range-pop-head"><span data-i18n="lbl_range_custom">自訂區間</span></div>
+      <div class="range-quick-row">
+        <label for="message-since" data-i18n="lbl_since" class="msg">起</label>
+        <input id="message-since" type="datetime-local" style="width:150px">
+        <label for="message-until" data-i18n="lbl_until" class="msg">訖</label>
+        <input id="message-until" type="datetime-local" style="width:150px">
+        <button type="button" id="range-custom-apply" data-i18n="btn_apply">套用</button>
+      </div>
+    </span>
   </span>
 </div>
 <div id="tab-received">
@@ -73,20 +103,68 @@ export function renderMessagesHtml() {
     }));
   }
 
-  var RANGE_MS = { "10m": 600000, "1h": 3600000, "8h": 28800000, "1d": 86400000 };
-  var rangeMode = "all";
+  var RANGE_PRESETS = {
+    "1m": 60000,
+    "15m": 900000,
+    "30m": 1800000,
+    "1h": 3600000,
+    "24h": 86400000,
+    "7d": 604800000,
+    "30d": 2592000000,
+    "90d": 7776000000,
+    "1y": 31536000000
+  };
+  var RANGE_PRESET_LABEL = {
+    all: "lbl_range_all",
+    today: "rng_today",
+    week: "rng_week",
+    "1m": "rng_1m",
+    "15m": "rng_15m",
+    "30m": "rng_30m",
+    "1h": "rng_1h",
+    "24h": "rng_24h",
+    "7d": "rng_7d",
+    "30d": "rng_30d",
+    "90d": "rng_90d",
+    "1y": "rng_1y"
+  };
+  var UNIT_MS = { minute: 60000, hour: 3600000, day: 86400000, week: 604800000 };
+  var rangeSpec = { type: "all" };
+
+  function rangeLabel() {
+    if (rangeSpec.type === "custom") return T("lbl_range_custom");
+    if (rangeSpec.type === "today") return T("rng_today");
+    if (rangeSpec.type === "week") return T("rng_week");
+    if (rangeSpec.type === "relative") {
+      return rangeSpec.presetKey ? T(rangeSpec.presetKey) : T("lbl_range_custom");
+    }
+    return T("lbl_range_all");
+  }
+
+  function paintRangeButton() {
+    $("message-range-btn").textContent = rangeLabel();
+  }
 
   function currentTimeWindow() {
     var sinceMs = null;
     var untilMs = null;
-    if (rangeMode === "custom") {
+    var t = rangeSpec.type;
+    if (t === "custom") {
       var s = $("message-since").value;
       var u = $("message-until").value;
       if (s) { var st = new Date(s).getTime(); if (isFinite(st)) sinceMs = st; }
       if (u) { var ut = new Date(u).getTime(); if (isFinite(ut)) untilMs = ut; }
-    } else if (rangeMode !== "all") {
-      var ms = RANGE_MS[rangeMode] || 0;
-      if (ms) sinceMs = Date.now() - ms;
+    } else if (t === "relative") {
+      if (rangeSpec.ms) sinceMs = Date.now() - rangeSpec.ms;
+    } else if (t === "today") {
+      var d = new Date();
+      d.setHours(0, 0, 0, 0);
+      sinceMs = d.getTime();
+    } else if (t === "week") {
+      var w = new Date();
+      w.setHours(0, 0, 0, 0);
+      w.setDate(w.getDate() - ((w.getDay() + 6) % 7));
+      sinceMs = w.getTime();
     }
     return { sinceMs: sinceMs, untilMs: untilMs };
   }
@@ -193,17 +271,46 @@ export function renderMessagesHtml() {
     });
   });
 
-  function setRange(mode) {
-    rangeMode = mode;
-    document.querySelectorAll("#message-range button").forEach(function (b) {
-      b.classList.toggle("active", b.getAttribute("data-range") === mode);
-    });
-    $("message-custom-range").hidden = mode !== "custom";
+  function closeRangePop() {
+    $("message-range-pop").hidden = true;
+  }
+  $("message-range-btn").addEventListener("click", function (e) {
+    e.stopPropagation();
+    var p = $("message-range-pop");
+    p.hidden = !p.hidden;
+  });
+  $("message-range-pop").addEventListener("click", function (e) { e.stopPropagation(); });
+  document.addEventListener("click", function () { closeRangePop(); });
+
+  function applyRangeSpec(spec) {
+    rangeSpec = spec;
+    paintRangeButton();
+    closeRangePop();
     refresh();
   }
-  document.querySelectorAll("#message-range button").forEach(function (b) {
-    b.addEventListener("click", function () { setRange(b.getAttribute("data-range")); });
+  document.querySelectorAll("#message-range-pop [data-preset]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var key = b.getAttribute("data-preset");
+      if (key === "all" || key === "today" || key === "week") {
+        applyRangeSpec({ type: key });
+      } else if (RANGE_PRESETS[key]) {
+        applyRangeSpec({ type: "relative", ms: RANGE_PRESETS[key], presetKey: RANGE_PRESET_LABEL[key] });
+      } else {
+        applyRangeSpec({ type: "all" });
+      }
+    });
   });
+  $("range-apply").addEventListener("click", function () {
+    var n = Math.max(1, Math.floor(Number($("range-num").value) || 1));
+    var mult = UNIT_MS[$("range-unit").value] || 3600000;
+    applyRangeSpec({ type: "relative", ms: n * mult });
+  });
+  $("range-custom-apply").addEventListener("click", function () {
+    applyRangeSpec({ type: "custom" });
+  });
+  $("range-collapse").addEventListener("click", function () { $("range-quick-row").hidden = true; });
+  $("range-expand").addEventListener("click", function () { $("range-quick-row").hidden = false; });
+  paintRangeButton();
 
   var searchTimer = null;
   function scheduleRefresh() {
