@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,7 +13,13 @@ import {
   isGroupChat,
   touchAiMode,
 } from "../src/skills/ai/mode.js";
-import { dispatchIncoming, type DispatchDeps } from "../src/messaging/dispatch.js";
+import {
+  armAiModeExpiryNotice,
+  disarmAiModeTimer,
+  dispatchIncoming,
+  type AiModeNotifier,
+  type DispatchDeps,
+} from "../src/messaging/dispatch.js";
 import { loadSkills } from "../src/skills/loader.js";
 
 await loadSkills();
@@ -242,5 +248,58 @@ describe("AI 對話模式 dispatch 整合", () => {
     await dispatchIncoming(msg("關閉AI模式"), d);
     assert.match(d.replies[0], /已離開/);
     assert.equal(isAiModeActive("U_mode_user"), false);
+  });
+});
+
+describe("AI 模式到期主動通知（timer）", () => {
+  it("ttl 到時自動發已退出；重設續命後舊 timer 不發", async () => {
+    mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.now() });
+    try {
+      const sent: Array<{ platform: string; chat: string; text: string }> = [];
+      const notify: AiModeNotifier = async (platform, chat, text) => {
+        sent.push({ platform, chat, text });
+      };
+      touchAiMode("U_notice_t1", 60_000);
+      armAiModeExpiryNotice("line", "U_notice_t1", 60_000, notify);
+      mock.timers.tick(59_000);
+      await Promise.resolve();
+      assert.deepEqual(sent, []);
+      // 續命：重設 timer；舊時間點到時不應發送
+      touchAiMode("U_notice_t1", 60_000);
+      armAiModeExpiryNotice("line", "U_notice_t1", 60_000, notify);
+      mock.timers.tick(1000);
+      await Promise.resolve();
+      assert.deepEqual(sent, []);
+      mock.timers.tick(59_000);
+      await Promise.resolve();
+      assert.equal(sent.length, 1);
+      assert.deepEqual(sent[0], { platform: "line", chat: "U_notice_t1", text: "已退出AI mode。" });
+      assert.equal(isAiModeActive("U_notice_t1"), false);
+    } finally {
+      mock.timers.reset();
+      disarmAiModeTimer("U_notice_t1");
+      clearAiMode("U_notice_t1");
+    }
+  });
+
+  it("disarm 後到期不發", async () => {
+    mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.now() });
+    try {
+      const sent: string[] = [];
+      const notify: AiModeNotifier = async (_platform, _chat, text) => {
+        sent.push(text);
+      };
+      touchAiMode("U_notice_t2", 60_000);
+      armAiModeExpiryNotice("line", "U_notice_t2", 60_000, notify);
+      disarmAiModeTimer("U_notice_t2");
+      clearAiMode("U_notice_t2");
+      mock.timers.tick(120_000);
+      await Promise.resolve();
+      assert.deepEqual(sent, []);
+    } finally {
+      mock.timers.reset();
+      disarmAiModeTimer("U_notice_t2");
+      clearAiMode("U_notice_t2");
+    }
   });
 });

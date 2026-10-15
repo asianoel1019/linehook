@@ -6,9 +6,10 @@ import { getSkill } from "../skills/index.js";
 import { effectiveMode, skillListText, skillUsageText } from "../skills/help.js";
 import type { SkillContext, SkillTaskContext, SkillWatchView, WatchOptions } from "../skills/types.js";
 import type { Job as ScheduledJob, ScheduledJobView } from "../line/scheduler.js";
-import type { IncomingMessage, SendInput } from "./types.js";
+import type { IncomingMessage, Platform, SendInput } from "./types.js";
 import type { IncomingImage } from "./types.js";
 import { seenInbound } from "./dedup.js";
+import { getService } from "./services.js";
 import { writeDeadLetter } from "../deadletter.js";
 import { recordMetric } from "../metrics.js";
 import type { SkillConfig } from "../config.js";
@@ -407,6 +408,67 @@ async function runMatchedSkill(
 }
 
 /**
+ * AI 模式到期主動通知 timer（chat → timeout）。
+ * 狀態本身仍由 ai/mode.ts 的 Map 保管；這裡只負責「時間到就發一次已退出」。
+ * 觸發時一律經 consumeExpiredAiMode 判定，確保與訊息路徑的惰性通知不會重複發送。
+ */
+const aiModeTimers = new Map<string, NodeJS.Timeout>();
+
+/** 到期通知寄送方式（預設走平台服務；測試可注入假函式）。 */
+export type AiModeNotifier = (platform: string, chat: string, text: string) => Promise<void>;
+
+async function defaultAiModeNotifier(platform: string, chat: string, text: string): Promise<void> {
+  const svc = getService(platform as Platform);
+  if (!svc) {
+    logger.warn("AI 模式到期通知無服務可送", { platform, chat });
+    return;
+  }
+  try {
+    await svc.sendAdvanced([{ to: chat, text }]);
+  } catch (error) {
+    logger.warn("AI 模式到期通知發送失敗", {
+      platform,
+      chat,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/** 啟動／重設到期 timer（舊的先清；ttl<=0 或空 chat 直接略過）。 */
+export function armAiModeExpiryNotice(
+  platform: string,
+  chat: string,
+  ttlMs: number,
+  notify: AiModeNotifier = defaultAiModeNotifier,
+): void {
+  disarmAiModeTimer(chat);
+  if (!chat || ttlMs <= 0) return;
+  const timer = setTimeout(() => {
+    // async IIFE＋內層 try/catch：timer 回呼拋錯會炸 event loop，一律吞掉（各層已記 log）。
+    void (async () => {
+      try {
+        aiModeTimers.delete(chat);
+        if (!consumeExpiredAiMode(chat)) return;
+        await notify(platform, chat, "已退出AI mode。");
+      } catch {
+        /* 到期通知失敗不影響主流程 */
+      }
+    })();
+  }, ttlMs);
+  timer.unref?.();
+  aiModeTimers.set(chat, timer);
+}
+
+/** 取消到期 timer（stop／清除／重設前呼叫）。 */
+export function disarmAiModeTimer(chat: string): void {
+  const t = aiModeTimers.get(chat);
+  if (t) {
+    clearTimeout(t);
+    aiModeTimers.delete(chat);
+  }
+}
+
+/**
  * AI 對話模式的開關指令處理（前綴觸發時呼叫；白名單不符直接靜默，避免洩漏設定）。
  * 有處理就回傳 true（呼叫端直接 return），沒處理回傳 false。
  */
@@ -421,6 +483,7 @@ async function handleAiModeCommand(
   if (cmd === "stop") {
     const was = isAiModeActive(msg.chat);
     clearAiMode(msg.chat);
+    disarmAiModeTimer(msg.chat);
     await deps.replyTo(msg.chat, was ? "已離開 AI 對話模式。" : "目前沒有啟動 AI 對話模式。");
     return true;
   }
@@ -429,6 +492,7 @@ async function handleAiModeCommand(
   const mins = Math.max(1, Math.round(ttl / 60000));
   const was = isAiModeActive(msg.chat);
   touchAiMode(msg.chat, ttl);
+  armAiModeExpiryNotice(deps.platform, msg.chat, ttl);
   await deps.replyTo(
     msg.chat,
     was
@@ -462,7 +526,10 @@ async function runSkills(
     const aiEntry = config.skills.find((s) => s.id === "ai");
     const aiUsable = !!aiEntry?.enabled && aiModeTtlMs(aiEntry?.config) > 0;
     if (!aiUsable) {
-      if (isAiModeActive(chat)) clearAiMode(chat); // 功能關閉或技能停用：靜默清除殘留
+      if (isAiModeActive(chat)) {
+        clearAiMode(chat); // 功能關閉或技能停用：靜默清除殘留
+        disarmAiModeTimer(chat);
+      }
     } else {
       const cmd = hasPrefix ? detectAiModeCommand(rest) : detectAiModeCommand(text);
       if (cmd) {
@@ -470,12 +537,15 @@ async function runSkills(
       } else if (isAiModeActive(chat)) {
         const ttl = aiModeTtlMs(aiEntry!.config);
         touchAiMode(chat, ttl);
+        armAiModeExpiryNotice(deps.platform, chat, ttl); // 有新訊息自動延長：timer 跟著重設
         if (!aiGroupModeOn(aiEntry!.config) && isGroupChat(deps.platform, chat)) {
           clearAiMode(chat); // 群組未開放：靜默清除，不打擾
+          disarmAiModeTimer(chat);
         } else {
           const def = getSkill(aiEntry!.id);
           if (!def) {
             clearAiMode(chat);
+            disarmAiModeTimer(chat);
           } else {
             const allowed = aiEntry!.allowedUsers ?? [];
             if (allowed.length === 0 || allowed.includes(fromMid) || allowed.includes(chat)) {
@@ -490,6 +560,7 @@ async function runSkills(
           }
         }
       } else if (consumeExpiredAiMode(chat)) {
+        disarmAiModeTimer(chat); // 防禦：timer 漏清時此處補清，避免殘留
         await deps.replyTo(chat, "已退出AI mode。");
       }
     }
