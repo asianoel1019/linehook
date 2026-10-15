@@ -126,9 +126,9 @@ const aiSkill: SkillDefinition = {
     ja: "LLM で質問に回答。画像対応、天気・株価・為替の即時検索（ツール）も可能。",
   },
   usage: {
-    zh: "問 台灣最高的山；傳圖片＋問題；問 台積電現在股價（會自動查詢）",
-    en: "ask the tallest mountain in Taiwan; send an image with a question; ask TSMC price (auto lookup)",
-    ja: "問 台湾で一番高い山；画像を送る；問 台湾株の現在値（自動検索）",
+    zh: "問 台灣最高的山；傳圖片＋問題；問 台積電現在股價（會自動查詢）；說「啟動AI模式」進入 10 分鐘免觸發詞對話",
+    en: "ask the tallest mountain in Taiwan; send an image with a question; ask TSMC price (auto lookup); say 啟動AI模式 for 10-minute trigger-free chat",
+    ja: "問 台湾で一番高い山；画像を送る；問 台湾株の現在値（自動検索）；「啟動AI模式」で10分間の触发詞なし会話",
   },
   category: { zh: "智慧助理", en: "Assistant", ja: "アシスタント" },
   defaultTrigger: "問",
@@ -189,6 +189,20 @@ const aiSkill: SkillDefinition = {
         { value: "off", label: "關閉（純問答）" },
       ],
       hint: "需支援 function calling 的模型；CLI 模式（Antigravity／OpenCode）僅支援純問答",
+    },
+    {
+      key: "sessionTtlMin",
+      label: { zh: "對話模式維持（分鐘）", en: "AI mode window (min)", ja: "AIモード維持時間（分）" },
+      hint: "「啟動AI模式」後免觸發詞問答的維持時間，有新訊息自動延長；0 = 關閉此功能，預設 10",
+    },
+    {
+      key: "groupMode",
+      label: { zh: "對話模式開放群組", en: "AI mode in groups", ja: "グループでAIモード" },
+      type: "select",
+      options: [
+        { value: "off", label: "僅個人對話（預設）" },
+        { value: "on", label: "群組也可用" },
+      ],
     },
   ],
   async run(ctx: SkillContext): Promise<void> {

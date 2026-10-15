@@ -14,6 +14,16 @@ import { recordMetric } from "../metrics.js";
 import type { SkillConfig } from "../config.js";
 import type { SkillDefinition } from "../skills/types.js";
 import type { ForwardRule } from "../config.js";
+import {
+  aiGroupModeOn,
+  aiModeTtlMs,
+  clearAiMode,
+  consumeExpiredAiMode,
+  detectAiModeCommand,
+  isAiModeActive,
+  isGroupChat,
+  touchAiMode,
+} from "../skills/ai/mode.js";
 
 /** per-skill 限流（F5）：預設每對話每分鐘 60 次；花錢/打外部 API 的技能更嚴。 */
 export const SKILL_RATE_LIMIT_DEFAULT = 60;
@@ -304,6 +314,130 @@ export async function dispatchSkillTask(job: ScheduledJob, deps: DispatchDeps): 
   }
 }
 
+/** 命中後的執行本體（正常技能比對與 AI 對話模式直送共用，避免兩邊漂移）。 */
+async function runMatchedSkill(
+  skill: SkillConfig,
+  def: SkillDefinition,
+  msg: { text: string; args: string; chat: string; fromName: string; fromMid: string; images?: IncomingImage[] },
+  deps: DispatchDeps,
+): Promise<void> {
+  const { text, args, chat, fromName, fromMid, images } = msg;
+  if (skillThrottled(skill.id, chat)) {
+    logger.warn("技能觸發過於頻繁，已略過", { skill: skill.id, chat });
+    recordMetric("skill_exec_total", 1, { skill: skill.id, result: "throttled" });
+    return;
+  }
+  recordMetric("skill_exec_total", 1, { skill: skill.id, result: "run" });
+
+  logger.info("觸發技能", { skill: skill.id, mode: effectiveMode(skill, def), chat });
+  try {
+    const skillId = skill.id;
+    const toWatchView = (job: ScheduledJobView): SkillWatchView => ({
+      id: job.id,
+      task: job.skillTask?.task ?? "",
+      cron: job.repeat ?? "",
+      runAt: job.runAt,
+      args: { ...(job.skillTask?.args ?? {}) },
+    });
+    const ctx: SkillContext = {
+      text,
+      args,
+      fromName,
+      chat,
+      fromMid,
+      config: skill.config,
+      ...(images && images.length > 0 ? { images } : {}),
+      reply: (t) => deps.replyTo(chat, t),
+      sendImage: async (source, filename) => {
+        try {
+          await deps.sendMedia(chat, source, "image", filename);
+          recordSend({ time: new Date().toISOString(), to: chat, type: "image", ok: true });
+        } catch (error) {
+          recordSend({ time: new Date().toISOString(), to: chat, type: "image", ok: false });
+          throw error;
+        }
+      },
+      sendFile: async (source, filename) => {
+        try {
+          await deps.sendMedia(chat, source, "file", filename);
+          recordSend({ time: new Date().toISOString(), to: chat, type: "file", ok: true });
+        } catch (error) {
+          recordSend({ time: new Date().toISOString(), to: chat, type: "file", ok: false });
+          throw error;
+        }
+      },
+      schedule: (text, runAt) => deps.schedule([{ to: chat, text }], runAt).id,
+      watch: (opts) => deps.scheduleSkillTask(skillId, chat, opts).id,
+      unwatch: (taskOrId) => {
+        const jobs = deps.listSkillTasks({ skillId, chat });
+        const byId = jobs.find((j) => j.id === taskOrId);
+        if (byId) return deps.cancelScheduledTask(byId.id);
+        const byTask = jobs.find((j) => j.skillTask?.task === taskOrId);
+        if (byTask) return deps.cancelScheduledTask(byTask.id);
+        return false;
+      },
+      watches: () => deps.listSkillTasks({ skillId, chat }).map(toWatchView),
+      taskState: (taskOrId) => {
+        const jobs = deps.listSkillTasks({ skillId, chat });
+        const job = jobs.find((j) => j.id === taskOrId) ?? jobs.find((j) => j.skillTask?.task === taskOrId);
+        return job ? deps.readTaskState(job.id) : undefined;
+      },
+    };
+    await def.run(ctx);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error("技能執行失敗", { skill: skill.id, error: message });
+    writeDeadLetter({
+      platform: deps.platform,
+      kind: `skill:${skill.id}`,
+      to: [chat],
+      summary: def.name,
+      error: message,
+    });
+    // 錯誤回覆本身也要保護：回覆失敗不可擊倒後續技能與轉發規則。
+    try {
+      await deps.replyTo(chat, `技能「${def.name}」執行失敗：${message}`);
+    } catch (replyError) {
+      logger.error("技能錯誤回覆失敗", {
+        skill: skill.id,
+        error: replyError instanceof Error ? replyError.message : String(replyError),
+      });
+    }
+  }
+}
+
+/**
+ * AI 對話模式的開關指令處理（前綴觸發時呼叫；白名單不符直接靜默，避免洩漏設定）。
+ * 有處理就回傳 true（呼叫端直接 return），沒處理回傳 false。
+ */
+async function handleAiModeCommand(
+  cmd: "start" | "stop",
+  skill: SkillConfig,
+  msg: { chat: string; fromMid: string },
+  deps: DispatchDeps,
+): Promise<boolean> {
+  const allowed = skill.allowedUsers ?? [];
+  if (allowed.length > 0 && !allowed.includes(msg.fromMid) && !allowed.includes(msg.chat)) return false;
+  if (cmd === "stop") {
+    const was = isAiModeActive(msg.chat);
+    clearAiMode(msg.chat);
+    await deps.replyTo(msg.chat, was ? "已離開 AI 對話模式。" : "目前沒有啟動 AI 對話模式。");
+    return true;
+  }
+  if (!aiGroupModeOn(skill.config) && isGroupChat(deps.platform, msg.chat)) return false;
+  const ttl = aiModeTtlMs(skill.config);
+  const mins = Math.max(1, Math.round(ttl / 60000));
+  const was = isAiModeActive(msg.chat);
+  touchAiMode(msg.chat, ttl);
+  await deps.replyTo(
+    msg.chat,
+    was
+      ? `AI 對話模式已在進行中，已重新計時 ${mins} 分鐘。`
+      : `已進入 AI 對話模式，接下來 ${mins} 分鐘可以直接問我，不用加觸發詞；有新訊息會自動延長，說「關閉AI模式」可隨時結束。`,
+  );
+  return true;
+}
+
 async function runSkills(
   text: string,
   chat: string,
@@ -321,6 +455,44 @@ async function runSkills(
     logger.info("列出可用技能", { chat });
     await deps.replyTo(chat, skillListText(config.language));
     return;
+  }
+
+  // AI 對話模式（ai/mode.ts）：前綴指令開關＋無前綴直問路由＋到期一次性通知。
+  {
+    const aiEntry = config.skills.find((s) => s.id === "ai");
+    const aiUsable = !!aiEntry?.enabled && aiModeTtlMs(aiEntry?.config) > 0;
+    if (!aiUsable) {
+      if (isAiModeActive(chat)) clearAiMode(chat); // 功能關閉或技能停用：靜默清除殘留
+    } else {
+      const cmd = hasPrefix ? detectAiModeCommand(rest) : detectAiModeCommand(text);
+      if (cmd) {
+        if (await handleAiModeCommand(cmd, aiEntry!, { chat, fromMid }, deps)) return;
+      } else if (isAiModeActive(chat)) {
+        const ttl = aiModeTtlMs(aiEntry!.config);
+        touchAiMode(chat, ttl);
+        if (!aiGroupModeOn(aiEntry!.config) && isGroupChat(deps.platform, chat)) {
+          clearAiMode(chat); // 群組未開放：靜默清除，不打擾
+        } else {
+          const def = getSkill(aiEntry!.id);
+          if (!def) {
+            clearAiMode(chat);
+          } else {
+            const allowed = aiEntry!.allowedUsers ?? [];
+            if (allowed.length === 0 || allowed.includes(fromMid) || allowed.includes(chat)) {
+              await runMatchedSkill(
+                aiEntry!,
+                def,
+                { text, args: text, chat, fromName, fromMid, images },
+                deps,
+              );
+            }
+            return;
+          }
+        }
+      } else if (consumeExpiredAiMode(chat)) {
+        await deps.replyTo(chat, "已退出AI mode。");
+      }
+    }
   }
 
   for (const skill of config.skills) {
@@ -348,88 +520,7 @@ async function runSkills(
     }
 
     const args = decision.args ?? "";
-    if (skillThrottled(skill.id, chat)) {
-      logger.warn("技能觸發過於頻繁，已略過", { skill: skill.id, chat });
-      recordMetric("skill_exec_total", 1, { skill: skill.id, result: "throttled" });
-      continue;
-    }
-    recordMetric("skill_exec_total", 1, { skill: skill.id, result: "run" });
-
-    logger.info("觸發技能", { skill: skill.id, mode: effectiveMode(skill, def!), chat });
-    try {
-      const skillId = skill.id;
-      const toWatchView = (job: ScheduledJobView): SkillWatchView => ({
-        id: job.id,
-        task: job.skillTask?.task ?? "",
-        cron: job.repeat ?? "",
-        runAt: job.runAt,
-        args: { ...(job.skillTask?.args ?? {}) },
-      });
-      const ctx: SkillContext = {
-        text,
-        args,
-        fromName,
-        chat,
-        fromMid,
-        config: skill.config,
-        ...(images && images.length > 0 ? { images } : {}),
-        reply: (t) => deps.replyTo(chat, t),
-        sendImage: async (source, filename) => {
-          try {
-            await deps.sendMedia(chat, source, "image", filename);
-            recordSend({ time: new Date().toISOString(), to: chat, type: "image", ok: true });
-          } catch (error) {
-            recordSend({ time: new Date().toISOString(), to: chat, type: "image", ok: false });
-            throw error;
-          }
-        },
-        sendFile: async (source, filename) => {
-          try {
-            await deps.sendMedia(chat, source, "file", filename);
-            recordSend({ time: new Date().toISOString(), to: chat, type: "file", ok: true });
-          } catch (error) {
-            recordSend({ time: new Date().toISOString(), to: chat, type: "file", ok: false });
-            throw error;
-          }
-        },
-        schedule: (text, runAt) => deps.schedule([{ to: chat, text }], runAt).id,
-        watch: (opts) => deps.scheduleSkillTask(skillId, chat, opts).id,
-        unwatch: (taskOrId) => {
-          const jobs = deps.listSkillTasks({ skillId, chat });
-          const byId = jobs.find((j) => j.id === taskOrId);
-          if (byId) return deps.cancelScheduledTask(byId.id);
-          const byTask = jobs.find((j) => j.skillTask?.task === taskOrId);
-          if (byTask) return deps.cancelScheduledTask(byTask.id);
-          return false;
-        },
-        watches: () => deps.listSkillTasks({ skillId, chat }).map(toWatchView),
-        taskState: (taskOrId) => {
-          const jobs = deps.listSkillTasks({ skillId, chat });
-          const job = jobs.find((j) => j.id === taskOrId) ?? jobs.find((j) => j.skillTask?.task === taskOrId);
-          return job ? deps.readTaskState(job.id) : undefined;
-        },
-      };
-      await def!.run(ctx);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error("技能執行失敗", { skill: skill.id, error: message });
-      writeDeadLetter({
-        platform: deps.platform,
-        kind: `skill:${skill.id}`,
-        to: [chat],
-        summary: def!.name,
-        error: message,
-      });
-      // 錯誤回覆本身也要保護：回覆失敗不可擊倒後續技能與轉發規則。
-      try {
-        await deps.replyTo(chat, `技能「${def!.name}」執行失敗：${message}`);
-      } catch (replyError) {
-        logger.error("技能錯誤回覆失敗", {
-          skill: skill.id,
-          error: replyError instanceof Error ? replyError.message : String(replyError),
-        });
-      }
-    }
+    await runMatchedSkill(skill, def!, { text, args, chat, fromName, fromMid, images }, deps);
   }
 }
 
