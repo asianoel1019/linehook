@@ -83,16 +83,6 @@ export function renderConsoleHtml() {
 </div>
 </div>
 
-<div class="fn-panel" data-fn="logs">
-<h2 style="margin-top:0" data-i18n="panel_logs">最近紀錄</h2>
-<div class="glass">
-<details open>
-  <summary data-i18n="list_count">清單</summary>
-  <table><thead><tr><th data-i18n="th_time">時間</th><th data-i18n="th_level">等級</th><th data-i18n="th_message">訊息</th><th data-i18n="th_content">內容</th></tr></thead><tbody id="logs"></tbody></table>
-</details>
-</div>
-</div>
-
 <div class="fn-panel" data-fn="scheduled">
 <h2 style="margin-top:0" data-i18n="panel_scheduled">排程中的訊息</h2>
 <div class="glass">
@@ -281,16 +271,6 @@ export function renderConsoleHtml() {
     renderScheduled(data.scheduled);
     renderDeadletter();
     renderAudit();
-
-    var logs = data.logs.slice().reverse();
-    var logBody = $("logs");
-    if (logs.length === 0) {
-      logBody.replaceChildren(emptyRow(4));
-    } else {
-      logBody.replaceChildren.apply(logBody, logs.map(function (l) {
-        return tr(td(l.time), td(l.level, "lv-" + l.level), td(l.message), td(l.meta ? JSON.stringify(l.meta) : "", "mono"));
-      }));
-    }
   }
 
   function renderDeadletter() {
@@ -809,7 +789,6 @@ export function renderConsoleHtml() {
   <button type="button" class="fn-card active" data-fn="test">${tr(config.language, "card_test")}</button>
   <button type="button" class="fn-card" data-fn="flex-editor" data-im="line">${tr(config.language, "panel_flex_editor")}</button>
   <button type="button" class="fn-card" data-fn="targets-list">${tr(config.language, "card_targets")}</button>
-  <button type="button" class="fn-card" data-fn="logs">${tr(config.language, "card_logs")}</button>
   <button type="button" class="fn-card" data-fn="scheduled">${tr(config.language, "card_scheduled")}</button>
   <button type="button" class="fn-card" data-fn="deadletter">死信</button>
 <button type="button" class="fn-card" data-fn="audit">稽核紀錄</button>

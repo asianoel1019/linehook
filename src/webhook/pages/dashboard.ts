@@ -209,7 +209,16 @@ export function renderDashboardHtml() {
       blocks.replaceChildren(empty);
     }
 
-    var logs = (data.logs || []).slice(-12).reverse();
+    function logMatchesPlatform(l, platform) {
+      var m = l.meta;
+      if (m && typeof m === "object" && !Array.isArray(m) && typeof m.platform === "string") {
+        return String(m.platform).toLowerCase() === platform;
+      }
+      var hay = ((l.message || "") + " " + (m ? JSON.stringify(m) : "")).toLowerCase();
+      return hay.indexOf(platform) !== -1;
+    }
+
+    var logs = (data.logs || []).filter(function (l) { return logMatchesPlatform(l, dashPlatform); }).slice(-12).reverse();
     var logBody = $("logs");
     if (logs.length === 0) {
       logBody.replaceChildren(emptyRow(3));

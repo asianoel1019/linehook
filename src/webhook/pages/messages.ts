@@ -6,7 +6,14 @@ import { page } from "../shell.js";
 export function renderMessagesHtml() {
     const body = `
 <div class="glass glass-hover msg-page">
-<h2 style="margin-top:0" data-i18n="title_messages">收到的訊息</h2>
+<h2 style="margin-top:0" data-i18n="title_messages">訊息/LOG</h2>
+<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+  <span class="range-chips" id="message-tabs">
+    <button type="button" class="active" data-tab="received" data-i18n="tab_received">收到的訊息</button>
+    <button type="button" data-tab="syslog" data-i18n="tab_syslog">系統紀錄</button>
+  </span>
+</div>
+<div id="tab-received">
 <div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
   <input id="message-search" data-i18n-ph="ph_search" placeholder="搜尋關鍵字" style="width:220px">
   <input id="message-chat" placeholder="MID" style="width:200px">
@@ -38,6 +45,10 @@ export function renderMessagesHtml() {
   <span id="message-count" class="msg"></span>
 </div>
 <table><thead><tr><th data-i18n="th_time">時間</th><th data-i18n="th_source">來源</th><th data-i18n="th_chat">對話</th><th data-i18n="th_content">內容</th></tr></thead><tbody id="messages"></tbody></table>
+</div>
+<div id="tab-syslog" hidden>
+<table><thead><tr><th data-i18n="th_time">時間</th><th data-i18n="th_level">等級</th><th data-i18n="th_message">訊息</th><th data-i18n="th_content">內容</th></tr></thead><tbody id="syslogs"></tbody></table>
+</div>
 </div>
 `;
     const script = `
@@ -90,6 +101,40 @@ export function renderMessagesHtml() {
         return res.ok ? res.json() : null;
       })
       .then(function (data) { if (data) render(data); })
+      .catch(function () {});
+    refreshSyslogs();
+  }
+
+  function setMsgTab(tab) {
+    document.querySelectorAll("#message-tabs button").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-tab") === tab);
+    });
+    $("tab-received").hidden = tab !== "received";
+    $("tab-syslog").hidden = tab !== "syslog";
+    if (tab === "syslog") refreshSyslogs();
+  }
+  document.querySelectorAll("#message-tabs button").forEach(function (b) {
+    b.addEventListener("click", function () { setMsgTab(b.getAttribute("data-tab")); });
+  });
+
+  function refreshSyslogs() {
+    fetch("/status.json", { cache: "no-store" })
+      .then(function (res) {
+        if (res.status === 401) { window.location.href = "/login"; return null; }
+        return res.ok ? res.json() : null;
+      })
+      .then(function (data) {
+        if (!data) return;
+        var list = (data.logs || []).slice().reverse();
+        var bodyEl = $("syslogs");
+        if (list.length === 0) {
+          bodyEl.replaceChildren(emptyRow(4));
+          return;
+        }
+        bodyEl.replaceChildren.apply(bodyEl, list.map(function (l) {
+          return tr(td(l.time), td(l.level, "lv-" + l.level), td(l.message), td(l.meta ? JSON.stringify(l.meta) : "", "mono"));
+        }));
+      })
       .catch(function () {});
   }
 
