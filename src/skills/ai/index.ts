@@ -31,6 +31,14 @@ export function resolveToolsEnabled(rawTools: string | undefined, provider: stri
   return (rawTools || "on") !== "off" && provider !== "gemini-cli" && provider !== "opencode-cli";
 }
 
+/** 回答超過多久才開始每分鐘報平安（毫秒）。 */
+export const AI_PROGRESS_AFTER_MS = 60_000;
+
+/** 進度訊息：第幾分鐘（第 1 分鐘不帶數字）。 */
+export function aiProgressText(minutes: number): string {
+  return minutes <= 1 ? "詢問中請稍後…" : `詢問中請稍後…（已等待${minutes}分鐘）`;
+}
+
 const REPLY_IMAGE_EXTS: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -221,14 +229,26 @@ const aiSkill: SkillDefinition = {
     const history: ChatMessage[] = memoryOn ? getHistory(ctx.chat) : [];
 
     try {
-      const result = await runAgent(cfg, {
-        system,
-        prompt,
-        history,
-        tools: toolsOn,
-        toolContext: { cwaKey: cwaKeyOf() },
-        tag: { skill: "ai" },
-      });
+      // 回覆慢時每分鐘報平安（CLI 跑 agent 常常數分鐘；60 秒內回完就當沒這回事）。
+      let waitedMin = 0;
+      const progressTimer = setInterval(() => {
+        waitedMin += 1;
+        void ctx.reply(aiProgressText(waitedMin)).catch(() => {});
+      }, AI_PROGRESS_AFTER_MS);
+      progressTimer.unref?.();
+      let result;
+      try {
+        result = await runAgent(cfg, {
+          system,
+          prompt,
+          history,
+          tools: toolsOn,
+          toolContext: { cwaKey: cwaKeyOf() },
+          tag: { skill: "ai" },
+        });
+      } finally {
+        clearInterval(progressTimer);
+      }
       await sendReplyImages(ctx, result.text);
       await ctx.reply(result.text);
       if (memoryOn) {

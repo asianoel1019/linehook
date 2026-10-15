@@ -1,9 +1,9 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, mock, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findReplyImages, sendReplyImages } from "../src/skills/ai/index.js";
+import { AI_PROGRESS_AFTER_MS, aiProgressText, findReplyImages, sendReplyImages } from "../src/skills/ai/index.js";
 import aiSkill from "../src/skills/ai/index.js";
 import type { SkillContext } from "../src/skills/types.js";
 
@@ -83,6 +83,81 @@ describe("sendReplyImages", () => {
     assert.deepEqual(events, ["image:a.png:true"]);
     const n0 = await sendReplyImages(mockCtx(events), "今天天氣不錯，沒有圖片");
     assert.equal(n0, 0);
+  });
+});
+
+describe("aiProgressText", () => {
+  it("第 1 分鐘不帶數字，之後帶分鐘數", () => {
+    assert.equal(aiProgressText(1), "詢問中請稍後…");
+    assert.equal(aiProgressText(2), "詢問中請稍後…（已等待2分鐘）");
+    assert.equal(AI_PROGRESS_AFTER_MS, 60_000);
+  });
+});
+
+describe("ai 慢回覆每分鐘報平安", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    mock.timers.reset();
+    globalThis.fetch = realFetch;
+  });
+
+  it("60 秒內無事；每滿 1 分鐘一則；答完即停", async () => {
+    mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: Date.now() });
+    let resolveFetch: ((v: unknown) => void) | undefined;
+    globalThis.fetch = (() =>
+      new Promise((res) => {
+        resolveFetch = res as (v: unknown) => void;
+      })) as unknown as typeof fetch;
+
+    const events: string[] = [];
+    const runP = aiSkill.run({
+      text: "慢慢想",
+      args: "慢慢想",
+      fromName: "小明",
+      chat: "c-slow",
+      fromMid: "u1",
+      config: {
+        provider: "openai",
+        baseUrl: "https://api.test/v1",
+        apiKey: "k",
+        model: "gpt-test",
+        tools: "off",
+        memory: "off",
+        timeoutMs: "3600000",
+      },
+      reply: async (t: string) => {
+        events.push(`reply:${t}`);
+      },
+      sendImage: async () => {},
+      sendFile: async () => {},
+      schedule: () => "",
+      watch: () => "",
+      unwatch: () => true,
+      watches: () => [],
+      taskState: () => undefined,
+    });
+
+    mock.timers.tick(59_000);
+    assert.deepEqual(events, []);
+    mock.timers.tick(1_000);
+    assert.deepEqual(events, ["reply:詢問中請稍後…"]);
+    mock.timers.tick(60_000);
+    assert.deepEqual(events, ["reply:詢問中請稍後…", "reply:詢問中請稍後…（已等待2分鐘）"]);
+
+    const res = resolveFetch;
+    assert.ok(res, "fetch executor 應已執行");
+    res({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => ({ choices: [{ message: { content: "想好了" } }], usage: {} }),
+      text: async () => "{}",
+      arrayBuffer: async () => new ArrayBuffer(0),
+    });
+    await runP;
+    assert.deepEqual(events, ["reply:詢問中請稍後…", "reply:詢問中請稍後…（已等待2分鐘）", "reply:想好了"]);
+    mock.timers.tick(120_000);
+    assert.equal(events.length, 3, "答完後不再報平安");
   });
 });
 
