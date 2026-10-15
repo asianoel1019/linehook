@@ -214,8 +214,12 @@ export function renderDashboardHtml() {
       if (m && typeof m === "object" && !Array.isArray(m) && typeof m.platform === "string") {
         return String(m.platform).toLowerCase() === platform;
       }
-      var hay = ((l.message || "") + " " + (m ? JSON.stringify(m) : "")).toLowerCase();
-      return hay.indexOf(platform) !== -1;
+      var hay = ((l.message || "") + " " + (m ? JSON.stringify(m) : ""));
+      if (platform === "line") {
+        // "line" 太短，子字串會誤判（online、linehook、pipeline…）：只認獨立單詞或全大寫 LINE
+        return /(^|[^a-z])line([^a-z]|$)/.test(hay.toLowerCase()) || hay.indexOf("LINE") !== -1;
+      }
+      return hay.toLowerCase().indexOf(platform) !== -1;
     }
 
     var logs = (data.logs || []).filter(function (l) { return logMatchesPlatform(l, dashPlatform); }).slice(-12).reverse();
