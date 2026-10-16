@@ -1,4 +1,6 @@
 import { logger } from "@lw/logger";
+import { nowInTz } from "@lw/time";
+import { parseDateOnly } from "@lw/skills/time-parse";
 import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
 
 const TASK = "list";
@@ -13,6 +15,8 @@ interface TodoItem {
   by: string;
   createdAt: number;
   doneAt?: number;
+  /** 到期日（YYYY-MM-DD；「待辦 買牛奶 明天」這類寫法自動解析）。 */
+  due?: string;
 }
 
 interface TodoState {
@@ -30,8 +34,26 @@ function readSeq(ctx: { taskState: (t: string) => Record<string, unknown> | unde
   return typeof state?.seq === "number" ? state.seq : 0;
 }
 
-export function renderList(items: TodoItem[]): string {
-  return items.map((it, i) => `${i + 1}. ${it.done ? "☑" : "▫"} ${it.text}${it.done ? "（完成）" : ""}`).join("\n");
+function dueTag(due: string, today: string, done: boolean): string {
+  const md = due.length >= 10 ? due.slice(5).replace("-", "/") : due;
+  if (!done && today && due < today) return `（逾期 ${md}！）`;
+  return `（${md}到期）`;
+}
+
+export function renderList(items: TodoItem[], today = ""): string {
+  return items
+    .map((it, i) => {
+      const due = it.due ? dueTag(it.due, today, it.done) : "";
+      return `${i + 1}. ${it.done ? "☑" : "▫"} ${it.text}${due}${it.done ? "（完成）" : ""}`;
+    })
+    .join("\n");
+}
+
+/** 今天 YYYY-MM-DD（供逾期判斷；沿用設定時區）。 */
+function todayYmd(): string {
+  const n = nowInTz();
+  const p = (x: number): string => String(x).padStart(2, "0");
+  return `${n.getFullYear()}-${p(n.getMonth() + 1)}-${p(n.getDate())}`;
 }
 
 /** 依照「未完成優先、同組新的在前」排序。 */
@@ -65,8 +87,8 @@ const todoSkill: SkillDefinition = {
     ja: "会話ごとの ToDo リスト：追加・完了・削除。",
   },
   usage: {
-    zh: "待辦 買牛奶；待辦 完成 1；待辦 清單；待辦 刪除 2；待辦 清除已完成",
-    en: "todo buy milk; todo done 1; todo list; todo delete 2; todo clear-done",
+    zh: "待辦 買牛奶；待辦 買牛奶 明天（到期日）；待辦 完成 1；待辦 清單；待辦 刪除 2；待辦 清除已完成",
+    en: "todo buy milk; todo buy milk tomorrow (due date); todo done 1; todo list; todo delete 2; todo clear-done",
     ja: "やること 牛乳を買う；やること 完了 1；やること 一覧；やること 削除 2；やること 完了を消去",
   },
   category: { zh: "工具", en: "Utilities", ja: "ツール" },
@@ -93,7 +115,7 @@ const todoSkill: SkillDefinition = {
       }
       const open = items.filter((i) => !i.done).length;
       const done = items.length - open;
-      await ctx.reply(`待辦清單（未完成 ${open}・已完成 ${done}）：\n${renderList(items)}`);
+      await ctx.reply(`待辦清單（未完成 ${open}・已完成 ${done}）：\n${renderList(items, todayYmd())}`);
       return;
     }
 
@@ -204,11 +226,20 @@ const todoSkill: SkillDefinition = {
     const fresh: TodoItem[] = [];
     const now = Date.now();
     let seq = readSeq(ctx);
-    for (const text of texts.slice(0, 10)) {
+    for (const rawText of texts.slice(0, 10)) {
+      // 到期日：「買牛奶 明天」→ 明天到期，內容只留「買牛奶」
+      let text = rawText;
+      let due: string | undefined;
+      const parsed = parseDateOnly(rawText);
+      if (parsed) {
+        due = parsed.ymd;
+        text = rawText.split(parsed.matched).join(" ").replace(/\s+/g, " ").trim();
+      }
+      if (!text) continue;
       if (items.length + fresh.length >= max) break;
       if (items.some((i) => i.text === text) || fresh.some((i) => i.text === text)) continue;
       seq += 1;
-      fresh.push({ id: seq, text, done: false, by: ctx.fromName, createdAt: now });
+      fresh.push({ id: seq, text, done: false, by: ctx.fromName, createdAt: now, ...(due ? { due } : {}) });
     }
     if (fresh.length === 0) {
       await ctx.reply(items.length >= max ? `待辦已達上限（${max} 項），請先刪除舊的。` : "這些事項都已經在清單裡了。");

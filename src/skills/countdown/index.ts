@@ -1,5 +1,6 @@
 import { logger } from "@lw/logger";
 import { nowInTz } from "@lw/time";
+import { chineseNumToInt } from "@lw/skills/time-parse";
 import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
 
 const TASK = "daily";
@@ -33,6 +34,7 @@ export function parseItem(raw: string, now = nowInTz()): CountdownItem | null {
 
   const ymd = /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/.exec(text);
   const md = /(?:^|\s)(\d{1,2})[-/](\d{1,2})(?:\s|$)/.exec(text);
+  const cnMd = /([0-9一二三四五六七八九十]{1,3})\s*月\s*([0-9一二三四五六七八九十]{1,3})\s*[日號]?/.exec(text);
   let date = "";
   let isYearly = yearly;
   if (ymd) {
@@ -44,6 +46,12 @@ export function parseItem(raw: string, now = nowInTz()): CountdownItem | null {
   } else if (md) {
     isYearly = true;
     date = `${Number(md[1]).toString().padStart(2, "0")}-${Number(md[2]).toString().padStart(2, "0")}`;
+  } else if (cnMd) {
+    const month = chineseNumToInt(cnMd[1]);
+    const day = chineseNumToInt(cnMd[2]);
+    if (month === null || day === null) return null;
+    isYearly = true;
+    date = `${month.toString().padStart(2, "0")}-${day.toString().padStart(2, "0")}`;
   } else {
     return null;
   }
@@ -54,6 +62,7 @@ export function parseItem(raw: string, now = nowInTz()): CountdownItem | null {
     .replace(/(?:^|\s)(?:每年|週年|紀念日)\s*/, " ")
     .replace(ymd?.[0] ?? "", " ")
     .replace(md?.[0] ?? "", " ")
+    .replace(cnMd?.[0] ?? "", " ")
     .replace(/(?:提前|還有)\s*\d{1,2}\s*天/g, " ")
     .replace(/的/g, " ")
     .trim();
@@ -138,7 +147,7 @@ const countdownSkill: SkillDefinition = {
     ja: "記念日とカウントダウン：毎年の周年、事前通知、残り日数。",
   },
   usage: {
-    zh: "紀念日 2026-12-31 跨年；紀念日 每年 5/20 交往紀念日；紀念日 清單；紀念日 刪除 1",
+    zh: "紀念日 2026-12-31 跨年；紀念日 每年 5/20 交往紀念日；紀念日 每年 10月5日 結婚；紀念日 清單；紀念日 刪除 1",
     en: "countdown 2026-12-31 New Year; countdown yearly 5/20 anniversary; countdown list; countdown delete 1",
     ja: "記念日 2026-12-31 年越し; 記念日 毎年 5/20 記念日; 記念日 一覧; 記念日 削除 1",
   },

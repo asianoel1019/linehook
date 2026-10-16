@@ -26,6 +26,8 @@ interface Coupon {
   end: string;
 }
 
+export type { Coupon as KfcCoupon };
+
 interface Source {
   name: string;
   url: string;
@@ -139,6 +141,11 @@ async function getCoupons(ttlMs: number): Promise<{ coupons: Coupon[]; source: s
   throw new Error(`所有來源皆失效：${lastError}`);
 }
 
+/** 供優惠聚合技能呼叫（共用同一快取）。 */
+export async function fetchKfcCoupons(ttlMs?: number): Promise<Coupon[]> {
+  return (await getCoupons(ttlMs ?? parseTtl(undefined, 60))).coupons;
+}
+
 function summarizeItems(items: CouponItem[]): string {
   const parts = items
     .filter((item) => item.name)
@@ -193,20 +200,24 @@ const kfcSkill: SkillDefinition = {
     },
   ],
   async health(): Promise<SkillHealth[]> {
+    // 實際用各來源的解析器跑一次：HTML 改版導致擷取不到時亮紅燈。
+    // KCouper 達 8MB 放最後，前面的小來源先試（平行執行，誰先成功都記）。
+    const probeOrder = [...SOURCES].sort((a, b) => (a.name === "KCouper" ? 1 : 0) - (b.name === "KCouper" ? 1 : 0));
     const results = await Promise.all(
-      SOURCES.map(async (s): Promise<SkillHealth> => {
+      probeOrder.map(async (s): Promise<SkillHealth> => {
         try {
-          const res = await fetch(s.url, {
-            method: "GET",
-            headers: { "User-Agent": "Mozilla/5.0 (compatible; ImHook/1.0)" },
-            signal: AbortSignal.timeout(15_000),
-          });
-          const ok = res.ok;
-          setHealth(s.name, ok, ok ? `可用（HTTP ${res.status}）` : `失效（HTTP ${res.status}）`);
-          return { name: s.name, ok, detail: ok ? `HTTP ${res.status}` : `HTTP ${res.status}（失效）` };
+          const coupons =
+            s.name === "KCouper" ? await loadFromKCouper(s.url) : await loadFromHtml(s.url);
+          const ok = coupons.length > 0;
+          setHealth(s.name, ok, ok ? `可用（${coupons.length} 筆）` : "解析不到優惠（版面可能改版）", coupons.length);
+          return {
+            name: s.name,
+            ok,
+            detail: ok ? `可用（${coupons.length} 筆）` : "解析不到優惠（版面可能改版）",
+          };
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          setHealth(s.name, false, `失效：${detail}`);
+          const msg = error instanceof Error ? error.message : String(error);
+          setHealth(s.name, false, `失效：${msg}`);
           return { name: s.name, ok: false, detail: "連線失敗" };
         }
       }),

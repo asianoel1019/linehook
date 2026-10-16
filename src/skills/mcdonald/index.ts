@@ -92,6 +92,11 @@ async function loadPromos(ttlMs: number): Promise<{ promos: Promo[]; source: str
   throw new Error(`所有來源皆失效：${lastError}`);
 }
 
+/** 供優惠聚合技能呼叫（共用同一快取，省一次抓取）。 */
+export async function fetchMcdonaldPromos(ttlMs?: number): Promise<Promo[]> {
+  return (await loadPromos(ttlMs ?? parseTtl(undefined, 360))).promos;
+}
+
 function formatPromo(p: Promo): string {
   const periodLine = p.period && !p.offer.includes(p.period) ? `\n  ${p.period}` : "";
   return `・${p.name}\n  ${p.offer}${periodLine}`;
@@ -121,15 +126,17 @@ const mcdonaldSkill: SkillDefinition = {
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 6 小時；優惠不常變，可設 12h、1d" },
   ],
   async health(): Promise<SkillHealth[]> {
+    // 不只看 HTTP：實際解析一次，版面改版導致抓不到品項也會亮紅燈。
     const results = await Promise.all(
       SOURCES.map(async (s): Promise<SkillHealth> => {
         try {
-          const res = await fetch(s.url, {
-            method: "GET",
-            headers: { "User-Agent": "Mozilla/5.0 (compatible; ImHook/1.0)" },
-            signal: AbortSignal.timeout(15_000),
+          const html = await netFetchText(s.url, undefined, {
+            timeoutMs: 15_000,
+            maxBytes: 2 * 1024 * 1024,
           });
-          return { name: s.name, ok: res.ok, detail: `HTTP ${res.status}` };
+          const items = parseTableItems(html);
+          const ok = items.length > 0;
+          return { name: s.name, ok, detail: ok ? `可用（${items.length} 筆）` : "解析不到優惠（版面可能改版）" };
         } catch {
           return { name: s.name, ok: false, detail: "連線失敗" };
         }

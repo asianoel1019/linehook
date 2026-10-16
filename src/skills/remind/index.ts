@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { config } from "@lw/config";
 import { logger } from "@lw/logger";
-import { nowInTz, zonedTimeToMs } from "@lw/time";
+import { nowInTz } from "@lw/time";
 import { loadDayStatus } from "@lw/skills/holiday";
 import { solarToLunar } from "@lw/skills/lunar";
+import { parseDateTime } from "@lw/skills/time-parse";
 import type { SkillContext, SkillDefinition, SkillWatchView, SkillTaskContext } from "@lw/skills/types";
 
 function pad(n: number): string {
@@ -15,62 +16,13 @@ function formatTime(date: Date): string {
 }
 
 /**
- * 解析單次提醒時間，回傳 runAt(ms) 與時間。
- * 支援：
- *  - 30 分鐘後 / 2小時後 / 90秒後
- *  - 明天 09:00 / 今天 18:30 / 2026-01-01 09:00 / 9:30
+ * 解析單次提醒時間（委派共用解析器 time-parse）。
+ * 支援：30分鐘後／明天 09:00／下週一 09:00／10月5日／下午三點半／9點 等。
  */
-function parseWhen(args: string): { runAt: number; when: Date } | { error: string } {
-  const now = nowInTz();
-  const nowMs = Date.now();
-
-  // 相對時間：N 秒/分鐘/小時後
-  const rel = args.match(/(\d+(?:\.\d+)?)\s*(秒|分鐘|分|小時|時|天)\s*(?:後|之後)?/);
-  if (rel) {
-    const n = Number(rel[1]);
-    const unit = rel[2];
-    const ms =
-      unit === "秒"
-        ? n * 1000
-        : unit.includes("分")
-          ? n * 60_000
-          : unit.includes("小時") || unit === "時"
-            ? n * 3600_000
-            : n * 86400_000;
-    if (ms > 0) {
-      const runAt = nowMs + ms;
-      return { runAt, when: new Date(runAt) };
-    }
-  }
-
-  // 絕對時間：今天/明天/後天 + HH:mm，或 MM-DD / YYYY-MM-DD + HH:mm（以設定時區解讀）
-  const timeMatch = args.match(/(\d{1,2})[:：](\d{2})/);
-  if (timeMatch) {
-    const hh = Number(timeMatch[1]);
-    const mm = Number(timeMatch[2]);
-    let y = now.getFullYear();
-    let mo = now.getMonth() + 1;
-    let d = now.getDate();
-    if (/明天|明日/.test(args)) d += 1;
-    else if (/後天/.test(args)) d += 2;
-
-    const ymd = args.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-    const md = args.match(/(\d{1,2})[\/\-](\d{1,2})/);
-    if (ymd) {
-      y = Number(ymd[1]);
-      mo = Number(ymd[2]);
-      d = Number(ymd[3]);
-    } else if (md) {
-      mo = Number(md[1]);
-      d = Number(md[2]);
-    }
-
-    let runAt = zonedTimeToMs({ year: y, month: mo, day: d, hour: hh, minute: mm });
-    if (runAt <= nowMs) runAt = zonedTimeToMs({ year: y, month: mo, day: d + 1, hour: hh, minute: mm }); // 已過則順延一天
-    return { runAt, when: new Date(runAt) };
-  }
-
-  return { error: "無法解析時間" };
+export function parseWhen(args: string): { runAt: number; when: Date; matched: string[] } | { error: string } {
+  const parsed = parseDateTime(args);
+  if (!parsed) return { error: "無法解析時間" };
+  return parsed;
 }
 
 /** 週期性排程解析結果。 */
@@ -264,12 +216,12 @@ const remindSkill: SkillDefinition = {
   id: "remind",
   name: "提醒 / 倒數",
   description: {
-    zh: "一次性或週期性提醒（每天、平日、每週、每月、每隔 N 小時、農曆生日）。",
+    zh: "一次性或週期性提醒（每天、平日、每週、每月、每隔 N 小時、農曆生日；單次支援下週一、10月5日、下午三點半等自然說法）。",
     en: "One-off or recurring reminders (daily, weekdays, weekly, monthly, every N hours, lunar birthdays).",
     ja: "一回きりまたは定期リマインダー（毎日・平日・毎週・毎月・N時間毎・旧暦誕生日）。",
   },
   usage: {
-    zh: "提醒 30分鐘後 喝水；提醒 明天 09:00 開會；提醒 每天 08:00 吃藥；提醒 每天 09:00 晨會 假日跳過；提醒 星期一 09:00 開會；提醒 每月 5 號 10:00 繳房租；提醒 每隔 3 小時 喝水；提醒 農曆 7/15 09:00 中元節；提醒 清單；提醒 取消 吃藥",
+    zh: "提醒 30分鐘後 喝水；提醒 明天 09:00 開會；提醒 下週一 09:00 開會；提醒 下午三點半 喝水；提醒 每天 08:00 吃藥；提醒 每天 09:00 晨會 假日跳過；提醒 星期一 09:00 開會；提醒 每月 5 號 10:00 繳房租；提醒 每隔 3 小時 喝水；提醒 農曆 7/15 09:00 中元節；提醒 清單；提醒 取消 吃藥",
     en: "remind in 30 min water; remind tomorrow 09:00 meeting; remind daily 08:00 pills; remind Monday 09:00 meeting; remind monthly 5th 10:00 rent; remind every 3 hours water; remind lunar 7/15 09:00; remind list; remind cancel pills",
     ja: "リマインド 30分後 水；リマインド 明日 09:00 会議；リマインド 毎日 08:00 薬；リマインド 毎週月曜 09:00 会議；リマインド 毎月5日 10:00 家賃；リマインド 3時間毎 水；リマインド 旧暦 7/15 09:00；リマインド 一覧；リマインド 取消 薬",
   },
@@ -391,14 +343,19 @@ const remindSkill: SkillDefinition = {
     }
 
     // 取出提醒內容：移除時間片段後剩下的文字
-    const content = args
+    let content = args
       .replace(/(\d+(?:\.\d+)?)\s*(秒|分鐘|分|小時|時|天)\s*(?:後|之後)?/g, " ")
-      .replace(/今天|明天|明日|後天/g, " ")
+      .replace(/今天|今日|明天|明日|後天|大後天/g, " ")
       .replace(/\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/g, " ")
       .replace(/\d{1,2}[\/\-]\d{1,2}/g, " ")
       .replace(/\d{1,2}[:：]\d{2}/g, " ")
       .replace(/^(提醒|倒數|提醒我|定時)\s*/g, " ")
       .trim();
+    // 共用解析器吃掉的片段（下週一、10月5日、下午三點半…）一併移除
+    for (const frag of parsed.matched) {
+      if (frag) content = content.split(frag).join(" ");
+    }
+    content = content.replace(/\s+/g, " ").trim();
     const text = content || "時間到了！";
 
     const jobId = ctx.schedule(text, parsed.runAt);

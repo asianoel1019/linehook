@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveCoin } from "../src/skills/crypto/index.js";
+import { resolveCoin, findCoinStrict, parseCryptoConversion, formatCryptoReply } from "../src/skills/crypto/index.js";
+import { parseConversion, conversionArgs } from "../src/skills/exchange-rate/index.js";
+import { detectBrands, extractKeyword, filterDeals, formatDeals, type DealItem } from "../src/skills/deals/index.js";
 import { toQuote } from "../src/skills/taiex/index.js";
 import { fromUsgs, fromCwa, formatQuake } from "../src/skills/quake/index.js";
 import { parseNum, computePercent, matchName, joinStatus } from "../src/skills/reservoir/index.js";
@@ -233,5 +235,96 @@ describe("metro helpers", () => {
   it("formatHeadway 候選鍵掃描", () => {
     const s = formatHeadway({ Direction: 0, PeakHeadway: "平均4分", OffPeakHeadway: "平均7分" });
     assert.ok(s.includes("去程") && s.includes("平均4分"));
+  });
+});
+
+describe("exchange-rate parseConversion（無前綴換算）", () => {
+  it("雙幣別＋金額", () => {
+    assert.deepEqual(parseConversion("100美金等於台幣"), { amount: 100, from: "USD", to: "TWD" });
+    assert.deepEqual(parseConversion("1萬日幣換算台幣"), { amount: 10000, from: "JPY", to: "TWD" });
+    assert.deepEqual(parseConversion("50 EUR 換成 USD"), { amount: 50, from: "EUR", to: "USD" });
+  });
+
+  it("雙幣別＋關鍵字（無金額預設 1）", () => {
+    assert.deepEqual(parseConversion("日幣換算台幣多少"), { amount: 1, from: "JPY", to: "TWD" });
+  });
+
+  it("單幣別＋金額＋關鍵字走預設 TWD", () => {
+    assert.deepEqual(parseConversion("100美金等於多少"), { amount: 100, from: "USD", to: "TWD" });
+  });
+
+  it("保守不觸發：閒聊不劫持", () => {
+    assert.equal(parseConversion("我有100美金"), null);
+    assert.equal(parseConversion("台幣美金"), null);
+    assert.equal(parseConversion("今天天氣不錯"), null);
+    assert.equal(parseConversion("100台幣等於多少"), null);
+  });
+
+  it("conversionArgs 可直接餵 run", () => {
+    assert.equal(conversionArgs({ amount: 100, from: "USD", to: "TWD" }), "100 USD TWD");
+  });
+});
+
+describe("crypto 無前綴意圖與回覆", () => {
+  it("findCoinStrict 不做預設", () => {
+    assert.equal(findCoinStrict("比特幣")?.id, "bitcoin");
+    assert.equal(findCoinStrict("ETH 多少")?.id, "ethereum");
+    assert.equal(findCoinStrict("今天天氣不錯"), null);
+  });
+
+  it("parseCryptoConversion：金額＋關鍵字", () => {
+    const r = parseCryptoConversion("0.5比特幣值多少");
+    assert.equal(r?.coin.id, "bitcoin");
+    assert.equal(r?.amount, 0.5);
+    assert.equal(r?.target, "TWD");
+    const u = parseCryptoConversion("2 eth 多少美金");
+    assert.equal(u?.coin.id, "ethereum");
+    assert.equal(u?.amount, 2);
+    assert.equal(u?.target, "USD");
+  });
+
+  it("parseCryptoConversion：閒聊不劫持", () => {
+    assert.equal(parseCryptoConversion("比特幣"), null);
+    assert.equal(parseCryptoConversion("我買了比特幣"), null);
+    assert.equal(parseCryptoConversion("今天天氣不錯"), null);
+  });
+
+  it("formatCryptoReply：有金額加總值，無金額維持原樣", () => {
+    const p = { twd: 3600000, usd: 112500, twd_24h_change: 1.23, usd_24h_change: 1.2 };
+    const withAmount = formatCryptoReply("比特幣", p, 0.5);
+    assert.ok(withAmount.includes("0.5 顆 ≈ NT$ 1,800,000"));
+    const plain = formatCryptoReply("比特幣", p, null);
+    assert.ok(!plain.includes("顆 ≈"));
+  });
+});
+
+describe("deals helpers（優惠聚合）", () => {
+  it("detectBrands：指名與泛稱", () => {
+    assert.deepEqual(detectBrands("星巴克 買一送一"), ["星巴克"]);
+    assert.deepEqual(detectBrands("優惠 漢堡"), ["麥當勞", "肯德基", "漢堡王", "摩斯漢堡"]);
+    assert.equal(detectBrands("優惠"), null);
+  });
+
+  it("extractKeyword 去品牌字與金額", () => {
+    assert.equal(extractKeyword("100 買一送一"), "買一送一");
+    assert.equal(extractKeyword("肯德基 100"), "");
+  });
+
+  it("filterDeals：品牌＋價格帶＋關鍵字", () => {
+    const items: DealItem[] = [
+      { brand: "麥當勞", title: "大薯買一送一", detail: "$99", price: 99 },
+      { brand: "肯德基", title: "咔啦雞腿堡餐", detail: "$129", price: 129 },
+      { brand: "星巴克", title: "拿鐵買一送一", detail: "10/16" },
+    ];
+    assert.equal(filterDeals(items, { brands: ["麥當勞"], price: null, keyword: "" }).length, 1);
+    assert.equal(filterDeals(items, { brands: null, price: 100, keyword: "" }).length, 2);
+    assert.equal(filterDeals(items, { brands: null, price: null, keyword: "買一送一" }).length, 2);
+    assert.deepEqual(filterDeals(items, { brands: null, price: null, keyword: "沒有這種東西" }), []);
+  });
+
+  it("formatDeals 形狀", () => {
+    const s = formatDeals("今日優惠速覽：", [{ brand: "麥當勞", title: "大薯", detail: "$99" }], "hint");
+    assert.ok(s.includes("【麥當勞】大薯"));
+    assert.ok(s.endsWith("hint"));
   });
 });

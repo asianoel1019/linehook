@@ -14,6 +14,8 @@ interface Promo {
   source: string;
 }
 
+export type { Promo as StorePromo };
+
 function decode(s: string): string {
   return s
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
@@ -114,6 +116,11 @@ async function collect(ttlMs: number): Promise<Promo[]> {
   return limited;
 }
 
+/** 供優惠聚合技能呼叫（共用同一快取）。 */
+export async function fetchStorePromos(ttlMs?: number): Promise<Promo[]> {
+  return collect(ttlMs ?? parseTtl(undefined, 360));
+}
+
 const promoSkill: SkillDefinition = {
   id: "promo",
   name: "全聯 / 家樂福促銷",
@@ -138,20 +145,27 @@ const promoSkill: SkillDefinition = {
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: { zh: "預設 6 小時；可填 2h、360", en: "Default 6h; e.g. 2h, 360", ja: "既定 6 時間；例 2h、360" } },
   ],
   async health(): Promise<SkillHealth[]> {
+    // 實際解析一次：RSS／官網改版導致抓不到品項時亮紅燈。
     const results: SkillHealth[] = [];
-    for (const [name, url] of [
-      ["Google 新聞", "https://news.google.com/rss/search?q=%E5%85%A8%E8%81%AF&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"],
-      ["家樂福官網", "https://www.uni-prosperity.com.tw/wp-json/wp/v2/posts?per_page=1&_fields=title"],
-    ] as Array<[string, string]>) {
-      try {
-        const res = await fetch(url, {
-          headers: { "User-Agent": UA },
-          signal: AbortSignal.timeout(15_000),
-        });
-        results.push({ name, ok: res.ok, detail: `HTTP ${res.status}` });
-      } catch {
-        results.push({ name, ok: false, detail: "連線失敗" });
-      }
+    try {
+      const news = await fromGoogleNews("全聯", "全聯 優惠");
+      results.push({
+        name: "Google 新聞",
+        ok: news.length > 0,
+        detail: news.length > 0 ? `可用（${news.length} 筆）` : "解析不到資料（格式可能改版）",
+      });
+    } catch {
+      results.push({ name: "Google 新聞", ok: false, detail: "連線失敗" });
+    }
+    try {
+      const posts = await fromCarrefourPosts();
+      results.push({
+        name: "家樂福官網",
+        ok: posts.length > 0,
+        detail: posts.length > 0 ? `可用（${posts.length} 筆）` : "解析不到資料（格式可能改版）",
+      });
+    } catch {
+      results.push({ name: "家樂福官網", ok: false, detail: "連線失敗" });
     }
     return results;
   },

@@ -10,6 +10,8 @@ import type { IncomingMessage, Platform, SendInput } from "./types.js";
 import type { IncomingImage } from "./types.js";
 import { seenInbound } from "./dedup.js";
 import { getService } from "./services.js";
+import { conversionArgs, parseConversion } from "../skills/exchange-rate/index.js";
+import { parseCryptoConversion } from "../skills/crypto/index.js";
 import { writeDeadLetter } from "../deadletter.js";
 import { recordMetric } from "../metrics.js";
 import type { SkillConfig } from "../config.js";
@@ -562,6 +564,31 @@ async function runSkills(
       } else if (consumeExpiredAiMode(chat)) {
         disarmAiModeTimer(chat); // 防禦：timer 漏清時此處補清，避免殘留
         await deps.replyTo(chat, "已退出AI mode。");
+      }
+    }
+  }
+
+  // 無前綴意圖：匯率／幣價自然換算（「100美金等於台幣」「0.5比特幣值多少」）。
+  // AI 對話模式內不搶（模式訊息優先走 AI）；停用或白名單不符時靜默略過。
+  {
+    const fx = parseConversion(text);
+    const cx = fx ? null : parseCryptoConversion(text);
+    const conv = fx
+      ? { skillId: "exchange-rate", args: conversionArgs(fx) }
+      : cx
+        ? { skillId: "crypto", args: `${cx.coin.key} ${cx.amount ?? ""}`.trim() }
+        : null;
+    if (conv) {
+      const entry = config.skills.find((s) => s.id === conv.skillId);
+      const def = getSkill(conv.skillId);
+      const allowed = entry?.allowedUsers ?? [];
+      if (
+        entry?.enabled &&
+        def &&
+        (allowed.length === 0 || allowed.includes(fromMid) || allowed.includes(chat))
+      ) {
+        await runMatchedSkill(entry, def, { text, args: conv.args, chat, fromName, fromMid, images }, deps);
+        return;
       }
     }
   }

@@ -30,7 +30,7 @@ const BRANDS: Brand[] = [
 
 const health: Record<string, { ok: boolean; detail: string }> = {};
 
-interface Deal {
+export interface BurgerDeal {
   brand: string;
   title: string;
   price: string;
@@ -55,9 +55,9 @@ function toText(html: string): string {
 }
 
 /** 從頁面文字擷取含價格（$NN / NN元）的優惠片段。 */
-function extractDeals(brand: Brand, html: string): Deal[] {
+function extractDeals(brand: Brand, html: string): BurgerDeal[] {
   const text = toText(html);
-  const deals: Deal[] = [];
+  const deals: BurgerDeal[] = [];
   const re = /([\u4e00-\u9fffA-Za-z0-9（）()、\s]{4,40}?)\s*(?:\$|＄|NT\$?)\s*(\d{2,4})/g;
   let m: RegExpExecArray | null;
   const seen = new Set<string>();
@@ -73,10 +73,10 @@ function extractDeals(brand: Brand, html: string): Deal[] {
   return deals;
 }
 
-async function getDeals(brand: Brand, ttlMs: number): Promise<Deal[]> {
-  const cached = readCache<Deal[]>(`${CACHE_NAME}-${brand.id}`, ttlMs);
+async function getDeals(brand: Brand, ttlMs: number): Promise<BurgerDeal[]> {
+  const cached = readCache<BurgerDeal[]>(`${CACHE_NAME}-${brand.id}`, ttlMs);
   if (cached && cached.length > 0) return cached;
-  const collected: Deal[] = [];
+  const collected: BurgerDeal[] = [];
   const seen = new Set<string>();
   for (const url of brand.urls) {
     try {
@@ -102,7 +102,15 @@ function brandFrom(text: string): Brand | undefined {
   return BRANDS.find((b) => b.aliases.some((a) => lower.includes(a.toLowerCase())));
 }
 
-function formatReply(brand: Brand, target: number | null, deals: Deal[]): string {
+/** 供優惠聚合技能呼叫（兩品牌一次抓完，共用各自快取）。 */
+export async function fetchBurgerDeals(ttlMs?: number): Promise<BurgerDeal[]> {
+  const ttl = ttlMs ?? parseTtl(undefined, 60);
+  const out: BurgerDeal[] = [];
+  for (const b of BRANDS) out.push(...(await getDeals(b, ttl)));
+  return out;
+}
+
+function formatReply(brand: Brand, target: number | null, deals: BurgerDeal[]): string {
   let list = deals;
   // 筆數少（<5）直接全部顯示，不做價格過濾；筆數多才依目標價格篩選。
   if (target !== null && deals.length >= 5) {
@@ -149,21 +157,23 @@ const burgerSkill: SkillDefinition = {
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 60 分鐘；優惠不常變可設 6h、12h" },
   ],
   async health(): Promise<SkillHealth[]> {
-    return Promise.all(
-      BRANDS.map(async (b): Promise<SkillHealth> => {
+    // 實際抓取＋解析：官網改版導致擷取不到品項時亮紅燈，而非只看 HTTP。
+    const check = async (b: Brand): Promise<SkillHealth> => {
+      for (const url of b.urls) {
         try {
-          const res = await fetch(b.urls[0], {
-            headers: { "User-Agent": USER_AGENT },
-            signal: AbortSignal.timeout(15_000),
-          });
-          health[b.name] = { ok: res.ok, detail: `HTTP ${res.status}` };
-          return { name: b.name, ok: res.ok, detail: `HTTP ${res.status}` };
+          const deals = extractDeals(b, await fetchText(url));
+          if (deals.length > 0) {
+            health[b.name] = { ok: true, detail: `可用（${deals.length} 筆）` };
+            return { name: b.name, ok: true, detail: `可用（${deals.length} 筆）` };
+          }
         } catch {
-          health[b.name] = { ok: false, detail: "連線失敗" };
-          return { name: b.name, ok: false, detail: "連線失敗" };
+          // 換下一個備援網址
         }
-      }),
-    );
+      }
+      health[b.name] = { ok: false, detail: "解析不到優惠（版面可能改版）" };
+      return { name: b.name, ok: false, detail: "解析不到優惠（版面可能改版）" };
+    };
+    return Promise.all(BRANDS.map(check));
   },
   async run(ctx: SkillContext): Promise<void> {
     const ttlMs = parseTtl(ctx.config.cacheTtl, 60);

@@ -1,7 +1,13 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mkdtempSync } from "node:fs";
 import { config } from "../src/config.js";
 import { dispatchIncoming, type DispatchDeps } from "../src/messaging/dispatch.js";
+import { loadSkills } from "../src/skills/loader.js";
+
+await loadSkills();
 
 function makeDeps(): DispatchDeps & { replies: string[]; enqueued: Array<{ to: string; text: string }> } {
   const replies: string[] = [];
@@ -143,5 +149,89 @@ describe("dispatchIncoming", () => {
     config.skills = [{ id: "ghost", enabled: true, trigger: "x", allowedUsers: [], config: {} }];
     await dispatchIncoming(msg("anything", { messageId: "ex-1" }), d);
     assert.deepEqual(d.enqueued, []);
+  });
+
+  it("無前綴換算句直達匯率技能", async () => {
+    const d = makeDeps();
+    config.commands.enabled = false;
+    config.skills = [{ id: "exchange-rate", enabled: true, trigger: "", allowedUsers: [], config: {} }];
+    const savedCache = config.cachePath;
+    config.cachePath = mkdtempSync(join(tmpdir(), "fx-e2e-"));
+    const savedFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          result: "success",
+          base_code: "USD",
+          rates: { USD: 1, TWD: 32.5 },
+          time_last_update_utc: "Thu, 16 Oct 2026 00:00:00 +0000",
+        }),
+      )) as typeof fetch;
+    try {
+      await dispatchIncoming(msg("100美金等於台幣", { messageId: "fx-e2e-1" }), d);
+      assert.equal(d.replies.length, 1);
+      assert.match(d.replies[0], /100 USD = 3250\.00 TWD/);
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
+
+  it("無前綴閒聊不觸發換算", async () => {
+    const d = makeDeps();
+    config.commands.enabled = false;
+    config.skills = [{ id: "exchange-rate", enabled: true, trigger: "", allowedUsers: [], config: {} }];
+    await dispatchIncoming(msg("我有100美金", { messageId: "fx-e2e-2" }), d);
+    assert.deepEqual(d.replies, []);
+  });
+
+  it("優惠速覽聚合五家來源", async () => {
+    const d = makeDeps();
+    config.commands.enabled = false;
+    config.skills = [{ id: "deals", enabled: true, trigger: "", allowedUsers: [], config: {} }];
+    const savedCache = config.cachePath;
+    config.cachePath = mkdtempSync(join(tmpdir(), "deals-e2e-"));
+    const savedFetch = globalThis.fetch;
+    const rss = (store: string, title: string) =>
+      `<rss><channel><item><title>${title} - 某某新聞</title><link>https://news.test/1</link>` +
+      `<pubDate>Thu, 16 Oct 2026 00:00:00 +0800</pubDate><source>某某新聞</source></item></channel></rss>`;
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("info.talk.tw")) {
+        return new Response(
+          `<table><tr><th>餐點品項</th><th>優惠內容</th></tr>` +
+            `<tr><td>大薯買一送一</td><td>$99元 即日起至10/31</td></tr></table>`,
+        );
+      }
+      if (url.includes("burgerking") || url.includes("mos.com.tw")) {
+        return new Response(`<div>華堡限時 $129 起，數量有限</div>`);
+      }
+      if (url.includes("starbucks.user.today")) {
+        return new Response(
+          `<div class="date-num">10/16</div>` +
+            `<a href="https://sbux.test/1" data-type="買一送一" data-type2="飲料" title="拿鐵買一送一">詳情</a>`,
+        );
+      }
+      if (url.includes("winedays.github.io")) {
+        return new Response(
+          JSON.stringify({ coupon_by_code: { 15730: { coupon_code: 15730, name: "肯德基-大餐", price: 99 } } }),
+        );
+      }
+      if (url.includes("news.google.com")) {
+        return new Response(rss("store", url.includes("%E5%85%A8") ? "全聯買一送一開跑" : "家樂福衛生紙特價"));
+      }
+      if (url.includes("uni-prosperity")) return new Response("[]");
+      throw new Error(`unexpected url: ${url}`);
+    }) as typeof fetch;
+    try {
+      await dispatchIncoming(msg("阿寶請幫忙 優惠", { messageId: "deals-e2e-1" }), d);
+      assert.equal(d.replies.length, 1);
+      for (const brand of ["麥當勞", "肯德基", "漢堡王", "星巴克", "全聯", "家樂福"]) {
+        assert.ok(d.replies[0].includes(`【${brand}】`), `缺 ${brand}`);
+      }
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
   });
 });

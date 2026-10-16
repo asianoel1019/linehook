@@ -196,3 +196,15 @@ describe("todo onTask 清掉過期的已完成項目", () => {
     assert.equal(called, false);
   });
 });
+
+describe("todo 到期日", () => {
+  it("新增「買牛奶 明天」自動解析期限並顯示", async () => {
+    const h = harness();
+    await todoSkill.run({ ...h.ctx, args: "買牛奶 明天" });
+    assert.match(h.last(), /已加入 1 項：買牛奶/);
+    const due = h.items()[0].due as string;
+    assert.match(due, /^\d{4}-\d{2}-\d{2}$/);
+    await todoSkill.run({ ...h.ctx, args: "清單" });
+    assert.match(h.last(), /買牛奶（\d{2}\/\d{2}到期）/);
+  });
+});

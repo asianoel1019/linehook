@@ -15,6 +15,8 @@ interface Promo {
   url: string;
 }
 
+export type { Promo as StarbucksPromo };
+
 async function fetchText(url: string): Promise<string> {
   return netFetchText(
     url,
@@ -44,6 +46,11 @@ function parsePromos(html: string): Promo[] {
 
 function mmdd(d: Date): string {
   return `${("0" + (d.getMonth() + 1)).slice(-2)}/${("0" + d.getDate()).slice(-2)}`;
+}
+
+/** 供優惠聚合技能呼叫（共用同一快取）。 */
+export async function fetchStarbucksPromos(ttlMs?: number): Promise<Promo[]> {
+  return getPromos(ttlMs ?? parseTtl(undefined, 360));
 }
 
 async function getPromos(ttlMs: number): Promise<Promo[]> {
@@ -85,12 +92,11 @@ const starbucksSkill: SkillDefinition = {
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 6 小時；可填 2h、360" },
   ],
   async health(): Promise<SkillHealth[]> {
+    // 實際抓取＋解析：行事曆改版導致解析不到時亮紅燈。
     try {
-      const res = await fetch(SOURCE, {
-        headers: { "User-Agent": UA },
-        signal: AbortSignal.timeout(15_000),
-      });
-      return [{ name: "星巴克優惠行事曆", ok: res.ok, detail: `HTTP ${res.status}` }];
+      const promos = parsePromos(await fetchText(SOURCE));
+      const ok = promos.length > 0;
+      return [{ name: "星巴克優惠行事曆", ok, detail: ok ? `可用（${promos.length} 筆）` : "解析不到優惠（版面可能改版）" }];
     } catch {
       return [{ name: "星巴克優惠行事曆", ok: false, detail: "連線失敗" }];
     }
