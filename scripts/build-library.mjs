@@ -154,6 +154,23 @@ function zipSkill(dir, id, meta) {
   return Buffer.from(zipSync(files));
 }
 
+// 技能圖解：src/skills/<id>/guide.{svg,png,jpg,jpeg,webp} → library/<id>-guide.{ext}。
+// 用法區塊展開時顯示，點擊放大（燈箱）。zip 打包不受影響（只帶 index.js＋skill.json）。
+const GUIDE_EXTS = [".svg", ".png", ".jpg", ".jpeg", ".webp"];
+
+function findGuideFile(id) {
+  const dir = join(skillsDir, id);
+  for (const ext of GUIDE_EXTS) {
+    const p = join(dir, `guide${ext}`);
+    try {
+      if (statSync(p).isFile()) return { src: p, file: `${id}-guide${ext}` };
+    } catch {
+      // 不存在就試下一個副檔名
+    }
+  }
+  return null;
+}
+
 // 掃描技能資料夾（略過 ai/llm/cache 等非技能檔案；ai 為技能要保留）
 const IGNORE = new Set(["llm.ts", "cache.ts", "loader.ts", "types.ts", "install.ts", "index.ts"]);
 const skills = [];
@@ -174,10 +191,16 @@ rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
 const built = [];
+const guides = new Map();
 for (const s of skills) {
   const zip = zipSkill(s.dir, s.id, s);
   if (!zip) continue;
   writeFileSync(join(outDir, `${s.id}.zip`), zip);
+  const guide = findGuideFile(s.id);
+  if (guide) {
+    writeFileSync(join(outDir, guide.file), readFileSync(guide.src));
+    guides.set(s.id, guide.file);
+  }
   built.push(s);
 }
 
@@ -251,6 +274,10 @@ const STYLE = `
   .usage[hidden]{display:none}
   .usage-label{font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--border-2);margin-bottom:8px}
   .usage code{font-family:ui-monospace,"SFMono-Regular",Menlo,monospace;font-size:13px;color:var(--ink-2);white-space:pre-wrap;word-break:break-all}
+  .guide-img{width:100%;height:auto;display:block;margin-top:12px;border-radius:12px;border:1px solid var(--border-1);cursor:zoom-in;background:#fff}
+  .lightbox{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(20,18,12,.74);cursor:zoom-out}
+  .lightbox[hidden]{display:none}
+  .lightbox img{max-width:min(1100px,94vw);max-height:92vh;border-radius:12px;background:#fff;box-shadow:0 30px 80px rgba(0,0,0,.4)}
   .meta{display:flex;align-items:center;gap:10px;margin:0 0 18px;flex-wrap:wrap}
   .badge{font-size:11px;letter-spacing:.08em;padding:3px 10px;border-radius:2px 10px 2px 10px;border:1px solid var(--border-2);color:var(--ink-soft)}
   .badge.soft{border-color:var(--border-1);color:var(--ink-soft);opacity:.8}
@@ -271,10 +298,15 @@ const cards = built
   .map((s) => {
     const cat = zhOf(s.category) || "未分類";
     const usage = zhOf(s.usage) || (s.defaultTrigger ? `${s.defaultTrigger} …` : "");
+    const guideFile = guides.get(s.id);
+    const guideImg = guideFile
+      ? `
+          <img class="guide-img" src="./${guideFile}" alt="${escapeHtml(s.name)}圖解" loading="lazy" onclick="openGuide(this.src)">`
+      : "";
     const usageBlock = usage
       ? `        <div class="usage" id="usage-${s.id}" hidden>
           <div class="usage-label">用法範例</div>
-          <code>阿寶請幫忙 ${escapeHtml(usage)}</code>
+          <code>阿寶請幫忙 ${escapeHtml(usage)}</code>${guideImg}
         </div>
 `
       : "";
@@ -341,6 +373,7 @@ ${cards || `      <article class="card"><h2>尚無技能</h2><p>目前沒有可�
 
   <footer>靜置 · 使用 · 放下　—　ImHook Skill Library</footer>
 </div>
+<div class="lightbox" id="lightbox" hidden onclick="closeGuide()"><img id="lightbox-img" alt="技能圖解"></div>
 <script>
 function toggleUsage(id){
   var el = document.getElementById('usage-' + id);
@@ -350,6 +383,20 @@ function toggleUsage(id){
   var btn = document.querySelector('[data-usage-btn="' + id + '"]');
   if (btn) btn.textContent = open ? '收起' : '用法';
 }
+function openGuide(src){
+  var box = document.getElementById('lightbox');
+  var img = document.getElementById('lightbox-img');
+  if (!box || !img) return;
+  img.src = src;
+  box.removeAttribute('hidden');
+}
+function closeGuide(){
+  var box = document.getElementById('lightbox');
+  if (box) box.setAttribute('hidden', '');
+}
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') closeGuide();
+});
 function filterCat(cat, btn){
   var cards = document.querySelectorAll('.card[data-cat]');
   var n = 0;
@@ -377,4 +424,5 @@ function escapeHtml(s) {
 console.log(`技能庫已產生：${outDir}`);
 console.log(`- index.html`);
 for (const s of built) console.log(`- ${s.id}.zip  (${s.name})`);
+for (const [id, file] of guides) console.log(`- ${file}  (${id} 圖解)`);
 console.log(`共 ${built.length} 個技能。`);

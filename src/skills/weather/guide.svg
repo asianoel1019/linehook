@@ -1,0 +1,246 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" role="img" aria-label="天氣查詢指令教學">
+  <title>天氣查詢指令教學</title>
+  <defs>
+    <linearGradient id="frameGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6FE3CF"/>
+      <stop offset="0.55" stop-color="#9CE8C8"/>
+      <stop offset="1" stop-color="#C4F169"/>
+    </linearGradient>
+    <marker id="arrY" viewBox="0 0 20 20" refX="16" refY="10" markerWidth="44" markerHeight="44" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1,1 L19,10 L1,19 z" fill="#FFC93C" stroke="#B97E0B" stroke-width="2" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrP" viewBox="0 0 20 20" refX="16" refY="10" markerWidth="44" markerHeight="44" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1,1 L19,10 L1,19 z" fill="#F15A7E" stroke="#A92E50" stroke-width="2" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrB" viewBox="0 0 20 20" refX="16" refY="10" markerWidth="44" markerHeight="44" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1,1 L19,10 L1,19 z" fill="#4AA8E0" stroke="#2A6FA0" stroke-width="2" stroke-linejoin="round"/>
+    </marker>
+    <g id="spark">
+      <path d="M0,-20 C2.5,-7 7,-2.5 20,0 C7,2.5 2.5,7 0,20 C-2.5,7 -7,2.5 -20,0 C-7,-2.5 -2.5,-7 0,-20 Z" fill="#FFC93C" stroke="#33415C" stroke-width="3" stroke-linejoin="round"/>
+    </g>
+    <g id="cloud">
+      <ellipse cx="-38" cy="8" rx="26" ry="20" fill="#FFFFFF" stroke="#33415C" stroke-width="5"/>
+      <ellipse cx="-8" cy="-6" rx="30" ry="24" fill="#FFFFFF" stroke="#33415C" stroke-width="5"/>
+      <ellipse cx="26" cy="8" rx="26" ry="20" fill="#FFFFFF" stroke="#33415C" stroke-width="5"/>
+      <rect x="-58" y="4" width="112" height="26" rx="13" fill="#FFFFFF"/>
+      <path d="M-58,22 L54,22" stroke="#33415C" stroke-width="5" stroke-linecap="round"/>
+    </g>
+  </defs>
+
+  <!-- 外框 -->
+  <rect x="0" y="0" width="1600" height="1000" fill="url(#frameGrad)"/>
+  <rect x="36" y="36" width="1528" height="928" rx="48" fill="#FFFBF0" stroke="#33415C" stroke-width="7"/>
+
+  <!-- 標題 -->
+  <g font-family="'Zen Maru Gothic','Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif" font-weight="900" font-size="118" text-anchor="middle" stroke="#FFFFFF" stroke-width="14" paint-order="stroke" stroke-linejoin="round">
+    <text x="380" y="178" fill="#2AA9E0">天</text>
+    <text x="500" y="178" fill="#2AA9E0">氣</text>
+    <text x="620" y="178" fill="#F6A609">查</text>
+    <text x="740" y="178" fill="#F6A609">詢</text>
+    <text x="860" y="178" fill="#EE5B7F">指</text>
+    <text x="980" y="178" fill="#EE5B7F">令</text>
+    <text x="1100" y="178" fill="#2FBF71">教</text>
+    <text x="1220" y="178" fill="#2FBF71">學</text>
+  </g>
+
+  <!-- 裝飾 -->
+  <use href="#cloud" x="110" y="105" transform="translate(110,105) scale(0.9)"/>
+  <use href="#cloud" x="100" y="925" transform="translate(100,925) scale(0.75)"/>
+  <use href="#spark" transform="translate(252,222) scale(0.7)"/>
+  <use href="#spark" transform="translate(90,560) scale(0.55)"/>
+  <use href="#spark" transform="translate(700,830) scale(0.8)"/>
+  <use href="#spark" transform="translate(1190,905) scale(0.6)"/>
+  <use href="#spark" transform="translate(1330,215) scale(0.6)"/>
+  <g transform="translate(1490,140)">
+    <path d="M0,-46 L11,-15 L43,-14 L17,6 L26,38 L0,19 L-26,38 L-17,6 L-43,-14 L-11,-15 Z" fill="#FFC93C" stroke="#33415C" stroke-width="5" stroke-linejoin="round"/>
+  </g>
+  <text x="1395" y="118" font-family="'Zen Maru Gothic','Noto Sans TC',sans-serif" font-weight="900" font-size="42" fill="#33415C" transform="rotate(-12 1395 118)">Tap!</text>
+
+  <!-- 對話泡泡 -->
+  <g font-family="'Zen Maru Gothic','Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif" font-weight="700">
+    <rect x="80" y="268" width="600" height="92" rx="46" fill="#FFFFFF" stroke="#33415C" stroke-width="5"/>
+    <polygon points="520,360 566,414 468,360" fill="#FFFFFF" stroke="#33415C" stroke-width="5" stroke-linejoin="round"/>
+    <rect x="470" y="336" width="100" height="30" fill="#FFFFFF"/>
+    <text x="380" y="332" font-size="48" text-anchor="middle" fill="#2B2B2B">阿寶請幫忙 天氣 台北</text>
+    <rect x="60" y="376" width="430" height="82" rx="41" fill="#FFFFFF" stroke="#33415C" stroke-width="5"/>
+    <polygon points="300,458 330,500 258,458" fill="#FFFFFF" stroke="#33415C" stroke-width="5" stroke-linejoin="round"/>
+    <rect x="258" y="438" width="76" height="26" fill="#FFFFFF"/>
+    <text x="275" y="432" font-size="46" text-anchor="middle" fill="#2B2B2B">天氣 一週 高雄</text>
+    <rect x="282" y="796" width="224" height="70" rx="35" fill="#FFFFFF" stroke="#33415C" stroke-width="5"/>
+    <polygon points="340,866 322,902 380,866" fill="#FFFFFF" stroke="#33415C" stroke-width="5" stroke-linejoin="round"/>
+    <text x="394" y="843" font-size="40" text-anchor="middle" fill="#2B2B2B">天氣雷達</text>
+  </g>
+
+  <!-- 機器人 -->
+  <g stroke="#33415C" stroke-width="6">
+    <ellipse cx="205" cy="872" rx="100" ry="16" fill="#E4DCCB" stroke="none"/>
+    <line x1="205" y1="548" x2="205" y2="512" stroke-width="7" stroke-linecap="round"/>
+    <circle cx="205" cy="500" r="12" fill="#EE5B7F"/>
+    <rect x="88" y="560" width="34" height="70" rx="17" fill="#9AD0EC"/>
+    <rect x="288" y="560" width="34" height="70" rx="17" fill="#9AD0EC"/>
+    <rect x="120" y="545" width="170" height="140" rx="62" fill="#EDF4FA"/>
+    <rect x="143" y="572" width="124" height="86" rx="42" fill="#232B3A" stroke="none"/>
+    <circle cx="182" cy="608" r="13" fill="#7FE3F0" stroke="none"/>
+    <circle cx="228" cy="608" r="13" fill="#7FE3F0" stroke="none"/>
+    <path d="M188,634 Q205,646 222,634" fill="none" stroke="#7FE3F0" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="158" cy="628" r="8" fill="#F5A3B7" stroke="none"/>
+    <circle cx="252" cy="628" r="8" fill="#F5A3B7" stroke="none"/>
+    <rect x="60" y="700" width="36" height="90" rx="18" fill="#EDF4FA" transform="rotate(14 78 745)"/>
+    <rect x="300" y="660" width="36" height="90" rx="18" fill="#EDF4FA" transform="rotate(-38 318 705)"/>
+    <circle cx="352" cy="628" r="17" fill="#EDF4FA"/>
+    <rect x="150" y="688" width="110" height="118" rx="42" fill="#EDF4FA"/>
+    <rect x="172" y="712" width="66" height="52" rx="14" fill="#BFE0F5"/>
+    <path d="M180,744 Q192,734 204,744 Q216,754 228,744" fill="none" stroke="#4AA8E0" stroke-width="4" stroke-linecap="round"/>
+    <rect x="163" y="806" width="34" height="52" rx="16" fill="#9AD0EC"/>
+    <rect x="213" y="806" width="34" height="52" rx="16" fill="#9AD0EC"/>
+  </g>
+
+  <!-- 男孩 -->
+  <g stroke="#33415C" stroke-width="6">
+    <ellipse cx="545" cy="892" rx="105" ry="15" fill="#E4DCCB" stroke="none"/>
+    <rect x="482" y="748" width="44" height="100" rx="18" fill="#5B7BA6"/>
+    <rect x="544" y="748" width="44" height="100" rx="18" fill="#5B7BA6"/>
+    <rect x="466" y="838" width="70" height="36" rx="18" fill="#E2574C"/>
+    <rect x="540" y="838" width="70" height="36" rx="18" fill="#E2574C"/>
+    <rect x="462" y="606" width="150" height="155" rx="44" fill="#8B8C66"/>
+    <rect x="516" y="606" width="42" height="150" fill="#F4F1E6" stroke-width="4"/>
+    <line x1="478" y1="646" x2="420" y2="580" stroke="#33415C" stroke-width="44" stroke-linecap="round"/>
+    <line x1="478" y1="646" x2="420" y2="580" stroke="#8B8C66" stroke-width="30" stroke-linecap="round"/>
+    <circle cx="414" cy="572" r="17" fill="#FFD9B3"/>
+    <circle cx="545" cy="540" r="72" fill="#FFD9B3"/>
+    <path d="M475,528 C470,470 505,452 545,452 C590,452 618,478 614,528 C606,505 596,498 592,512 C586,492 572,488 566,502 C558,484 540,482 534,496 C524,482 500,490 498,508 C490,500 482,508 475,528 Z" fill="#6B4A2F"/>
+    <circle cx="518" cy="548" r="9" fill="#2B2B2B" stroke="none"/>
+    <circle cx="572" cy="548" r="9" fill="#2B2B2B" stroke="none"/>
+    <circle cx="521" cy="545" r="3" fill="#FFFFFF" stroke="none"/>
+    <circle cx="575" cy="545" r="3" fill="#FFFFFF" stroke="none"/>
+    <path d="M528,580 Q545,594 562,580" fill="none" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="498" cy="572" r="10" fill="#F5A3B7" stroke="none"/>
+    <circle cx="592" cy="572" r="10" fill="#F5A3B7" stroke="none"/>
+  </g>
+  <g stroke-linecap="round">
+    <line x1="648" y1="500" x2="676" y2="478" stroke="#F6A609" stroke-width="10"/>
+    <line x1="660" y1="540" x2="692" y2="532" stroke="#F6A609" stroke-width="10"/>
+    <line x1="648" y1="580" x2="676" y2="592" stroke="#F6A609" stroke-width="10"/>
+    <line x1="112" y1="500" x2="88" y2="478" stroke="#2FBF71" stroke-width="9"/>
+    <line x1="70" y1="520" x2="40" y2="516" stroke="#2FBF71" stroke-width="9"/>
+  </g>
+
+  <!-- 中間曲線箭頭 -->
+  <g fill="none" stroke-linecap="round">
+    <path d="M718,300 C830,270 950,290 1052,346" stroke="#FFC93C" stroke-width="34" marker-end="url(#arrY)"/>
+    <path d="M718,472 C830,446 945,462 1052,512" stroke="#F15A7E" stroke-width="30" marker-end="url(#arrP)"/>
+    <path d="M718,652 C830,626 945,642 1052,692" stroke="#4AA8E0" stroke-width="30" marker-end="url(#arrB)"/>
+    <path d="M700,368 C830,344 950,358 1050,402" stroke="#B09A6A" stroke-width="6" stroke-dasharray="2 16"/>
+    <path d="M700,540 C830,516 950,530 1050,574" stroke="#B09A6A" stroke-width="6" stroke-dasharray="2 16"/>
+    <path d="M700,722 C830,698 950,712 1050,756" stroke="#7FA3B8" stroke-width="6" stroke-dasharray="2 16"/>
+  </g>
+
+  <!-- 天氣小圖示 -->
+  <g stroke="#33415C" stroke-width="5">
+    <g transform="translate(1095,248)">
+      <line x1="0" y1="-52" x2="0" y2="-38" stroke-width="7" stroke-linecap="round"/>
+      <line x1="0" y1="38" x2="0" y2="52" stroke-width="7" stroke-linecap="round"/>
+      <line x1="-52" y1="0" x2="-38" y2="0" stroke-width="7" stroke-linecap="round"/>
+      <line x1="38" y1="0" x2="52" y2="0" stroke-width="7" stroke-linecap="round"/>
+      <line x1="-37" y1="-37" x2="-27" y2="-27" stroke-width="7" stroke-linecap="round"/>
+      <line x1="27" y1="27" x2="37" y2="37" stroke-width="7" stroke-linecap="round"/>
+      <line x1="37" y1="-37" x2="27" y2="-27" stroke-width="7" stroke-linecap="round"/>
+      <line x1="-27" y1="27" x2="-37" y2="37" stroke-width="7" stroke-linecap="round"/>
+      <circle r="32" fill="#FFC93C"/>
+      <path d="M-12,-4 Q-8,-8 -4,-4 M4,-4 Q8,-8 12,-4" fill="none" stroke-width="4"/>
+      <path d="M-10,10 Q0,17 10,10" fill="none" stroke-width="4" stroke-linecap="round"/>
+    </g>
+    <g transform="translate(1175,300)">
+      <ellipse cx="-24" cy="4" rx="24" ry="19" fill="#BFE0F5" stroke="none"/>
+      <ellipse cx="4" cy="-8" rx="27" ry="22" fill="#BFE0F5" stroke="none"/>
+      <ellipse cx="28" cy="6" rx="22" ry="17" fill="#BFE0F5" stroke="none"/>
+      <ellipse cx="2" cy="12" rx="44" ry="12" fill="#BFE0F5" stroke="none"/>
+      <circle cx="-6" cy="-2" r="3.5" fill="#33415C" stroke="none"/>
+      <circle cx="14" cy="-2" r="3.5" fill="#33415C" stroke="none"/>
+      <line x1="-24" y1="34" x2="-28" y2="48" stroke="#5AA9E6" stroke-width="6" stroke-linecap="round"/>
+      <line x1="-6" y1="34" x2="-10" y2="48" stroke="#5AA9E6" stroke-width="6" stroke-linecap="round"/>
+      <line x1="12" y1="34" x2="8" y2="48" stroke="#5AA9E6" stroke-width="6" stroke-linecap="round"/>
+      <line x1="30" y1="34" x2="26" y2="48" stroke="#5AA9E6" stroke-width="6" stroke-linecap="round"/>
+    </g>
+    <g transform="translate(930,408)">
+      <ellipse cx="-22" cy="4" rx="22" ry="17" fill="#FFFFFF"/>
+      <ellipse cx="4" cy="-8" rx="25" ry="20" fill="#FFFFFF"/>
+      <ellipse cx="26" cy="6" rx="20" ry="15" fill="#FFFFFF"/>
+      <circle cx="-2" cy="-4" r="3.5" fill="#33415C" stroke="none"/>
+      <circle cx="16" cy="-4" r="3.5" fill="#33415C" stroke="none"/>
+      <path d="M0,10 Q8,16 16,10" fill="none" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="-26" cy="4" r="5" fill="#F5A3B7" stroke="none"/>
+      <circle cx="30" cy="4" r="5" fill="#F5A3B7" stroke="none"/>
+      <path d="M-14,30 Q-19,40 -14,45 Q-9,40 -14,30 Z" fill="#5AA9E6" stroke="none"/>
+      <path d="M2,30 Q-3,40 2,45 Q7,40 2,30 Z" fill="#5AA9E6" stroke="none"/>
+      <path d="M18,30 Q13,40 18,45 Q23,40 18,30 Z" fill="#5AA9E6" stroke="none"/>
+    </g>
+    <g transform="translate(985,575)">
+      <circle r="55" fill="#1E5B3F"/>
+      <circle r="38" fill="none" stroke="#7FE3A0" stroke-width="4"/>
+      <circle r="20" fill="none" stroke="#7FE3A0" stroke-width="4"/>
+      <line x1="0" y1="0" x2="34" y2="-30" stroke="#FFC93C" stroke-width="6" stroke-linecap="round"/>
+      <circle cx="34" cy="-30" r="6" fill="#FFC93C" stroke="none"/>
+      <circle cx="-16" cy="18" r="5" fill="#FFC93C" stroke="none"/>
+      <circle cx="18" cy="22" r="5" fill="#FFC93C" stroke="none"/>
+    </g>
+    <g transform="translate(868,806)">
+      <circle r="40" fill="#1E5B3F"/>
+      <circle r="26" fill="none" stroke="#7FE3A0" stroke-width="4"/>
+      <line x1="0" y1="0" x2="24" y2="20" stroke="#EE5B7F" stroke-width="6" stroke-linecap="round"/>
+      <circle r="5" fill="#FFFFFF" stroke="none"/>
+    </g>
+    <g transform="translate(1005,762)">
+      <rect x="-14" y="-52" width="28" height="80" rx="14" fill="#FFFFFF"/>
+      <rect x="-7" y="-30" width="14" height="52" rx="7" fill="#EE5B7F" stroke="none"/>
+      <circle r="22" fill="#EE5B7F"/>
+      <circle cx="-7" cy="-6" r="6" fill="#FFFFFF" stroke="none" opacity="0.7"/>
+    </g>
+    <g transform="translate(1128,786)">
+      <path d="M0,-44 C-26,-44 -40,-26 -40,-8 C-40,16 0,52 0,52 C0,52 40,16 40,-8 C40,-26 26,-44 0,-44 Z" fill="#EE5B7F"/>
+      <circle cy="-10" r="14" fill="#FFFFFF"/>
+      <ellipse cx="0" cy="56" rx="30" ry="8" fill="#9BE08A"/>
+    </g>
+  </g>
+
+  <!-- 手機 -->
+  <g>
+    <rect x="1240" y="235" width="290" height="720" rx="54" fill="#23252B"/>
+    <rect x="1252" y="247" width="266" height="696" rx="42" fill="#B7D2EE"/>
+    <rect x="1330" y="247" width="110" height="28" rx="14" fill="#23252B"/>
+    <text x="1375" y="300" font-family="'Zen Maru Gothic','Noto Sans TC',sans-serif" font-weight="900" font-size="26" text-anchor="middle" fill="#FFFFFF">Bot</text>
+    <polyline points="1272,284 1262,292 1272,300" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="1472" cy="292" r="8" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+    <circle cx="1496" cy="292" r="8" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+    <rect x="1395" y="330" width="95" height="54" rx="27" fill="#7ED957"/>
+    <circle cx="1262" cy="418" r="17" fill="#FFFFFF"/>
+    <circle cx="1262" cy="418" r="9" fill="#FFC93C"/>
+    <rect x="1280" y="395" width="208" height="312" rx="22" fill="#FFFFFF"/>
+    <g font-family="'Zen Maru Gothic','Noto Sans TC',sans-serif" fill="#2B2B2B">
+      <text x="1298" y="448" font-size="34" font-weight="900">台北</text>
+      <text x="1298" y="494" font-size="29" font-weight="900">天氣 25°C</text>
+      <text x="1298" y="536" font-size="25" font-weight="700">(體感28°C)</text>
+      <text x="1298" y="578" font-size="29" font-weight="900">濕度 84%</text>
+    </g>
+    <line x1="1298" y1="596" x2="1470" y2="596" stroke="#D8E0EA" stroke-width="3"/>
+    <g font-family="'Zen Maru Gothic','Noto Sans TC',sans-serif" font-size="14" font-weight="700" fill="#4A5568" text-anchor="middle">
+      <text x="1312" y="620">週一</text><text x="1342" y="620">週二</text><text x="1372" y="620">週三</text><text x="1402" y="620">週四</text><text x="1432" y="620">週五</text><text x="1462" y="620">週六</text>
+    </g>
+    <g>
+      <circle cx="1312" cy="642" r="9" fill="#FFC93C" stroke="#33415C" stroke-width="2.5"/>
+      <circle cx="1342" cy="642" r="9" fill="#FFC93C" stroke="#33415C" stroke-width="2.5"/>
+      <circle cx="1372" cy="642" r="9" fill="#BFE0F5" stroke="#33415C" stroke-width="2.5"/>
+      <circle cx="1402" cy="642" r="9" fill="#FFC93C" stroke="#33415C" stroke-width="2.5"/>
+      <circle cx="1432" cy="642" r="9" fill="#BFE0F5" stroke="#33415C" stroke-width="2.5"/>
+      <circle cx="1462" cy="642" r="9" fill="#BFE0F5" stroke="#33415C" stroke-width="2.5"/>
+    </g>
+    <g font-family="'Zen Maru Gothic','Noto Sans TC',sans-serif" font-size="14" font-weight="700" fill="#2B2B2B" text-anchor="middle">
+      <text x="1312" y="672">25°</text><text x="1342" y="672">25°</text><text x="1372" y="672">25°</text><text x="1402" y="672">25°</text><text x="1432" y="672">25°</text><text x="1462" y="672">25°</text>
+    </g>
+    <rect x="1268" y="860" width="222" height="50" rx="25" fill="#E9EFF6"/>
+    <text x="1288" y="895" font-size="28" fill="#8A94A6">＋</text>
+    <circle cx="1468" cy="885" r="10" fill="none" stroke="#8A94A6" stroke-width="3"/>
+    <line x1="1468" y1="895" x2="1468" y2="902" stroke="#8A94A6" stroke-width="3" stroke-linecap="round"/>
+    <line x1="1335" y1="928" x2="1425" y2="928" stroke="#98A2B3" stroke-width="5" stroke-linecap="round"/>
+  </g>
+</svg>
