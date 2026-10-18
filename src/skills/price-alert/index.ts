@@ -154,7 +154,7 @@ const priceAlertSkill: SkillDefinition = {
     ja: "株価・為替が目標に到達したら通知します（定期チェック）。",
   },
   usage: {
-    zh: "警示 股價 2330 高於 2500",
+    zh: "警示 台積電 跌破 800",
     en: "alert stock 2330 above 2500",
     ja: "警示 2330 高於 2500",
   },

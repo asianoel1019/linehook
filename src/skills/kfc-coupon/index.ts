@@ -181,7 +181,7 @@ const kfcSkill: SkillDefinition = {
     ja: "KFC のクーポンコード。",
   },
   usage: {
-    zh: "肯德基 100",
+    zh: "肯德基 100元",
     en: "kfc 100",
     ja: "KFC 100",
   },

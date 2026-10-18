@@ -36,7 +36,7 @@ const qrSkill: SkillDefinition = {
     ja: "QR コードを生成し、URL を自動短縮します。",
   },
   usage: {
-    zh: "qr https://example.com",
+    zh: "qr https://example.com 或 短網址 https://example.com",
     en: "qr https://example.com",
     ja: "qr https://example.com",
   },

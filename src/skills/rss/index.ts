@@ -225,7 +225,7 @@ const rssSkill: SkillDefinition = {
     ja: "RSS/Atom フィードを読み取り。購読はキーワード絞り込み（含む/除外）や毎日ダイジェストにも対応。",
   },
   usage: {
-    zh: "rss https://example.com/feed.xml 5；rss 訂閱 https://example.com/feed.xml 含:apple 排除:rumor 摘要；rss 清單",
+    zh: "訂閱 https://example.com/feed.xml；rss 訂閱 https://example.com/feed.xml 含:apple 排除:rumor 摘要；rss 清單",
     en: "rss https://example.com/feed.xml 5; rss subscribe https://example.com/feed.xml include:apple exclude:rumor digest; rss list",
     ja: "rss https://example.com/feed.xml 5；rss 購読 https://example.com/feed.xml 含:apple 除外:rumor ダイジェスト；rss 一覧",
   },

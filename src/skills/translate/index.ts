@@ -70,7 +70,7 @@ const translateSkill: SkillDefinition = {
     ja: "テキストを翻訳します。",
   },
   usage: {
-    zh: "翻譯 你好 英文",
+    zh: "翻成英文 你好嗎",
     en: "translate hello Japanese",
     ja: "翻訳 こんにちは 英語",
   },

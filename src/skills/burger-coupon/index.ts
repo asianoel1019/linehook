@@ -142,7 +142,7 @@ const burgerSkill: SkillDefinition = {
     ja: "バーガーキング・モスの最新お得情報。",
   },
   usage: {
-    zh: "漢堡王 100",
+    zh: "漢堡王 100元",
     en: "burger 100",
     ja: "バーガーキング 100",
   },

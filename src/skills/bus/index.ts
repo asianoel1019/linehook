@@ -233,7 +233,7 @@ const busSkill: SkillDefinition = {
     ja: "バスのリアルタイム到着（TDX API キーが必要）。",
   },
   usage: {
-    zh: "公車 307 台北車站；公車 訂閱 307 台北車站 5；公車 清單；公車 取消 307",
+    zh: "公車 307 台北車站（或問：幾分鐘 307 台北車站）；公車 訂閱 307 台北車站 5；公車 清單；公車 取消 307",
     en: "bus 307 Taipei Main Station; bus subscribe 307 TaipeiMainStation 5; bus list; bus cancel 307",
     ja: "公車 307 台北駅; 公車 購読 307 台北駅 5; 公車 一覧; 公車 解除 307",
   },
@@ -414,7 +414,7 @@ const busSkill: SkillDefinition = {
 
     // 目標站（從原始文字找站名片段）
     const stopQuery = ctx.args
-      .replace(/請幫忙|請幫|幫忙|查詢|查一下|動態|公車|客運|路線|現在|一下/g, " ")
+      .replace(/請幫忙|請幫|幫忙|查詢|查一下|動態|公車|客運|路線|現在|一下|幾分鐘/g, " ")
       .replace(routeName, " ")
       .trim();
 

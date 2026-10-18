@@ -108,7 +108,7 @@ const airQualitySkill: SkillDefinition = {
     ja: "空気品質 AQI（既定は台北）。",
   },
   usage: {
-    zh: "空品 高雄",
+    zh: "空品 高雄 或 空氣品質 台中",
     en: "aqi Kaohsiung",
     ja: "空品 高雄",
   },

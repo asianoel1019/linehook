@@ -11,6 +11,7 @@ import { parseTableItems, matchBudget } from "../src/skills/mcdonald/index.js";
 import { parseOfficialRows, parseZxcRows, findTeam } from "../src/skills/cpbl/index.js";
 import { mergeAvailability, matchCity } from "../src/skills/ybike/index.js";
 import { matchOperator, findStationId, formatHeadway } from "../src/skills/metro/index.js";
+import { resolveSymbol } from "../src/skills/stock/index.js";
 
 describe("crypto resolveCoin", () => {
   it("中文名與代碼", () => {
@@ -295,6 +296,16 @@ describe("crypto 無前綴意圖與回覆", () => {
     assert.ok(withAmount.includes("0.5 顆 ≈ NT$ 1,800,000"));
     const plain = formatCryptoReply("比特幣", p, null);
     assert.ok(!plain.includes("顆 ≈"));
+  });
+});
+
+describe("stock resolveSymbol（中文名）", () => {
+  it("中文名、代號、美股、無效", () => {
+    assert.equal(resolveSymbol("台積電"), "2330.TW");
+    assert.equal(resolveSymbol("股價 台積電 現在"), "2330.TW");
+    assert.equal(resolveSymbol("2330"), "2330.TW");
+    assert.equal(resolveSymbol("股價 AAPL"), "AAPL");
+    assert.equal(resolveSymbol("亂七八糟"), "");
   });
 });
 

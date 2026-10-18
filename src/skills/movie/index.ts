@@ -103,9 +103,9 @@ const movieSkill: SkillDefinition = {
     ja: "映画の上映スケジュール。",
   },
   usage: {
-    zh: "電影時刻 台北信義威秀",
-    en: "movie Vieshow Taipei",
-    ja: "映画 台北信義威秀",
+    zh: "電影 信義威秀",
+    en: "movie",
+    ja: "映画",
   },
   category: {
     zh: "生活資訊",

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseWeekly } from "../src/skills/weather/index.js";
+import { extractCity, parseWeekly } from "../src/skills/weather/index.js";
 import weatherSkill from "../src/skills/weather/index.js";
 import { config } from "../src/config.js";
 import { rmSync } from "node:fs";
@@ -146,6 +146,14 @@ describe("weather run()：雷達與一週（fetch stub）", () => {
     assert.equal(seen.length, 0, "不該打任何 API");
   });
 
+  it("「明天台北會下雨嗎」走一週預報並挖出城市", async () => {
+    const replies: string[] = [];
+    const images: string[] = [];
+    await weatherSkill.run({ ...harness(replies, images), args: "明天台北會下雨嗎" });
+    assert.match(replies[0], /台北 一週天氣/);
+    assert.ok(seen.some((u) => u.includes("forecast_days=7")));
+  });
+
   it("「天氣 雷達」下載後送本地圖，第二次重用快取", async () => {
     const replies: string[] = [];
     const images: string[] = [];
@@ -173,5 +181,14 @@ describe("weather run()：雷達與一週（fetch stub）", () => {
     await weatherSkill.run({ ...harness(replies, images), args: "雷達" });
     assert.match(replies[0], /暫時無法取得/);
     assert.equal(images.length, 0);
+  });
+});
+
+describe("weather extractCity（口語挖城市）", () => {
+  it("問句挖城市、裸問句回預設", () => {
+    assert.equal(extractCity("明天台北會下雨嗎"), "台北");
+    assert.equal(extractCity("一週 高雄"), "高雄");
+    assert.equal(extractCity("台北市"), "台北");
+    assert.equal(extractCity(""), "臺北");
   });
 });

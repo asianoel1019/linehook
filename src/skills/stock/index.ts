@@ -29,11 +29,46 @@ interface YahooChart {
   };
 }
 
+/** 熱門台股中文名 → 代碼（「股價 台積電」用；代號仍可直接打）。 */
+const NAME_MAP: Record<string, string> = {
+  台積電: "2330.TW",
+  聯發科: "2454.TW",
+  鴻海: "2317.TW",
+  台達電: "2308.TW",
+  廣達: "2382.TW",
+  緯創: "3231.TW",
+  聯電: "2303.TW",
+  日月光: "3711.TW",
+  瑞昱: "2379.TW",
+  大立光: "3008.TW",
+  中鋼: "2002.TW",
+  台泥: "1101.TW",
+  亞泥: "1102.TW",
+  台塑: "1301.TW",
+  南亞: "1303.TW",
+  台化: "1326.TW",
+  中華電: "2412.TW",
+  長榮: "2603.TW",
+  陽明: "2609.TW",
+  萬海: "2615.TW",
+  長榮航: "2618.TW",
+  華航: "2610.TW",
+  國泰金: "2882.TW",
+  富邦金: "2881.TW",
+  中信金: "2891.TW",
+  玉山金: "2884.TW",
+  元大金: "2885.TW",
+  兆豐金: "2886.TW",
+  第一金: "2892.TW",
+  合庫金: "5880.TW",
+};
+
 export function resolveSymbol(text: string): string {
   const cleaned = text.replace(/請幫忙|請幫|幫忙|查詢|查一下|股價|股票|行情|現在|報價|價格|的/g, " ");
   for (const raw of cleaned.split(/\s+/)) {
     const t = raw.trim().toUpperCase();
     if (!t) continue;
+    if (NAME_MAP[raw.trim()]) return NAME_MAP[raw.trim()];
     if (/^\d{4,6}[A-Z]?$/.test(t)) return `${t}.TW`;
     if (/^[\^A-Z][A-Z0-9.\-]{0,9}$/.test(t)) return t.includes(".") ? t : t;
   }
@@ -68,7 +103,7 @@ const stockSkill: SkillDefinition = {
     ja: "リアルタイム株価（Yahoo Finance）。",
   },
   usage: {
-    zh: "股價 2330",
+    zh: "股價 2330 或 股價 台積電",
     en: "stock 2330",
     ja: "株価 2330",
   },

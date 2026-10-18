@@ -142,6 +142,17 @@ export function supportedCities(): string[] {
   return Object.keys(CITIES);
 }
 
+/** 從口語問句挖城市（「明天台北會下雨嗎」→ 台北；都沒有→預設臺北）。 */
+export function extractCity(rawArgs: string): string {
+  const cleaned = rawArgs
+    .replace(/今天|今日|明天|明日|後天|大後天|一週|一周|每週|七天|7天|weekly|會|嗎|下雨|降雨|晴|陰|多雲|如何|怎麼|怎樣|天氣|預報|氣象|雷達|回波|？|\?|!|！/g, " ")
+    .trim();
+  const hit = supportedCities()
+    .sort((a, b) => b.length - a.length)
+    .find((c) => cleaned.includes(c) || rawArgs.includes(c));
+  return hit || cleaned || "臺北";
+}
+
 /* ── 雷達回波圖 ── */
 
 async function fetchRadarImage(): Promise<string> {
@@ -254,7 +265,7 @@ const weatherSkill: SkillDefinition = {
     ja: "天気を調べます（CWA またはキー不要の代替）。",
   },
   usage: {
-    zh: "天氣 台北；天氣 一週 高雄；天氣 雷達",
+    zh: "天氣 台北；天氣 明天台北會下雨嗎；天氣 一週 高雄；天氣 雷達",
     en: "weather Taipei; weather weekly Kaohsiung; weather radar",
     ja: "天気 台北; 天気 一週 高雄; 天気 レーダー",
   },
@@ -309,9 +320,9 @@ const weatherSkill: SkillDefinition = {
       return;
     }
 
-    // 一週預報
-    if (/一週|一周|每週|七天|7天|weekly/i.test(rawArgs)) {
-      const city = rawArgs.replace(/一週|一周|每週|七天|7天|weekly/g, " ").trim() || "臺北";
+    // 一週預報（明天／後天這類問句也走這裡，比即時天氣更對題）
+    if (/一週|一周|每週|七天|7天|weekly|明天|明日|後天|大後天/i.test(rawArgs)) {
+      const city = extractCity(rawArgs);
       const coord = CITIES[city] ?? CITIES[city.replace(/市$/, "")];
       if (!coord) {
         await ctx.reply(`查無「${city}」的天氣，目前僅支援台灣：${supportedCities().join("、")}`);
@@ -336,7 +347,7 @@ const weatherSkill: SkillDefinition = {
       return;
     }
 
-    const city = rawArgs || "臺北";
+    const city = extractCity(rawArgs);
     const key = (ctx.config.cwaKey || "").trim();
     let reading: Reading;
     try {

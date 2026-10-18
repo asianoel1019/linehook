@@ -144,7 +144,7 @@ const hsrSkill: SkillDefinition = {
     ja: "台湾高鉄の時刻（TDX API キーを使用）。",
   },
   usage: {
-    zh: "高鐵 台北 到 左營 明天 08:00",
+    zh: "高鐵 台北到左營 明天08:00",
     en: "hsr Taipei to Zuoying",
     ja: "高鐵 台北 左営 明日 08:00",
   },

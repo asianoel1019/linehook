@@ -44,7 +44,7 @@ const taiexSkill: SkillDefinition = {
     ja: "加権指数のリアルタイム相場（Yahoo Finance、キー不要）。",
   },
   usage: {
-    zh: "大盤",
+    zh: "大盤 或 台股",
     en: "taiex",
     ja: "大盤",
   },

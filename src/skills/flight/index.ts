@@ -111,7 +111,7 @@ const flightSkill: SkillDefinition = {
     ja: "指定月の最安値の航空券を検索（無料の Travelpayouts / Kiwi API トークンが必要）。",
   },
   usage: {
-    zh: "機票 TPE NRT 或 機票 台北 東京 12月",
+    zh: "機票 台北飛東京 12月 或 機票 TPE NRT",
     en: "flight TPE NRT or flight Taipei Tokyo",
     ja: "機票 TPE NRT または 機票 台北 東京 12月",
   },

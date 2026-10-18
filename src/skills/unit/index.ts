@@ -148,7 +148,7 @@ const unitSkill: SkillDefinition = {
     ja: "単位換算（長さ/重さ/面積/体積/速度/温度）。",
   },
   usage: {
-    zh: "換算 100 公分 公尺",
+    zh: "換算 100公分等於幾公尺",
     en: "convert 100 cm m",
     ja: "換算 100 cm m",
   },
