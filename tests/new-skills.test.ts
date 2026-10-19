@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { resolveCoin, findCoinStrict, parseCryptoConversion, formatCryptoReply } from "../src/skills/crypto/index.js";
-import { parseConversion, conversionArgs } from "../src/skills/exchange-rate/index.js";
+import { parseConversion, conversionArgs, toCode, findCurrencies } from "../src/skills/exchange-rate/index.js";
 import { resolveSymbol, OTC_CODES } from "../src/skills/stock/index.js";
 import { detectBrands, extractKeyword, filterDeals, formatDeals, type DealItem } from "../src/skills/deals/index.js";
 import { toQuote } from "../src/skills/taiex/index.js";
@@ -264,6 +264,32 @@ describe("exchange-rate parseConversion（無前綴換算）", () => {
 
   it("conversionArgs 可直接餵 run", () => {
     assert.equal(conversionArgs({ amount: 100, from: "USD", to: "TWD" }), "100 USD TWD");
+  });
+
+  it("toCode：國家＋單位", () => {
+    assert.equal(toCode("越南幣"), "VND");
+    assert.equal(toCode("越南盾"), "VND");
+    assert.equal(toCode("越南"), "VND");
+    assert.equal(toCode("美國"), "USD");
+    assert.equal(toCode("法國"), "EUR");
+    assert.equal(toCode("港幣"), "HKD");
+    assert.equal(toCode("馬幣"), "MYR");
+    assert.equal(toCode("韓幣"), "KRW");
+    assert.equal(toCode("美元"), "USD");
+    assert.equal(toCode("比特幣"), undefined);
+    assert.equal(toCode("元"), undefined);
+    assert.equal(toCode(""), undefined);
+  });
+
+  it("findCurrencies 依序掃描", () => {
+    assert.deepEqual(findCurrencies("478美金是多少越南幣"), ["USD", "VND"]);
+    assert.deepEqual(findCurrencies("匯率 1000 日幣 台幣"), ["JPY", "TWD"]);
+    assert.deepEqual(findCurrencies("今天天氣不錯"), []);
+  });
+
+  it("parseConversion：國家名問法", () => {
+    assert.deepEqual(parseConversion("478美金是多少越南幣"), { amount: 478, from: "USD", to: "VND" });
+    assert.deepEqual(parseConversion("10000日圓等於幾塊台幣"), { amount: 10000, from: "JPY", to: "TWD" });
   });
 });
 
