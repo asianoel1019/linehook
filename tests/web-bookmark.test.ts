@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import bookmarkSkill, { extractTitle, renderList } from "../src/skills/web-bookmark/index.js";
+import bookmarkSkill, { extractTitle, renderList, normalizeBookmark, checkLinks } from "../src/skills/web-bookmark/index.js";
 import type { SkillContext } from "../src/skills/types.js";
 
 interface Harness {
@@ -75,7 +75,7 @@ describe("web-bookmark run() 流程", () => {
     assert.match(h.last(), /#工具/);
     assert.match(h.last(), /共 1 筆收藏/);
     assert.equal(h.bookmarks().length, 1);
-    assert.equal(h.bookmarks()[0].tag, "工具");
+    assert.deepEqual((h.bookmarks()[0] as { tags: string[] }).tags, ["工具"]);
 
     await bookmarkSkill.run({ ...h.ctx, args: "清單" });
     assert.match(h.last(), /收藏清單（共 1 筆）/);
@@ -128,7 +128,8 @@ describe("web-bookmark run() 流程", () => {
   });
 
   it("onTask 把收藏裁到 500 筆上限", async () => {
-    const bookmarks = Array.from({ length: 520 }, (_, i) => ({ id: String(i), url: `https://x/${i}` }));
+    // 用 127.0.0.1：onTask 附帶的連結檢查會被 SSRF 阻擋立即失敗，測試不需網路。
+    const bookmarks = Array.from({ length: 520 }, (_, i) => ({ id: String(i), url: `http://127.0.0.1:1/${i}` }));
     let saved: Record<string, unknown> | undefined;
     await bookmarkSkill.onTask!({
       taskId: "t1",
@@ -146,5 +147,101 @@ describe("web-bookmark run() 流程", () => {
       sendFile: async () => {},
     });
     assert.equal((saved?.bookmarks ?? []).length, 500);
+  });
+});
+
+describe("web-bookmark 多標籤", () => {
+  const LOCAL = "http://127.0.0.1:1/x";
+
+  it("新增多標籤並顯示", async () => {
+    const h = harness();
+    await bookmarkSkill.run({ ...h.ctx, args: `${LOCAL} #工具 #重要` });
+    assert.match(h.last(), /#工具 #重要/);
+    assert.deepEqual((h.bookmarks()[0] as { tags: string[] }).tags, ["工具", "重要"]);
+    await bookmarkSkill.run({ ...h.ctx, args: "清單" });
+    assert.match(h.last(), /#工具 #重要/);
+  });
+
+  it("重複網址補標籤（無新標籤維持原樣）", async () => {
+    const h = harness();
+    await bookmarkSkill.run({ ...h.ctx, args: `${LOCAL} #工具` });
+    await bookmarkSkill.run({ ...h.ctx, args: `${LOCAL} #重要` });
+    assert.match(h.last(), /已補上標籤/);
+    assert.equal(h.bookmarks().length, 1);
+    assert.deepEqual((h.bookmarks()[0] as { tags: string[] }).tags, ["工具", "重要"]);
+    await bookmarkSkill.run({ ...h.ctx, args: LOCAL });
+    assert.match(h.last(), /已經收藏過這個網址了/);
+  });
+
+  it("標籤篩選與標籤一覽", async () => {
+    const h = harness();
+    await bookmarkSkill.run({ ...h.ctx, args: `${LOCAL}/a #工具` });
+    await bookmarkSkill.run({ ...h.ctx, args: `${LOCAL}/b #閱讀` });
+    await bookmarkSkill.run({ ...h.ctx, args: "#工具" });
+    assert.match(h.last(), /#工具（1 筆）/);
+    assert.doesNotMatch(h.last(), /閱讀/);
+    await bookmarkSkill.run({ ...h.ctx, args: "#沒有這標籤" });
+    assert.match(h.last(), /沒有收藏/);
+    await bookmarkSkill.run({ ...h.ctx, args: "標籤" });
+    assert.match(h.last(), /#工具（1）/);
+    assert.match(h.last(), /#閱讀（1）/);
+  });
+
+  it("normalizeBookmark：舊單標籤遷移", () => {
+    const n = normalizeBookmark({ id: "1", url: "https://x", title: "X", tag: "工具" } as never);
+    assert.deepEqual(n.tags, ["工具"]);
+    assert.ok(!("tag" in n));
+  });
+
+  it("renderList 標示失效", () => {
+    const s = renderList([
+      { id: "1", url: "https://x", title: "X", tags: ["工具"], deadSince: 123 } as never,
+    ]);
+    assert.ok(s.includes("#工具（連結失效）"));
+  });
+});
+
+describe("web-bookmark 失效檢查", () => {
+  const savedFetch = globalThis.fetch;
+  const afterEachReset = () => {
+    globalThis.fetch = savedFetch;
+  };
+
+  it("checkLinks：壞連標記、好連恢復", async () => {
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("127.0.0.1")) throw new Error("blocked");
+      return new Response("ok");
+    }) as typeof fetch;
+    try {
+      // 8.8.8.8 是 IP 字面：assertPublicUrl 的 DNS lookup 不發包即可通過，fetch 走 stub。
+      const items = [
+        normalizeBookmark({ id: "a", url: "http://127.0.0.1:1/bad", title: "壞", tags: [] } as never),
+        normalizeBookmark({ id: "b", url: "https://8.8.8.8/good", title: "好", tags: [], deadSince: 1 } as never),
+      ];
+      const { items: out, result } = await checkLinks(items, 10);
+      assert.equal(result.checked, 2);
+      assert.deepEqual(result.newlyDead, ["壞"]);
+      assert.equal(result.revived, 1);
+      assert.ok(out[0].deadSince);
+      assert.equal(out[1].deadSince, null);
+    } finally {
+      afterEachReset();
+    }
+  });
+
+  it("收藏 檢查 回報摘要", async () => {
+    const h = harness();
+    await bookmarkSkill.run({ ...h.ctx, args: "http://127.0.0.1:1/x" });
+    globalThis.fetch = (async () => {
+      throw new Error("blocked");
+    }) as typeof fetch;
+    try {
+      await bookmarkSkill.run({ ...h.ctx, args: "檢查" });
+      assert.match(h.last(), /檢查了 1 筆/);
+      assert.match(h.last(), /新發現失效 1 筆/);
+    } finally {
+      afterEachReset();
+    }
   });
 });
