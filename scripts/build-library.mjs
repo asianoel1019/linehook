@@ -270,13 +270,16 @@ const STYLE = `
   .btn.ghost{background:transparent}
   .btn.ghost:hover{background:var(--ink-2);color:var(--paper-2)}
   .card-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-  .usage{margin:0 0 18px;padding:14px 16px;border:1px dashed var(--border-1);border-radius:10px 2px 10px 2px;background:var(--paper-3)}
-  .usage[hidden]{display:none}
   .usage-label{font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--border-2);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px}
   .copy-btn{font:inherit;font-size:11px;letter-spacing:.15em;color:var(--ink-soft);background:transparent;border:1px solid var(--border-1);border-radius:999px;padding:3px 14px;cursor:pointer;transition:border-color .3s ease,color .3s ease}
   .copy-btn:hover{border-color:var(--border-2);color:var(--ink-2)}
-  .usage code{font-family:ui-monospace,"SFMono-Regular",Menlo,monospace;font-size:13px;color:var(--ink-2);white-space:pre-wrap;word-break:break-all}
-  .guide-img{width:100%;height:auto;display:block;margin:0 0 14px;border-radius:12px;border:1px solid var(--border-1);cursor:zoom-in;background:#fff}
+  .lightbox-close{position:absolute;top:14px;right:20px;font-size:26px;line-height:1;color:#fff;background:transparent;border:0;cursor:pointer;opacity:.85}
+  .lightbox-close:hover{opacity:1}
+  .lightbox-card{margin:0;background:var(--paper-2);border:1px solid var(--border-1);border-radius:16px;max-width:min(920px,94vw);max-height:92vh;overflow:auto;padding:18px;cursor:default}
+  .lightbox-card img{display:block;width:100%;height:auto;max-height:60vh;object-fit:contain;border-radius:10px;background:#fff}
+  .lightbox-card img[hidden]{display:none}
+  .lightbox-card figcaption{margin-top:14px;padding:12px 14px;border:1px dashed var(--border-1);border-radius:10px 2px 10px 2px;background:var(--paper-3)}
+  .lightbox-card code{display:block;font-family:ui-monospace,"SFMono-Regular",Menlo,monospace;font-size:13px;color:var(--ink-2);white-space:pre-wrap;word-break:break-all}
   .lightbox{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(20,18,12,.74);cursor:zoom-out}
   .lightbox[hidden]{display:none}
   .lightbox img{max-width:min(1100px,94vw);max-height:92vh;border-radius:12px;background:#fff;box-shadow:0 30px 80px rgba(0,0,0,.4)}
@@ -300,20 +303,8 @@ const cards = built
   .map((s) => {
     const cat = zhOf(s.category) || "未分類";
     const usage = zhOf(s.usage) || (s.defaultTrigger ? `${s.defaultTrigger} …` : "");
-    const guideFile = guides.get(s.id);
-    const guideImg = guideFile
-      ? `
-          <img class="guide-img" src="./${guideFile}" alt="${escapeHtml(s.name)}圖解" loading="lazy" onclick="openGuide(this.src)">`
-      : "";
-    const usageBlock = usage
-      ? `        <div class="usage" id="usage-${s.id}" hidden>${guideImg}
-          <div class="usage-label"><span>用法範例</span><button class="copy-btn" type="button" onclick="copyUsage('${s.id}')">複製</button></div>
-          <code id="usage-${s.id}-text">阿寶請幫忙 ${escapeHtml(usage)}</code>
-        </div>
-`
-      : "";
     const usageBtn = usage
-      ? `<button class="btn ghost" type="button" data-usage-btn="${s.id}" onclick="toggleUsage('${s.id}')">用法</button>`
+      ? `<button class="btn ghost" type="button" onclick="openGuideFor('${s.id}')">用法</button>`
       : "";
     return `      <article class="card" data-cat="${escapeHtml(cat)}">
         <div class="tag">${escapeHtml(cat)}</div>
@@ -321,12 +312,24 @@ const cards = built
         <p>${escapeHtml(zhOf(s.description) || "無說明")}</p>
         ${s.defaultTrigger ? `<div class="trig">觸發：${escapeHtml(s.defaultTrigger)}</div>` : ""}
         <div class="meta">${s.needsKey ? `<span class="badge">需設定 API Key</span>` : `<span class="badge soft">隨裝即用</span>`}<span class="file">${escapeHtml(s.id)}.zip</span></div>
-${usageBlock}        <div class="card-actions"><a class="btn" href="./${s.id}.zip" download>下載</a>${usageBtn}</div>
+        <div class="card-actions"><a class="btn" href="./${s.id}.zip" download>下載</a>${usageBtn}</div>
       </article>`;
   })
   .join("\n");
 
 const categories = [...new Set(built.map((s) => zhOf(s.category) || "未分類"))];
+
+// 燈箱資料：用法鈕直開燈箱用（圖＋用文＋名稱）。
+const guidesData = {};
+for (const s of built) {
+  const u = zhOf(s.usage) || (s.defaultTrigger ? `${s.defaultTrigger} …` : "");
+  guidesData[s.id] = {
+    img: guides.get(s.id) ? `./${guides.get(s.id)}` : null,
+    usage: `阿寶請幫忙 ${u}`,
+    name: s.name,
+  };
+}
+const guidesJson = JSON.stringify(guidesData).replace(/<\//g, "<\\/");
 const jsStr = (s) => String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 const filters = ["全部", ...categories]
   .map(
@@ -375,30 +378,45 @@ ${cards || `      <article class="card"><h2>尚無技能</h2><p>目前沒有可�
 
   <footer>靜置 · 使用 · 放下　—　ImHook Skill Library</footer>
 </div>
-<div class="lightbox" id="lightbox" hidden onclick="closeGuide()"><img id="lightbox-img" alt="技能圖解"></div>
+<div class="lightbox" id="lightbox" hidden onclick="closeGuide()">
+  <button class="lightbox-close" type="button" onclick="closeGuide()" aria-label="關閉">×</button>
+  <figure class="lightbox-card" onclick="event.stopPropagation()">
+    <img id="lightbox-img" alt="技能圖解">
+    <figcaption>
+      <div class="usage-label"><span id="lightbox-title">用法範例</span><button class="copy-btn" type="button" onclick="copyLightbox()">複製</button></div>
+      <code id="lightbox-text"></code>
+    </figcaption>
+  </figure>
+</div>
 <script>
-function toggleUsage(id){
-  var el = document.getElementById('usage-' + id);
-  if (!el) return;
-  var open = el.hasAttribute('hidden');
-  if (open) el.removeAttribute('hidden'); else el.setAttribute('hidden', '');
-  var btn = document.querySelector('[data-usage-btn="' + id + '"]');
-  if (btn) btn.textContent = open ? '收起' : '用法';
-}
-function openGuide(src){
+window.GUIDES = ${guidesJson};
+function openGuideFor(id){
+  var g = (window.GUIDES || {})[id];
+  if (!g) return;
   var box = document.getElementById('lightbox');
   var img = document.getElementById('lightbox-img');
-  if (!box || !img) return;
-  img.src = src;
+  var title = document.getElementById('lightbox-title');
+  var text = document.getElementById('lightbox-text');
+  if (!box || !img || !text) return;
+  if (g.img) {
+    img.src = g.img;
+    img.alt = g.name + '圖解';
+    img.removeAttribute('hidden');
+  } else {
+    img.setAttribute('hidden', '');
+    img.removeAttribute('src');
+  }
+  if (title) title.textContent = g.name + ' · 用法範例';
+  text.textContent = g.usage;
   box.removeAttribute('hidden');
 }
 function closeGuide(){
   var box = document.getElementById('lightbox');
   if (box) box.setAttribute('hidden', '');
 }
-function copyUsage(id){
-  var code = document.getElementById('usage-' + id + '-text');
-  var btn = document.querySelector('#usage-' + id + ' .copy-btn');
+function copyLightbox(){
+  var code = document.getElementById('lightbox-text');
+  var btn = document.querySelector('#lightbox .copy-btn');
   if (!code) return;
   var text = code.textContent || '';
   var done = function(){
