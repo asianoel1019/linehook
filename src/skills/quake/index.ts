@@ -116,6 +116,7 @@ const quakeSkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "地震",
+  naturalKeywords: ["地震了嗎", "剛剛地震", "地震速報", "地震"],
   triggerAliases: ["earthquake", "震度", "地震速報"],
   fields: [
     { key: "cwaKey", label: { zh: "CWA API Key", en: "CWA API Key", ja: "CWA API キー" }, secret: true, hint: "選填；至 opendata.cwa.gov.tw 免費註冊，留空用 USGS" },

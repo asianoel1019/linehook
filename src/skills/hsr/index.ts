@@ -154,6 +154,7 @@ const hsrSkill: SkillDefinition = {
     ja: "交通",
   },
   defaultTrigger: "高鐵",
+  naturalKeywords: ["高鐵時刻", "高鐵幾點", "高鐵票", "高鐵"],
   triggerAliases: ["高鐵時刻", "台灣高鐵"],
   fields: [
     { key: "tdxClientId", label: { zh: "TDX Client ID", en: "TDX Client ID", ja: "TDX Client ID" }, hint: "與火車時刻表相同即可" },

@@ -67,6 +67,7 @@ const garbageSkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "垃圾車",
+  naturalKeywords: ["垃圾車幾點", "垃圾車來了沒", "垃圾車時間", "垃圾車"],
   triggerAliases: ["垃圾", "清運", "收垃圾", "垃圾時間"],
   fields: [
     { key: "cacheTtl", label: { zh: "資料快取時間（TTL）", en: "Data cache TTL", ja: "データキャッシュ TTL" }, hint: "預設 1 天；可填 12h、1440" },

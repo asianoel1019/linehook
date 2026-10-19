@@ -78,6 +78,7 @@ const oilSkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "油價",
+  naturalKeywords: ["油價多少", "油價漲了嗎", "汽油價格", "油價"],
   triggerAliases: ["汽油", "中油", "油品", "柴油"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 60 分鐘；油價每週更新，可設 6h 或 24h" },

@@ -166,6 +166,7 @@ const postcodeSkill: SkillDefinition = {
     ja: "ツール",
   },
   defaultTrigger: "郵遞區號",
+  naturalKeywords: ["郵遞區號是", "郵遞區號"],
   triggerAliases: ["郵遞區", "郵政區號", "zip"],
   fields: [],
   async run(ctx: SkillContext): Promise<void> {

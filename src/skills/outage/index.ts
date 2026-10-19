@@ -92,6 +92,7 @@ const outageSkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "停水",
+  naturalKeywords: ["停水了嗎", "停水公告", "停水查詢", "停水", "停電了嗎", "停電"],
   triggerAliases: ["停電", "斷水", "沒水", "outage"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 30 分鐘" },

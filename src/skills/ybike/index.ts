@@ -126,6 +126,7 @@ const ybikeSkill: SkillDefinition = {
     ja: "交通",
   },
   defaultTrigger: "YouBike",
+  naturalKeywords: ["有車可借嗎", "可借幾台", "YouBike", "ubike"],
   triggerAliases: ["ubike", "微笑單車", "單車"],
   fields: [
     { key: "tdxClientId", label: { zh: "TDX Client ID", en: "TDX Client ID", ja: "TDX Client ID" }, hint: "至 https://tdx.transportdata.tw 註冊取得，可與火車技能共用" },

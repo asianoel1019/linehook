@@ -235,6 +235,7 @@ const lunarSkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "農曆",
+  naturalKeywords: ["今天農曆", "農曆幾號", "農曆生日", "農曆"],
   triggerAliases: ["農民曆", "國曆", "陰曆", "lunar", "農曆轉換"],
   fields: [],
   async run(ctx: SkillContext): Promise<void> {

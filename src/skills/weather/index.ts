@@ -275,6 +275,7 @@ const weatherSkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "天氣",
+  naturalKeywords: ["天氣如何", "會下雨嗎", "會不會下雨", "氣溫幾度", "天氣好嗎", "天氣"],
   triggerAliases: ["氣象", "weather", "氣溫"],
   fields: [
     {

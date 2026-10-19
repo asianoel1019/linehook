@@ -12,6 +12,59 @@ import { seenInbound } from "./dedup.js";
 import { getService } from "./services.js";
 import { conversionArgs, parseConversion } from "../skills/exchange-rate/index.js";
 import { parseCryptoConversion } from "../skills/crypto/index.js";
+
+/** 無前綴自然意圖門檻（分數＝命中關鍵字去重後長度加總；群組更嚴）。 */
+export const NATURAL_INTENT_THRESHOLD = 4;
+export const NATURAL_INTENT_THRESHOLD_GROUP = 6;
+
+/** 計算單一技能的自然意圖分數（大小寫不敏感；同一關鍵字只計一次）。 */
+export function scoreNaturalIntent(text: string, keywords: string[] | undefined): number {
+  if (!keywords || keywords.length === 0) return 0;
+  const lower = text.toLowerCase();
+  let score = 0;
+  const seen = new Set<string>();
+  for (const k of keywords) {
+    if (!k) continue;
+    const key = k.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (lower.includes(key)) score += k.length;
+  }
+  return score;
+}
+
+/**
+ * 無前綴自然意圖路由（「台北天氣如何」→ 天氣）。
+ * 只考慮啟用＋白名單通過＋有 naturalKeywords 的技能；最高分同分、未達門檻都回 null。
+ */
+export function findNaturalIntent(
+  text: string,
+  chat: string,
+  fromMid: string,
+  platform: string,
+): SkillConfig | null {
+  let best: SkillConfig | null = null;
+  let bestScore = 0;
+  let tied = false;
+  for (const entry of config.skills) {
+    if (!entry.enabled) continue;
+    const allowed = entry.allowedUsers ?? [];
+    if (allowed.length > 0 && !allowed.includes(fromMid) && !allowed.includes(chat)) continue;
+    const def = getSkill(entry.id);
+    const score = scoreNaturalIntent(text, def?.naturalKeywords);
+    if (score <= 0) continue;
+    if (score > bestScore) {
+      best = entry;
+      bestScore = score;
+      tied = false;
+    } else if (score === bestScore) {
+      tied = true;
+    }
+  }
+  if (!best || tied) return null;
+  const need = isGroupChat(platform, chat) ? NATURAL_INTENT_THRESHOLD_GROUP : NATURAL_INTENT_THRESHOLD;
+  return bestScore >= need ? best : null;
+}
 import { writeDeadLetter } from "../deadletter.js";
 import { recordMetric } from "../metrics.js";
 import type { SkillConfig } from "../config.js";
@@ -588,6 +641,18 @@ async function runSkills(
         (allowed.length === 0 || allowed.includes(fromMid) || allowed.includes(chat))
       ) {
         await runMatchedSkill(entry, def, { text, args: conv.args, chat, fromName, fromMid, images }, deps);
+        return;
+      }
+    }
+  }
+
+  // 無前綴自然意圖（「台北天氣如何」→ 天氣；AI 對話模式內不搶，停用/白名單不符靜默略過）。
+  {
+    const entry = findNaturalIntent(text, chat, fromMid, deps.platform);
+    if (entry) {
+      const def = getSkill(entry.id);
+      if (def) {
+        await runMatchedSkill(entry, def, { text, args: text, chat, fromName, fromMid, images }, deps);
         return;
       }
     }

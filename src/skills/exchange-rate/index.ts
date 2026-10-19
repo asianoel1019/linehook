@@ -134,6 +134,7 @@ const exchangeSkill: SkillDefinition = {
     ja: "金融",
   },
   defaultTrigger: "匯率",
+  naturalKeywords: ["匯率多少", "匯率如何", "現在匯率", "匯率"],
   triggerAliases: ["換算", "匯率換算"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 60 分鐘；可填 30（分鐘）、30m、2h、90s" },

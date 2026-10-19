@@ -243,6 +243,7 @@ const busSkill: SkillDefinition = {
     ja: "交通",
   },
   defaultTrigger: "公車",
+  naturalKeywords: ["公車幾點", "公車到了沒", "幾分鐘到", "公車動態", "公車"],
   triggerAliases: ["公車動態", "bus", "幾分鐘"],
   fields: [
     {

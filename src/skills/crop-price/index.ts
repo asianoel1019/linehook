@@ -63,6 +63,7 @@ const cropSkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "菜價",
+  naturalKeywords: ["菜價多少", "菜價如何", "菜價"],
   triggerAliases: ["蔬果價", "菜", "農產", "批發價"],
   fields: [
     { key: "moaKey", label: { zh: "農業部 API Key", en: "MOA API Key", ja: "農業部 API キー" }, secret: true, hint: "至 https://data.moa.gov.tw 免費註冊取得" },

@@ -175,6 +175,7 @@ const trainSkill: SkillDefinition = {
     ja: "交通",
   },
   defaultTrigger: "火車",
+  naturalKeywords: ["火車時刻", "火車幾點", "末班車", "火車誤點", "火車"],
   fields: [
     {
       key: "tdxClientId",

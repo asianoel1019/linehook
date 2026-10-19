@@ -129,6 +129,13 @@ export interface SkillDefinition {
   defaultTrigger: string;
   /** 額外可接受的觸發詞別名（例如「肯德雞」「肯德」）。 */
   triggerAliases?: string[];
+  /**
+   * 自然語言意圖關鍵字（選填；例如天氣「天氣如何」「會下雨嗎」）。
+   * 有此欄位的技能可被無前綴訊息命中（dispatch 計分：命中關鍵字去重後長度加總，
+   * 個人對話 ≥4 分、群組 ≥6 分，最高分同分則不觸發）。查詢類技能適用；
+   * 會做事的技能（提醒/投票/警示）不要填，避免誤觸。
+   */
+  naturalKeywords?: string[];
   /** 觸發詞固定（由程式碼決定），設定頁不顯示可編輯的觸發詞欄位。 */
   hideTrigger?: boolean;
   /**

@@ -113,6 +113,7 @@ const stockSkill: SkillDefinition = {
     ja: "金融",
   },
   defaultTrigger: "股價",
+  naturalKeywords: ["股價多少", "股價如何", "收盤價", "股價"],
   triggerAliases: ["股票", "stock", "報價", "行情"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 5 分鐘；盤中建議填 1m" },

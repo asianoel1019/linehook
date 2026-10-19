@@ -113,6 +113,7 @@ const movieSkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "電影",
+  naturalKeywords: ["電影時刻", "有什麼電影", "電影場次", "上映中", "電影"],
   triggerAliases: ["電影時刻", "場次", "時刻表", "movie", "威秀"],
   fields: [
     { key: "region", label: { zh: "預設地區代碼", en: "Default region code", ja: "既定地域コード" }, hint: "預設 a02（台北）" },
