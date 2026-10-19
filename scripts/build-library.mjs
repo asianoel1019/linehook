@@ -272,9 +272,11 @@ const STYLE = `
   .card-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
   .usage{margin:0 0 18px;padding:14px 16px;border:1px dashed var(--border-1);border-radius:10px 2px 10px 2px;background:var(--paper-3)}
   .usage[hidden]{display:none}
-  .usage-label{font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--border-2);margin-bottom:8px}
+  .usage-label{font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--border-2);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .copy-btn{font:inherit;font-size:11px;letter-spacing:.15em;color:var(--ink-soft);background:transparent;border:1px solid var(--border-1);border-radius:999px;padding:3px 14px;cursor:pointer;transition:border-color .3s ease,color .3s ease}
+  .copy-btn:hover{border-color:var(--border-2);color:var(--ink-2)}
   .usage code{font-family:ui-monospace,"SFMono-Regular",Menlo,monospace;font-size:13px;color:var(--ink-2);white-space:pre-wrap;word-break:break-all}
-  .guide-img{width:100%;height:auto;display:block;margin-top:12px;border-radius:12px;border:1px solid var(--border-1);cursor:zoom-in;background:#fff}
+  .guide-img{width:100%;height:auto;display:block;margin:0 0 14px;border-radius:12px;border:1px solid var(--border-1);cursor:zoom-in;background:#fff}
   .lightbox{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(20,18,12,.74);cursor:zoom-out}
   .lightbox[hidden]{display:none}
   .lightbox img{max-width:min(1100px,94vw);max-height:92vh;border-radius:12px;background:#fff;box-shadow:0 30px 80px rgba(0,0,0,.4)}
@@ -304,9 +306,9 @@ const cards = built
           <img class="guide-img" src="./${guideFile}" alt="${escapeHtml(s.name)}圖解" loading="lazy" onclick="openGuide(this.src)">`
       : "";
     const usageBlock = usage
-      ? `        <div class="usage" id="usage-${s.id}" hidden>
-          <div class="usage-label">用法範例</div>
-          <code>阿寶請幫忙 ${escapeHtml(usage)}</code>${guideImg}
+      ? `        <div class="usage" id="usage-${s.id}" hidden>${guideImg}
+          <div class="usage-label"><span>用法範例</span><button class="copy-btn" type="button" onclick="copyUsage('${s.id}')">複製</button></div>
+          <code id="usage-${s.id}-text">阿寶請幫忙 ${escapeHtml(usage)}</code>
         </div>
 `
       : "";
@@ -393,6 +395,33 @@ function openGuide(src){
 function closeGuide(){
   var box = document.getElementById('lightbox');
   if (box) box.setAttribute('hidden', '');
+}
+function copyUsage(id){
+  var code = document.getElementById('usage-' + id + '-text');
+  var btn = document.querySelector('#usage-' + id + ' .copy-btn');
+  if (!code) return;
+  var text = code.textContent || '';
+  var done = function(){
+    if (!btn) return;
+    btn.textContent = '已複製';
+    setTimeout(function(){ btn.textContent = '複製'; }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, function(){ fallbackCopy(text); done(); });
+  } else {
+    fallbackCopy(text);
+    done();
+  }
+}
+function fallbackCopy(text){
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(ta);
 }
 document.addEventListener('keydown', function(e){
   if (e.key === 'Escape') closeGuide();
