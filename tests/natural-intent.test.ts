@@ -55,9 +55,10 @@ const entry = (id: string, extra: Record<string, unknown> = {}) => ({
 });
 
 describe("scoreNaturalIntent", () => {
-  it("命中長度加總、去重、大小寫不敏感", () => {
-    assert.equal(scoreNaturalIntent("台北天氣如何", ["天氣如何", "天氣"]), 6);
-    assert.equal(scoreNaturalIntent("YOUBIKE 台北車站", ["YouBike", "ubike"]), 12);
+  it("命中長度加總、去重、大小寫不敏感、重疊不重複計", () => {
+    assert.equal(scoreNaturalIntent("台北天氣如何", ["天氣如何", "天氣"]), 4);
+    assert.equal(scoreNaturalIntent("台積電", ["台積電", "台積"]), 3);
+    assert.equal(scoreNaturalIntent("YOUBIKE 台北車站", ["YouBike", "ubike"]), 7);
     assert.equal(scoreNaturalIntent("今天天氣不錯", ["天氣如何"]), 0);
     assert.equal(scoreNaturalIntent("x", undefined), 0);
     assert.equal(scoreNaturalIntent("x", []), 0);
@@ -79,7 +80,8 @@ describe("findNaturalIntent", () => {
   it("群組門檻 6 分", () => {
     config.skills = [entry("weather")];
     assert.equal(findNaturalIntent("會下雨嗎", "C_natural_group", "u1", "line"), null);
-    assert.equal(findNaturalIntent("台北天氣如何", "C_natural_group", "u1", "line")?.id, "weather");
+    assert.equal(findNaturalIntent("台北天氣如何", "C_natural_group", "u1", "line"), null);
+    assert.equal(findNaturalIntent("台北天氣如何會下雨嗎", "C_natural_group", "u1", "line")?.id, "weather");
   });
 
   it("最高分同分不觸發（即使達門檻）", () => {
@@ -94,6 +96,13 @@ describe("findNaturalIntent", () => {
     assert.equal(findNaturalIntent("台北天氣如何", "U_natural_user", "u1", "line"), null);
     config.skills = [entry("weather", { allowedUsers: ["u1"] })];
     assert.equal(findNaturalIntent("台北天氣如何", "U_natural_user", "u1", "line")?.id, "weather");
+  });
+
+  it("公司名＋股價直達股價技能；單獨公司名不觸發", () => {
+    config.skills = [entry("stock")];
+    assert.equal(findNaturalIntent("台積電股價", "U_natural_user", "u1", "line")?.id, "stock");
+    assert.equal(findNaturalIntent("台積電", "U_natural_user", "u1", "line"), null);
+    assert.equal(findNaturalIntent("我買了台積電", "U_natural_user", "u1", "line"), null);
   });
 });
 

@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { resolveCoin, findCoinStrict, parseCryptoConversion, formatCryptoReply } from "../src/skills/crypto/index.js";
 import { parseConversion, conversionArgs } from "../src/skills/exchange-rate/index.js";
+import { resolveSymbol, OTC_CODES } from "../src/skills/stock/index.js";
 import { detectBrands, extractKeyword, filterDeals, formatDeals, type DealItem } from "../src/skills/deals/index.js";
 import { toQuote } from "../src/skills/taiex/index.js";
 import { fromUsgs, fromCwa, formatQuake } from "../src/skills/quake/index.js";
@@ -337,5 +338,29 @@ describe("deals helpers（優惠聚合）", () => {
     const s = formatDeals("今日優惠速覽：", [{ brand: "麥當勞", title: "大薯", detail: "$99" }], "hint");
     assert.ok(s.includes("【麥當勞】大薯"));
     assert.ok(s.endsWith("hint"));
+  });
+});
+
+describe("stock resolveSymbol（公司名＋上櫃）", () => {
+  it("代號與中文名", () => {
+    assert.equal(resolveSymbol("股價 2330"), "2330.TW");
+    assert.equal(resolveSymbol("股價 台積電"), "2330.TW");
+    assert.equal(resolveSymbol("臺積電現在多少"), "2330.TW");
+    assert.equal(resolveSymbol("群聯"), "8299.TWO");
+    assert.equal(resolveSymbol("全家"), "5903.TWO");
+    assert.equal(resolveSymbol("中華汽車"), "2204.TW");
+    assert.equal(resolveSymbol("台積電法說會"), "2330.TW");
+  });
+
+  it("直接打上櫃代號走 .TWO", () => {
+    assert.equal(resolveSymbol("股價 5483"), "5483.TWO");
+    assert.equal(resolveSymbol("股價 2330"), "2330.TW");
+    assert.ok(OTC_CODES.has("8299"));
+    assert.ok(!OTC_CODES.has("2330"));
+  });
+
+  it("子字串後援與未知回空", () => {
+    assert.equal(resolveSymbol("我想問台積電"), "2330.TW");
+    assert.equal(resolveSymbol("亂七八糟"), "");
   });
 });

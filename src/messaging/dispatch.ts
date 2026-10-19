@@ -17,18 +17,31 @@ import { parseCryptoConversion } from "../skills/crypto/index.js";
 export const NATURAL_INTENT_THRESHOLD = 4;
 export const NATURAL_INTENT_THRESHOLD_GROUP = 6;
 
-/** 計算單一技能的自然意圖分數（大小寫不敏感；同一關鍵字只計一次）。 */
+/**
+ * 計算單一技能的自然意圖分數（大小寫不敏感）。
+ * 同一關鍵字只計一次；已被更長關鍵字涵蓋的片段不重複計分
+ * （「台積電」同時含「台積」時只算 3 分，避免別名灌水）。
+ */
 export function scoreNaturalIntent(text: string, keywords: string[] | undefined): number {
   if (!keywords || keywords.length === 0) return 0;
   const lower = text.toLowerCase();
+  const sorted = [...new Set(keywords.filter(Boolean).map((k) => k.toLowerCase()))].sort(
+    (a, b) => b.length - a.length,
+  );
+  const used: Array<{ s: number; e: number }> = [];
   let score = 0;
-  const seen = new Set<string>();
-  for (const k of keywords) {
-    if (!k) continue;
-    const key = k.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (lower.includes(key)) score += k.length;
+  for (const key of sorted) {
+    let idx = lower.indexOf(key);
+    while (idx >= 0) {
+      const s = idx;
+      const e = idx + key.length;
+      if (!used.some((u) => s < u.e && e > u.s)) {
+        used.push({ s, e });
+        score += key.length;
+        break;
+      }
+      idx = lower.indexOf(key, idx + 1);
+    }
   }
   return score;
 }
