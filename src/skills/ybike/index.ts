@@ -1,7 +1,11 @@
 import { logger } from "@lw/logger";
 import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
 import { fetchJson as netFetchJson } from "@lw/net";
+import { haversineMeters, formatDistance } from "@lw/skills/geo";
 import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
+
+// 轉匯出共用 geo（保持既有 import 路徑可用）。
+export { haversineMeters, formatDistance };
 
 const TDX_AUTH = "https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token";
 const TDX_BASE = "https://tdx.transportdata.tw/api/basic/v2/Bike";
@@ -150,16 +154,6 @@ export interface NearbyStatus extends StationStatus {
   distanceM: number;
 }
 
-/** haversine 大圓距離（公尺）。 */
-export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const rad = (d: number): number => (d * Math.PI) / 180;
-  const r = 6371000;
-  const a =
-    Math.sin(rad(lat2 - lat1) / 2) ** 2 +
-    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lon2 - lon1) / 2) ** 2;
-  return 2 * r * Math.asin(Math.min(1, Math.sqrt(a)));
-}
-
 /** TDX 附近站上限半徑（公尺；超過會被 TDX 拒絕）。 */
 export const NEARBY_RADIUS_MAX = 1000;
 
@@ -263,11 +257,6 @@ export async function fetchNearby(
     if (a.paused !== b.paused) return a.paused ? 1 : -1;
     return a.distanceM - b.distanceM;
   });
-}
-
-export function formatDistance(m: number): string {
-  if (!Number.isFinite(m)) return "";
-  return m < 1000 ? `約${Math.round(m)}公尺` : `約${(m / 1000).toFixed(1)}公里`;
 }
 
 const ybikeSkill: SkillDefinition = {

@@ -318,6 +318,52 @@ describe("dispatchIncoming", () => {
     assert.match(d.replies[0], /沒有可查詢附近的技能/);
   });
 
+  it("位置訊息 fan-out：ybike＋bus 各回一則", async () => {
+    const d = makeDeps();
+    config.commands.enabled = false;
+    config.skills = [
+      { id: "ybike", enabled: true, trigger: "", allowedUsers: [], config: { tdxClientId: "id", tdxClientSecret: "sec" } },
+      { id: "bus", enabled: true, trigger: "", allowedUsers: [], config: { tdxClientId: "id", tdxClientSecret: "sec" } },
+    ];
+    const savedCache = config.cachePath;
+    config.cachePath = mkdtempSync(join(tmpdir(), "loc-e2e-"));
+    const savedFetch = globalThis.fetch;
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      if (url.includes("Bike/Station/NearBy")) {
+        return new Response(JSON.stringify([
+          { StationUID: "u1", StationID: "1", StationName: { Zh_tw: "近站" }, StationAddress: { Zh_tw: "近路" }, StationPosition: { PositionLat: 25.048, PositionLon: 121.5172 }, BikesCapacity: 20 },
+        ]));
+      }
+      if (url.includes("Bike/Availability/NearBy")) {
+        return new Response(JSON.stringify([
+          { StationUID: "u1", StationID: "1", ServiceStatus: 1, AvailableRentBikes: 4, AvailableReturnBikes: 4 },
+        ]));
+      }
+      if (url.includes("Bus/Stop/City/")) {
+        return new Response(JSON.stringify([
+          { StopUID: "s1", StopID: "1", StopName: { Zh_tw: "附近站牌" }, StopAddress: "台北市某路", StopPosition: { PositionLon: 121.5172, PositionLat: 25.048 } },
+        ]));
+      }
+      throw new Error(`unexpected url: ${url}`);
+    }) as typeof fetch;
+    try {
+      await dispatchIncoming(
+        msg("", { messageId: "loc-e2e-4", location: { latitude: 25.0478, longitude: 121.517 } }),
+        d,
+      );
+      assert.equal(d.replies.length, 2);
+      assert.match(d.replies[0], /附近的 YouBike/);
+      assert.match(d.replies[1], /附近的公車站牌/);
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
+
   it("文字版位置（地圖連結）也直送附近查詢", async () => {
     const d = makeDeps();
     config.commands.enabled = false;

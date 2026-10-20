@@ -18,6 +18,14 @@ import { parseOfficialRows, parseZxcRows, findTeam } from "../src/skills/cpbl/in
 import { mergeAvailability, matchCity, normName, keywordCandidates, detectIntent, sortByIntent, haversineMeters, formatDistance, fetchNearby, cityFromAddresses } from "../src/skills/ybike/index.js";
 import ybikeSkill from "../src/skills/ybike/index.js";
 import { matchOperator, findStationId, formatHeadway } from "../src/skills/metro/index.js";
+import busSkill, {
+  normStop,
+  expandStopKeyword,
+  stopSimilarity,
+  suggestStops,
+  parseDirection,
+  fetchNearbyStops,
+} from "../src/skills/bus/index.js";
 import { resolveSymbol } from "../src/skills/stock/index.js";
 
 describe("crypto resolveCoin", () => {
@@ -729,6 +737,149 @@ describe("stock resolveSymbolLive（TWSE 全名單活路）", () => {
       assert.equal(replies.length, 1);
       assert.match(replies[0], /測試鋼鐵/);
       assert.match(replies[0], /9991/);
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
+});
+
+describe("bus 站名輔助", () => {
+  it("normStop 臺→台；expandStopKeyword 整詞展開", () => {
+    assert.equal(normStop("臺北車站"), "台北車站");
+    assert.deepEqual(expandStopKeyword("北車"), ["北車", "台北車站"]);
+    assert.deepEqual(expandStopKeyword("台北車站"), ["台北車站"]);
+    assert.deepEqual(expandStopKeyword("市府路"), ["市府路"]);
+  });
+
+  it("stopSimilarity 與 suggestStops", () => {
+    assert.equal(stopSimilarity("台北車站", "臺北車站"), 1);
+    assert.ok(stopSimilarity("台北轉運", "臺北轉運站") > 0.5);
+    assert.ok(stopSimilarity("蘋果", "台北車站") < 0.35);
+    const tips = suggestStops("台北轉運", ["臺北轉運站", "台北車站", "市政府"]);
+    assert.equal(tips[0], "臺北轉運站");
+  });
+
+  it("parseDirection 往X（排除前往）", () => {
+    assert.equal(parseDirection("307 往板橋"), "板橋");
+    assert.equal(parseDirection("往板橋方向"), "板橋");
+    assert.equal(parseDirection("前往台北"), "");
+    assert.equal(parseDirection("307 台北車站"), "");
+  });
+});
+
+describe("bus 位置找附近站牌", () => {
+  const savedFetch = globalThis.fetch;
+  const savedCache = config.cachePath;
+
+  it("fetchNearbyStops：geohash 過濾＋距離排序", async () => {
+    config.cachePath = mkdtempSync(join(tmpdir(), "bus-near-"));
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("Stop/City/Taipei")) {
+        return new Response(JSON.stringify([
+          { StopUID: "s1", StopID: "1", StopName: { Zh_tw: "遠站" }, StopAddress: "台北市某路", StopPosition: { PositionLon: 121.522, PositionLat: 25.052 } },
+          { StopUID: "s2", StopID: "2", StopName: { Zh_tw: "近站" }, StopAddress: "台北市某路", StopPosition: { PositionLon: 121.5172, PositionLat: 25.048 } },
+          { StopUID: "s3", StopID: "3", StopName: { Zh_tw: "無座標站" }, StopAddress: "台北市某路" },
+        ]));
+      }
+      throw new Error(`unexpected url: ${url}`);
+    }) as typeof fetch;
+    try {
+      const rows = await fetchNearbyStops(25.0478, 121.517, "tok", 60_000);
+      assert.equal(rows.length, 2);
+      assert.equal(rows[0].name, "近站");
+      assert.ok(rows[0].distanceM < rows[1].distanceM);
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
+
+  it("run()：傳送位置回附近站牌＋後續指引", async () => {
+    config.cachePath = mkdtempSync(join(tmpdir(), "bus-near-"));
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      return new Response(JSON.stringify([
+        { StopUID: "s1", StopID: "1", StopName: { Zh_tw: "近站" }, StopAddress: "台北市某路", StopPosition: { PositionLon: 121.5172, PositionLat: 25.048 } },
+      ]));
+    }) as typeof fetch;
+    const replies: string[] = [];
+    try {
+      await busSkill.run({
+        text: "",
+        args: "",
+        fromName: "t",
+        chat: "c",
+        fromMid: "u",
+        config: { tdxClientId: "id", tdxClientSecret: "sec" },
+        location: { latitude: 25.0478, longitude: 121.517 },
+        reply: async (t: string) => {
+          replies.push(t);
+        },
+        sendImage: async () => {},
+        sendFile: async () => {},
+        schedule: () => "s",
+        watch: () => "w",
+        unwatch: () => true,
+        watches: () => [],
+        taskState: () => undefined,
+      } as never);
+      assert.equal(replies.length, 1);
+      assert.match(replies[0], /附近的公車站牌/);
+      assert.match(replies[0], /近站/);
+      assert.match(replies[0], /公車 <路線> <站名>/);
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
+
+  it("run()：查無站名給推薦", async () => {
+    config.cachePath = mkdtempSync(join(tmpdir(), "bus-near-"));
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      // 注意：「StopOfRoute/City/」包含「Route/City/」子字串，順序不能反
+      if (url.includes("StopOfRoute/")) {
+        return new Response(JSON.stringify([
+          { Direction: 0, RouteName: { Zh_tw: "307" }, Stops: [{ StopUID: "a", StopID: "a", StopName: { Zh_tw: "臺北轉運站" }, StopSequence: 1 }] },
+        ]));
+      }
+      if (url.includes("Route/City/")) {
+        return new Response(JSON.stringify([
+          { RouteUID: "r307", RouteName: { Zh_tw: "307" }, DepartureStopNameZh: "板橋", DestinationStopNameZh: "台北車站" },
+        ]));
+      }
+      return new Response(JSON.stringify([]));
+    }) as typeof fetch;
+    const replies: string[] = [];
+    try {
+      await busSkill.run({
+        text: "公車 307 臺北轉運占",
+        args: "307 臺北轉運占",
+        fromName: "t",
+        chat: "c",
+        fromMid: "u",
+        config: { tdxClientId: "id", tdxClientSecret: "sec" },
+        reply: async (t: string) => {
+          replies.push(t);
+        },
+        sendImage: async () => {},
+        sendFile: async () => {},
+        schedule: () => "s",
+        watch: () => "w",
+        unwatch: () => true,
+        watches: () => [],
+        taskState: () => undefined,
+      } as never);
+      assert.equal(replies.length, 1);
+      assert.match(replies[0], /你是不是指：臺北轉運站/);
     } finally {
       globalThis.fetch = savedFetch;
       config.cachePath = savedCache;

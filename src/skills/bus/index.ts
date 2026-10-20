@@ -1,5 +1,6 @@
 import { logger } from "@lw/logger";
 import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import { detectCities, formatDistance, geohashNeighbors, haversineMeters } from "@lw/skills/geo";
 import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
 import { describeWatch } from "@lw/skills/watch";
 
@@ -48,6 +49,69 @@ interface Eta {
   StopName?: { Zh_tw?: string };
   StopSequence: number;
   EstimateTime?: number;
+}
+
+interface BusStop {
+  StopUID: string;
+  StopID: string;
+  StopName?: { Zh_tw?: string; En?: string };
+  StopAddress?: string;
+  StopPosition?: { PositionLon?: number; PositionLat?: number; GeoHash?: string };
+}
+
+export interface NearbyBusStop {
+  name: string;
+  address: string;
+  distanceM: number;
+}
+
+/**
+ * 附近公車站牌（1 公里內，依距離排序取前 8）。
+ * 縣市用經緯度粗判定（命中多個依序試到有資料）；站位走 TDX GeoHash 過濾。
+ */
+export async function fetchNearbyStops(
+  lat: number,
+  lon: number,
+  token: string,
+  ttlMs: number,
+): Promise<NearbyBusStop[]> {
+  const cells = geohashNeighbors(lat, lon, 6);
+  const filter = encodeURIComponent(cells.map((c) => `startswith(StopPosition/GeoHash,'${c}')`).join(" or "));
+  const cities = detectCities(lat, lon).slice(0, 2);
+  let stops: BusStop[] = [];
+  for (const city of cities) {
+    const key = `bus-stop-near-${city}-${cells[0]}`;
+    let list = readCache<BusStop[]>(key, ttlMs);
+    if (!list) {
+      try {
+        list = await fetchJson<BusStop[]>(`${TDX_BASE}/Stop/City/${city}?$filter=${filter}&$format=JSON`, token);
+      } catch (error) {
+        logger.warn("公車附近站位查詢失敗", { city, error: error instanceof Error ? error.message : String(error) });
+        continue;
+      }
+      if (Array.isArray(list) && list.length > 0) writeCache(key, list);
+    }
+    if (Array.isArray(list) && list.length > 0) {
+      stops = list;
+      break;
+    }
+  }
+  const rows: NearbyBusStop[] = [];
+  for (const s of stops) {
+    const plat = s.StopPosition?.PositionLat;
+    const plon = s.StopPosition?.PositionLon;
+    if (typeof plat !== "number" || typeof plon !== "number") continue;
+    const distanceM = Math.round(haversineMeters(lat, lon, plat, plon));
+    if (distanceM > 1000) continue;
+    rows.push({ name: s.StopName?.Zh_tw ?? s.StopID, address: s.StopAddress ?? "", distanceM });
+  }
+  rows.sort((a, b) => a.distanceM - b.distanceM);
+  const seen = new Map<string, NearbyBusStop>();
+  for (const r of rows) {
+    const key = `${r.name}|${r.address}`;
+    if (!seen.has(key)) seen.set(key, r);
+  }
+  return [...seen.values()].slice(0, 8);
 }
 
 const CITIES: Array<{ match: string[]; city: string }> = [
@@ -117,6 +181,64 @@ function matchRoute(routes: Route[], name: string): Route | undefined {
     routes.find((r) => (r.RouteName?.Zh_tw ?? "").toUpperCase().replace(/公車$/, "") === norm.replace(/公車$/, "")) ||
     routes.find((r) => (r.RouteName?.Zh_tw ?? "").toUpperCase().startsWith(norm))
   );
+}
+
+/** 站名正規化（臺→台、去空白；比對兩邊都要過）。 */
+export function normStop(s: string): string {
+  return (s ?? "").replace(/臺/g, "台").trim().replace(/\s+/g, "");
+}
+
+/** 常見站名口語（整詞才展開，避免「市府路」變「市政府路」）。 */
+const STOP_ALIASES: Record<string, string> = {
+  北車: "台北車站",
+  市府: "市政府",
+  "101": "台北101",
+};
+
+/** 關鍵字展開別名（原字保留，別名追加）。 */
+export function expandStopKeyword(keyword: string): string[] {
+  const out = [keyword];
+  const expanded = STOP_ALIASES[keyword.trim()];
+  if (expanded && expanded !== keyword.trim()) out.push(expanded);
+  return [...new Set(out)];
+}
+
+function bigrams(s: string): Set<string> {
+  const g = new Set<string>();
+  for (let i = 0; i + 1 < s.length; i++) g.add(s.slice(i, i + 2));
+  return g;
+}
+
+/** 站名相似度（bigram Dice；供「你是不是指」推薦，完全命中回 1）。 */
+export function stopSimilarity(a: string, b: string): number {
+  const strip = (s: string): string => normStop(s).replace(/(站|路|區|號|段|巷|弄|口|大道)$/, "");
+  const na = strip(a);
+  const nb = strip(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  if (na.includes(nb) || nb.includes(na)) return 0.8;
+  const ga = bigrams(na);
+  const gb = bigrams(nb);
+  if (ga.size === 0 || gb.size === 0) return 0;
+  let inter = 0;
+  for (const g of ga) if (gb.has(g)) inter++;
+  return (2 * inter) / (ga.size + gb.size);
+}
+
+/** 從候選站名挑推薦（取前 3，門檻 0.35）。 */
+export function suggestStops(keyword: string, names: string[]): string[] {
+  const scored = names
+    .map((n) => ({ name: n, score: stopSimilarity(keyword, n) }))
+    .filter((s) => s.score > 0.35)
+    .sort((a, b) => b.score - a.score);
+  return [...new Set(scored.map((s) => s.name))].slice(0, 3);
+}
+
+/** 解析方向（「往板橋」→ 板橋；「前往」不算）。 */
+export function parseDirection(text: string): string {
+  const m = /(?<!前)往([^，。！？\s]{1,10})/.exec(text);
+  if (!m) return "";
+  return m[1].replace(/(方向|方面|的車|的公車|公車)$/, "").trim();
 }
 
 async function findRoute(
@@ -233,7 +355,7 @@ const busSkill: SkillDefinition = {
     ja: "バスのリアルタイム到着（TDX API キーが必要）。",
   },
   usage: {
-    zh: "公車 307 台北車站（或問：幾分鐘 307 台北車站）；公車 訂閱 307 台北車站 5；公車 清單；公車 取消 307",
+    zh: "公車 307 台北車站（或問：幾分鐘 307 台北車站）；公車 訂閱 307 台北車站 5；公車 清單；公車 取消 307；直接傳送位置查附近站牌",
     en: "bus 307 Taipei Main Station; bus subscribe 307 TaipeiMainStation 5; bus list; bus cancel 307",
     ja: "公車 307 台北駅; 公車 購読 307 台北駅 5; 公車 一覧; 公車 解除 307",
   },
@@ -243,8 +365,9 @@ const busSkill: SkillDefinition = {
     ja: "交通",
   },
   defaultTrigger: "公車",
-  naturalKeywords: ["公車幾點", "公車到了沒", "幾分鐘到", "公車動態", "公車"],
+  naturalKeywords: ["公車幾點", "公車到了沒", "幾分鐘到", "公車動態", "附近站牌", "附近公車站", "公車"],
   triggerAliases: ["公車動態", "bus", "幾分鐘"],
+  handlesLocation: true,
   fields: [
     {
       key: "tdxClientId",
@@ -295,6 +418,29 @@ const busSkill: SkillDefinition = {
     const subs = readSubs(ctx);
     const minutes = pollMinutesOf(ctx.config);
     const watchOpts = { task: TASK, everyMinutes: minutes };
+
+    // 位置訊息：直接查附近站牌（免站名；站牌無即時車位，只給站名＋距離）
+    if (ctx.location) {
+      const { latitude, longitude } = ctx.location;
+      const ttlMs = parseTtl(ctx.config.cacheTtl, 1440);
+      try {
+        const token = await getToken(clientId, clientSecret);
+        const rows = await fetchNearbyStops(latitude, longitude, token, ttlMs);
+        if (rows.length === 0) {
+          await ctx.reply("附近 1 公里內沒有公車站牌，試著移動後再傳一次位置，或指定縣市查詢。");
+          return;
+        }
+        const lines = rows.map((s) => `・${s.name}（${formatDistance(s.distanceM)}）`);
+        logger.info("公車附近站牌查詢", { lat: latitude, lon: longitude, count: rows.length });
+        await ctx.reply(
+          `附近的公車站牌（1 公里內）：\n${lines.join("\n")}\n想看即時到站：公車 <路線> <站名>，例如：公車 307 台北車站`,
+        );
+      } catch (error) {
+        logger.error("公車附近站牌查詢失敗", { error: String(error) });
+        await ctx.reply("公車資料來源目前無法使用，請稍後再試。");
+      }
+      return;
+    }
 
     // 取消訂閱
     if (/^(取消|退訂|停止|刪除)/.test(args)) {
@@ -413,11 +559,13 @@ const busSkill: SkillDefinition = {
     const headByDir = new Map<number, string>();
     for (const d of dirs) headByDir.set(d.Direction, headsign(d, route));
 
-    // 目標站（從原始文字找站名片段）
+    // 目標站（從原始文字找站名片段；方向詞另行解析不混入）
     const stopQuery = ctx.args
       .replace(/請幫忙|請幫|幫忙|查詢|查一下|動態|公車|客運|路線|現在|一下|幾分鐘/g, " ")
       .replace(routeName, " ")
+      .replace(/(?<!前)往[^，。！？\s]{1,10}/g, " ")
       .trim();
+    const wantHead = parseDirection(ctx.args);
 
     const running = new Set((eta ?? []).map((e) => e.PlateNumb).filter(Boolean));
 
@@ -434,19 +582,25 @@ const busSkill: SkillDefinition = {
       const op = route.Operators?.[0]?.OperatorName?.Zh_tw;
       await ctx.reply(
         `${routeKey} ${op ? `(${op})` : ""} 即時動態：\n${lines.join("\n")}\n` +
-          `運行中車輛：${running.size} 輛。可加上站名查詢到站時間，例如：公車 ${routeKey} 台北車站`,
+          `運行中車輛：${running.size} 輛。可加上站名查詢到站時間，例如：公車 ${routeKey} 台北車站；` +
+          `不知道站名可直接傳送位置，幫你找附近站牌。`,
       );
       return;
     }
 
-    const norm = (s: string) => s.trim().replace(/\s/g, "");
-    const target = norm(stopQuery);
+    const targets = stopQuery.split(/\s+/).flatMap((t) => expandStopKeyword(normStop(t))).filter(Boolean);
     const out: string[] = [];
-    for (const d of dirs) {
+    // 方向過濾（「往板橋」只顯示該方向；比對不到方向則維持雙向）
+    const wantDirs = wantHead
+      ? dirs.filter((d) => normStop(headByDir.get(d.Direction) ?? "").includes(normStop(wantHead)))
+      : dirs;
+    const showDirs = wantDirs.length > 0 ? wantDirs : dirs;
+    for (const d of showDirs) {
       const stops = (d.Stops ?? []).slice().sort((a, b) => a.StopSequence - b.StopSequence);
-      const hit = stops.find(
-        (s) => norm(s.StopName?.Zh_tw ?? "").includes(target) || target.includes(norm(s.StopName?.Zh_tw ?? "")),
-      );
+      const hit = stops.find((s) => {
+        const name = normStop(s.StopName?.Zh_tw ?? "");
+        return targets.some((t) => name.includes(t) || t.includes(name));
+      });
       if (!hit) continue;
       const head = headByDir.get(d.Direction) ?? "";
       const arrivals = (eta ?? [])
@@ -465,7 +619,12 @@ const busSkill: SkillDefinition = {
     }
 
     if (out.length === 0) {
-      await ctx.reply(`在 ${routeKey} 路線查不到站名「${stopQuery}」，請確認站名。`);
+      const allNames = [...new Set(dirs.flatMap((d) => (d.Stops ?? []).map((s) => s.StopName?.Zh_tw ?? "").filter(Boolean)))];
+      const tips = suggestStops(targets[0] ?? stopQuery, allNames);
+      await ctx.reply(
+        `在 ${routeKey} 路線查不到站名「${stopQuery}」` +
+          (tips.length > 0 ? `，你是不是指：${tips.join("、")}？` : "，請確認站名。"),
+      );
       return;
     }
     logger.info("公車動態查詢", { city, route: routeKey, stop: stopQuery });
