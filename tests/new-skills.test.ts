@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { resolveCoin, findCoinStrict, parseCryptoConversion, formatCryptoReply } from "../src/skills/crypto/index.js";
 import { parseConversion, conversionArgs, toCode, findCurrencies } from "../src/skills/exchange-rate/index.js";
-import { resolveSymbol, resolveSymbolLive, OTC_CODES } from "../src/skills/stock/index.js";
+import { resolveSymbol, resolveSymbolLive, OTC_CODES, SYMBOL_NAMES } from "../src/skills/stock/index.js";
 import stockSkill from "../src/skills/stock/index.js";
 import { config } from "../src/config.js";
 import { tmpdir } from "node:os";
@@ -397,6 +397,14 @@ describe("stock resolveSymbol（公司名＋上櫃）", () => {
 
   it("高力進靜態表", () => {
     assert.equal(resolveSymbol("股價 高力"), "8996.TW");
+  });
+
+  it("全表：上櫃、ETF、別名覆寫", () => {
+    assert.equal(resolveSymbol("寶雅"), "5904.TWO");
+    assert.equal(resolveSymbol("台灣50"), "0050.TW");
+    assert.equal(resolveSymbol("聯發"), "2454.TW");
+    assert.equal(resolveSymbol("統一超"), "2912.TW");
+    assert.ok(SYMBOL_NAMES.length > 2000);
   });
 });
 
