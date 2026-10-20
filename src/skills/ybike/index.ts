@@ -5,6 +5,9 @@ import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/type
 
 const TDX_AUTH = "https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token";
 const TDX_BASE = "https://tdx.transportdata.tw/api/basic/v2/Bike";
+// 附近查詢是進階服務，走 /api/advanced/v2（basic 下沒有這兩條，照打只會 404）
+// 出處：TDX 官方論壇「如何搜尋附近的ubike站點」
+const TDX_NEARBY_BASE = "https://tdx.transportdata.tw/api/advanced/v2/Bike";
 
 interface BikeStation {
   StationUID: string;
@@ -223,26 +226,26 @@ export async function fetchNearby(
   const key = `ybike-nearby-${lat.toFixed(3)}-${lon.toFixed(3)}`;
   let stations = readCache<BikeStation[]>(key, ttlMs);
   if (!stations || stations.length === 0) {
-    // spatialFilter 照 TDX 文件原形（附近站點；Availability 備援見下方）
-    const filter = `nearby(${lat},${lon},${radius})`;
+    // 過濾式照官方範例：半形空格＋整段編碼（nearby(22.999494, 120.218642, 300)）
+    const filter = encodeURIComponent(`nearby(${lat}, ${lon}, ${radius})`);
     stations = await tdxGet<BikeStation[]>(
-      `${TDX_BASE}/Station/NearBy?$spatialFilter=${filter}&$format=JSON`,
+      `${TDX_NEARBY_BASE}/Station/NearBy?$spatialFilter=${filter}&$top=30&$format=JSON`,
       token,
     );
     if (stations.length > 0) writeCache(key, stations);
   }
-  const filter = `nearby(${lat},${lon},${radius})`;
+  const filter = encodeURIComponent(`nearby(${lat}, ${lon}, ${radius})`);
   let avail: BikeAvailability[];
   try {
     avail = await tdxGet<BikeAvailability[]>(
-      `${TDX_BASE}/Availability/NearBy?$spatialFilter=${filter}&$format=JSON`,
+      `${TDX_NEARBY_BASE}/Availability/NearBy?$spatialFilter=${filter}&$top=30&$format=JSON`,
       token,
     );
   } catch (error) {
     if (httpStatusOf(error) !== 404) throw error;
-    // Availability 沒有 NearBy 版：從站點地址多數決縣市，抓整縣市再過濾
+    // 極少數狀況 Availability/NearBy 不通：從站點地址多數決縣市，改抓整縣市再過濾
     const city = cityFromAddresses(stations.map((s) => s.StationAddress?.Zh_tw ?? ""));
-    logger.warn("Availability/NearBy 不存在，改抓縣市", { city });
+    logger.warn("Availability/NearBy 失敗，改抓縣市", { city });
     if (!city) throw error;
     const all = await tdxGet<BikeAvailability[]>(`${TDX_BASE}/Availability/City/${city}?$format=JSON`, token);
     const wanted = new Set(stations.map((s) => s.StationUID || s.StationID));
