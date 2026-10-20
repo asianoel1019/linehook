@@ -24,6 +24,21 @@ function cityOf(ctx: { config: Record<string, string> }, override?: string): str
   return (override || ctx.config.city || "台北").trim();
 }
 
+/** 匯率晨報行（純函式，可測試）：美金 32.50／日幣 0.2084／人民幣 4.4912。 */
+export function formatFxLine(twd: number | undefined, jpy: number | undefined, cny: number | undefined): string {
+  const parts: string[] = [];
+  if (typeof twd === "number" && Number.isFinite(twd)) {
+    parts.push(`美金 ${twd.toFixed(2)}`);
+    if (typeof jpy === "number" && Number.isFinite(jpy) && jpy !== 0) {
+      parts.push(`日幣 ${(twd / jpy).toFixed(4)}`);
+    }
+    if (typeof cny === "number" && Number.isFinite(cny) && cny !== 0) {
+      parts.push(`人民幣 ${(twd / cny).toFixed(4)}`);
+    }
+  }
+  return parts.length > 0 ? parts.join("／") : "匯率：暫無資料";
+}
+
 /** 1 金衡盎司 = 8.294 台錢（1 錢 = 3.75g）。 */
 const TROY_OZ_TO_QIAN = 8.294;
 
@@ -114,8 +129,7 @@ async function compose(city: string): Promise<string> {
 
   try {
     const data = await getRates("USD", 360 * 60 * 1000);
-    const rate = data.rates.TWD;
-    lines.push(Number.isFinite(rate) ? `美金 ${rate.toFixed(2)}` : "匯率：暫無資料");
+    lines.push(formatFxLine(data.rates.TWD, data.rates.JPY, data.rates.CNY));
   } catch (error) {
     logger.warn("晨報匯率失敗", { error: error instanceof Error ? error.message : String(error) });
     lines.push("匯率：暫無資料");

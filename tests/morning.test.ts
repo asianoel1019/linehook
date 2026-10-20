@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatGoldLine } from "../src/skills/morning/index.js";
+import { formatGoldLine, formatFxLine } from "../src/skills/morning/index.js";
 
 describe("morning formatGoldLine", () => {
   it("正常：美元價＋漲跌＋台錢換算", () => {
@@ -17,5 +17,18 @@ describe("morning formatGoldLine", () => {
   it("無價格回暫無資料", () => {
     assert.equal(formatGoldLine(undefined, 4100, 32.5), "黃金：暫無資料");
     assert.equal(formatGoldLine(NaN, 4100, 32.5), "黃金：暫無資料");
+  });
+});
+
+describe("morning formatFxLine", () => {
+  it("美金／日幣／人民幣", () => {
+    // 日幣 32.5/156.2≈0.2081；人民幣 32.5/7.24≈4.4890
+    assert.equal(formatFxLine(32.5, 156.2, 7.24), "美金 32.50／日幣 0.2081／人民幣 4.4890");
+  });
+
+  it("缺幣別時只顯示有的；全缺回暫無資料", () => {
+    assert.equal(formatFxLine(32.5, undefined, undefined), "美金 32.50");
+    assert.equal(formatFxLine(32.5, 0, NaN), "美金 32.50");
+    assert.equal(formatFxLine(undefined, 156.2, 7.24), "匯率：暫無資料");
   });
 });
