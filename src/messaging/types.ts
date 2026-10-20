@@ -31,12 +31,22 @@ export interface IncomingMessage {
   messageId?: string;
   /** 隨訊息附帶的圖片（base64 inline）；供 AI 圖片理解等技能使用。 */
   images?: IncomingImage[];
+  /** 隨附位置（使用者傳送的位置訊息；供附近查詢類技能使用）。 */
+  location?: IncomingLocation;
 }
 
 /** 收到訊息的圖片附件（已轉 base64，附 mimeType）。 */
 export interface IncomingImage {
   base64: string;
   mimeType: string;
+}
+
+/** 收到的位置訊息（各 adapter 正規化後的子集）。 */
+export interface IncomingLocation {
+  latitude: number;
+  longitude: number;
+  title?: string;
+  address?: string;
 }
 
 export interface StickerInput {

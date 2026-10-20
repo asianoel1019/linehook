@@ -1,5 +1,5 @@
 import type { SkillConfig } from "../config.js";
-import type { IncomingImage } from "../messaging/types.js";
+import type { IncomingImage, IncomingLocation } from "../messaging/types.js";
 
 /** 技能自帶的多語文字（zh/en/ja）。任一語言缺漏時回退到 zh。 */
 export interface LocalizedText {
@@ -26,6 +26,8 @@ export interface SkillContext {
   config: Record<string, string>;
   /** 隨訊息附上的圖片（LINE 圖片訊息等）；供 AI 視覺技能使用。 */
   images?: IncomingImage[];
+  /** 使用者傳送的位置（位置訊息）；供附近查詢類技能使用。 */
+  location?: IncomingLocation;
   reply: (text: string) => Promise<void>;
   sendImage: (source: string, filename?: string) => Promise<void>;
   sendFile: (source: string, filename?: string) => Promise<void>;
@@ -155,6 +157,8 @@ export interface SkillDefinition {
   ruleKey?: string;
   /** 選填：回報資料來源健康狀態，供 /skills 頁面顯示。 */
   health?: () => Promise<SkillHealth[]>;
+  /** 選填：可處理使用者傳送的位置訊息（附近查詢類，如 YouBike 找附近站點）。 */
+  handlesLocation?: boolean;
   /** 執行技能；args 為觸發詞之後的原始文字（"any" 模式為整則訊息）。 */
   run: (ctx: SkillContext) => Promise<void>;
   /**

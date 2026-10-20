@@ -15,7 +15,7 @@ import { parseNum, computePercent, matchName, joinStatus } from "../src/skills/r
 import { filterOutages, formatCase, parseNewsRss } from "../src/skills/outage/index.js";
 import { parseTableItems, matchBudget } from "../src/skills/mcdonald/index.js";
 import { parseOfficialRows, parseZxcRows, findTeam } from "../src/skills/cpbl/index.js";
-import { mergeAvailability, matchCity, normName, keywordCandidates, detectIntent, sortByIntent } from "../src/skills/ybike/index.js";
+import { mergeAvailability, matchCity, normName, keywordCandidates, detectIntent, sortByIntent, haversineMeters, formatDistance, fetchNearby } from "../src/skills/ybike/index.js";
 import ybikeSkill from "../src/skills/ybike/index.js";
 import { matchOperator, findStationId, formatHeadway } from "../src/skills/metro/index.js";
 import { resolveSymbol } from "../src/skills/stock/index.js";
@@ -291,6 +291,96 @@ describe("ybike helpers", () => {
       const lines = replies[0].split("\n");
       assert.ok(lines[1].includes("西一門"), `有車的應在前：${replies[0]}`);
       assert.ok(lines[2].includes("可借 5"));
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
+
+  it("haversineMeters 與 formatDistance", () => {
+    const d = haversineMeters(25.0478, 121.517, 25.0339, 121.5645);
+    assert.ok(d > 4500 && d < 5500, `台北車站→101 約 5km，實得 ${d}`);
+    assert.equal(haversineMeters(25, 121, 25, 121), 0);
+    assert.equal(formatDistance(350), "約350公尺");
+    assert.equal(formatDistance(1500), "約1.5公里");
+    assert.equal(formatDistance(Number.POSITIVE_INFINITY), "");
+  });
+
+  it("run()：傳送位置查附近（距離排序＋可借可還）", async () => {
+    const savedFetch = globalThis.fetch;
+    const savedCache = config.cachePath;
+    config.cachePath = mkdtempSync(join(tmpdir(), "ybike-near-"));
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      if (url.includes("Station/NearBy")) {
+        return new Response(JSON.stringify([
+          { StationUID: "u1", StationID: "1", StationName: { Zh_tw: "遠站" }, StationAddress: { Zh_tw: "遠路" }, StationPosition: { PositionLat: 25.06, PositionLon: 121.53 }, BikesCapacity: 20 },
+          { StationUID: "u2", StationID: "2", StationName: { Zh_tw: "近站" }, StationAddress: { Zh_tw: "近路" }, StationPosition: { PositionLat: 25.048, PositionLon: 121.5172 }, BikesCapacity: 20 },
+        ]));
+      }
+      return new Response(JSON.stringify([
+        { StationUID: "u1", StationID: "1", ServiceStatus: 1, AvailableRentBikes: 3, AvailableReturnBikes: 3, SrcUpdateTime: "2026-10-20T10:00:00" },
+        { StationUID: "u2", StationID: "2", ServiceStatus: 1, AvailableRentBikes: 7, AvailableReturnBikes: 7, SrcUpdateTime: "2026-10-20T10:00:00" },
+      ]));
+    }) as typeof fetch;
+    const replies: string[] = [];
+    try {
+      await ybikeSkill.run({
+        text: "",
+        args: "",
+        fromName: "t",
+        chat: "c",
+        fromMid: "u",
+        config: { tdxClientId: "id", tdxClientSecret: "sec" },
+        location: { latitude: 25.0478, longitude: 121.517 },
+        reply: async (t: string) => {
+          replies.push(t);
+        },
+        sendImage: async () => {},
+        sendFile: async () => {},
+        schedule: () => "s",
+        watch: () => "w",
+        unwatch: () => true,
+        watches: () => [],
+        taskState: () => undefined,
+      } as never);
+      assert.equal(replies.length, 1);
+      assert.match(replies[0], /附近的 YouBike/);
+      const idxNear = replies[0].indexOf("近站");
+      const idxFar = replies[0].indexOf("遠站");
+      assert.ok(idxNear >= 0 && idxFar > idxNear, `近站在前：${replies[0]}`);
+      assert.match(replies[0], /公尺/);
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
+
+  it("fetchNearby 無座標時距離無限大（排最後但不炸）", async () => {
+    const savedFetch = globalThis.fetch;
+    const savedCache = config.cachePath;
+    config.cachePath = mkdtempSync(join(tmpdir(), "ybike-near-"));
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      if (url.includes("Station/NearBy")) {
+        return new Response(JSON.stringify([
+          { StationUID: "u1", StationID: "1", StationName: { Zh_tw: "無座標站" }, StationAddress: { Zh_tw: "某路" }, BikesCapacity: 20 },
+        ]));
+      }
+      return new Response(JSON.stringify([
+        { StationUID: "u1", StationID: "1", ServiceStatus: 1, AvailableRentBikes: 2, AvailableReturnBikes: 2 },
+      ]));
+    }) as typeof fetch;
+    try {
+      const rows = await fetchNearby(25.0478, 121.517, 1000, "tok", 60_000);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].distanceM, Number.POSITIVE_INFINITY);
     } finally {
       globalThis.fetch = savedFetch;
       config.cachePath = savedCache;

@@ -661,6 +661,20 @@ export class LineService implements IMessagingService {
         }
       }
 
+      // 位置訊息：raw.location 帶經緯度（contentType 15）；轉給附近查詢類技能
+      const rawLoc = (message.raw as { location?: { latitude?: number | string; longitude?: number | string; title?: unknown; address?: unknown } }).location;
+      const lat = Number(rawLoc?.latitude);
+      const lon = Number(rawLoc?.longitude);
+      const location =
+        rawLoc && Number.isFinite(lat) && Number.isFinite(lon)
+          ? {
+              latitude: lat,
+              longitude: lon,
+              ...(typeof rawLoc.title === "string" && rawLoc.title ? { title: rawLoc.title } : {}),
+              ...(typeof rawLoc.address === "string" && rawLoc.address ? { address: rawLoc.address } : {}),
+            }
+          : undefined;
+
       recordMessage({
         time: new Date().toISOString(),
         fromMid: message.from.id,
@@ -680,6 +694,7 @@ export class LineService implements IMessagingService {
           text,
           messageId: rawId == null ? undefined : String(rawId),
           ...(images ? { images } : {}),
+          ...(location ? { location } : {}),
         },
         this.dispatchDeps(),
       );

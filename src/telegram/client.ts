@@ -84,6 +84,8 @@ export interface TgUpdate {
     caption?: string;
     /** 圖片訊息（多種尺寸；取最大的）。 */
     photo?: Array<{ file_id?: string; file_unique_id?: string; width?: number; height?: number }>;
+    /** 位置訊息。 */
+    location?: { latitude?: number; longitude?: number };
   };
 }
 
@@ -93,14 +95,19 @@ interface TgApiResult<T> {
   description?: string;
 }
 
-/** 把 Telegram update 正規化成平台無關訊息；純非文字且非圖片訊息回 null。 */
+/** 把 Telegram update 正規化成平台無關訊息；純非文字且非圖片非位置訊息回 null。 */
 export function normalizeTelegramUpdate(update: TgUpdate): IncomingMessage | null {
   const msg = update?.message;
   if (!msg || !msg.from || !msg.chat) return null;
   if (msg.from.is_bot) return null;
   const text = (msg.text ?? msg.caption ?? "").trim();
   const photo = (msg.photo ?? []).slice().sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0];
-  if (!text && !photo?.file_id) return null;
+  const rawLoc = msg.location;
+  const location =
+    rawLoc && Number.isFinite(rawLoc.latitude) && Number.isFinite(rawLoc.longitude)
+      ? { latitude: Number(rawLoc.latitude), longitude: Number(rawLoc.longitude) }
+      : undefined;
+  if (!text && !photo?.file_id && !location) return null;
   const chat = String(msg.chat.id);
   const fromId = String(msg.from.id);
   const fromName = msg.from.username
@@ -110,7 +117,7 @@ export function normalizeTelegramUpdate(update: TgUpdate): IncomingMessage | nul
     msg.chat.title ||
     (msg.chat.username ? `@${msg.chat.username}` : "") ||
     `${msg.chat.first_name ?? ""} ${msg.chat.last_name ?? ""}`.trim();
-  return { chat, fromId, fromName, chatName, text, messageId: String(update.update_id) };
+  return { chat, fromId, fromName, chatName, text, messageId: String(update.update_id), ...(location ? { location } : {}) };
 }
 
 export class TelegramService implements IMessagingService {

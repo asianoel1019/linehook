@@ -7,7 +7,7 @@ import { effectiveMode, skillListText, skillUsageText } from "../skills/help.js"
 import type { SkillContext, SkillTaskContext, SkillWatchView, WatchOptions } from "../skills/types.js";
 import type { Job as ScheduledJob, ScheduledJobView } from "../line/scheduler.js";
 import type { IncomingMessage, Platform, SendInput } from "./types.js";
-import type { IncomingImage } from "./types.js";
+import type { IncomingImage, IncomingLocation } from "./types.js";
 import { seenInbound } from "./dedup.js";
 import { getService } from "./services.js";
 import { conversionArgs, parseConversion } from "../skills/exchange-rate/index.js";
@@ -319,7 +319,7 @@ export async function dispatchIncoming(msg: IncomingMessage, deps: DispatchDeps)
     }
     recordMetric("im_inbound_total", 1, { platform: deps.platform, dedup: "false" });
     await runCommand(msg.text, msg.chat, msg.fromId, deps);
-    await runSkills(msg.text, msg.chat, msg.fromName, msg.fromId, deps, msg.images);
+    await runSkills(msg.text, msg.chat, msg.fromName, msg.fromId, deps, msg.images, msg.location);
     await runForwardRules(msg.text, msg.chat, msg.fromName, msg.chatName, deps);
   } catch (error) {
     logger.error("處理收到的訊息失敗", { error: String(error) });
@@ -387,10 +387,10 @@ export async function dispatchSkillTask(job: ScheduledJob, deps: DispatchDeps): 
 async function runMatchedSkill(
   skill: SkillConfig,
   def: SkillDefinition,
-  msg: { text: string; args: string; chat: string; fromName: string; fromMid: string; images?: IncomingImage[] },
+  msg: { text: string; args: string; chat: string; fromName: string; fromMid: string; images?: IncomingImage[]; location?: IncomingLocation },
   deps: DispatchDeps,
 ): Promise<void> {
-  const { text, args, chat, fromName, fromMid, images } = msg;
+  const { text, args, chat, fromName, fromMid, images, location } = msg;
   if (skillThrottled(skill.id, chat)) {
     logger.warn("技能觸發過於頻繁，已略過", { skill: skill.id, chat });
     recordMetric("skill_exec_total", 1, { skill: skill.id, result: "throttled" });
@@ -416,6 +416,7 @@ async function runMatchedSkill(
       fromMid,
       config: skill.config,
       ...(images && images.length > 0 ? { images } : {}),
+      ...(location ? { location } : {}),
       reply: (t) => deps.replyTo(chat, t),
       sendImage: async (source, filename) => {
         try {
@@ -577,8 +578,27 @@ async function runSkills(
   fromMid: string,
   deps: DispatchDeps,
   images?: IncomingImage[],
+  location?: IncomingLocation,
 ): Promise<void> {
-  if (!text && (!images || images.length === 0)) return;
+  if (!text && (!images || images.length === 0) && !location) return;
+
+  // 位置訊息優先：交給宣告 handlesLocation 的技能（目前僅 YouBike 找附近站點）。
+  // 連 AI 對話模式都不搶——位置只有附近查詢消費得了；無人處理時給一句提示。
+  if (location) {
+    const entry = config.skills.find((s) => {
+      if (!s.enabled || !getSkill(s.id)?.handlesLocation) return false;
+      const allowed = s.allowedUsers ?? [];
+      return allowed.length === 0 || allowed.includes(fromMid) || allowed.includes(chat);
+    });
+    const def = entry ? getSkill(entry.id) : undefined;
+    if (entry && def) {
+      await runMatchedSkill(entry, def, { text, args: text, chat, fromName, fromMid, images, location }, deps);
+    } else {
+      logger.info("收到位置訊息但無技能處理", { chat });
+      await deps.replyTo(chat, "收到你的位置了，但目前沒有可查詢附近的技能。");
+    }
+    return;
+  }
 
   const { assistant, rest, hasPrefix } = analyzeAssistantPrefix(text, config.assistant.name, config.language);
 

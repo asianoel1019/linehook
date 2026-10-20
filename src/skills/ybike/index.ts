@@ -11,6 +11,7 @@ interface BikeStation {
   StationID: string;
   StationName?: { Zh_tw?: string; En?: string };
   StationAddress?: { Zh_tw?: string };
+  StationPosition?: { PositionLat?: number; PositionLon?: number };
   BikesCapacity?: number;
 }
 
@@ -141,6 +142,64 @@ export function sortByIntent(rows: StationStatus[], intent: BikeIntent): Station
   });
 }
 
+/** 附近站點（含距使用者公尺數）。 */
+export interface NearbyStatus extends StationStatus {
+  distanceM: number;
+}
+
+/** haversine 大圓距離（公尺）。 */
+export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const rad = (d: number): number => (d * Math.PI) / 180;
+  const r = 6371000;
+  const a =
+    Math.sin(rad(lat2 - lat1) / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lon2 - lon1) / 2) ** 2;
+  return 2 * r * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/** TDX 附近站上限半徑（公尺；超過會被 TDX 拒絕）。 */
+export const NEARBY_RADIUS_MAX = 1000;
+
+/** 抓附近站點＋即時車位，回傳依距離排序（暫停服務沉底）。 */
+export async function fetchNearby(
+  lat: number,
+  lon: number,
+  radiusM: number,
+  token: string,
+  ttlMs: number,
+): Promise<NearbyStatus[]> {
+  const radius = Math.min(Math.max(Math.round(radiusM) || NEARBY_RADIUS_MAX, 100), NEARBY_RADIUS_MAX);
+  const key = `ybike-nearby-${lat.toFixed(3)}-${lon.toFixed(3)}`;
+  let stations = readCache<BikeStation[]>(key, ttlMs);
+  if (!stations || stations.length === 0) {
+    const filter = encodeURIComponent(`nearby(${lat},${lon},${radius})`);
+    stations = await tdxGet<BikeStation[]>(`${TDX_BASE}/Station/NearBy?$spatialFilter=${filter}&$format=JSON`, token);
+    if (stations.length > 0) writeCache(key, stations);
+  }
+  const filter = encodeURIComponent(`nearby(${lat},${lon},${radius})`);
+  const avail = await tdxGet<BikeAvailability[]>(
+    `${TDX_BASE}/Availability/NearBy?$spatialFilter=${filter}&$format=JSON`,
+    token,
+  );
+  const rows = mergeAvailability(stations, avail).map((s, i) => {
+    const pos = stations[i]?.StationPosition;
+    const distanceM =
+      typeof pos?.PositionLat === "number" && typeof pos?.PositionLon === "number"
+        ? Math.round(haversineMeters(lat, lon, pos.PositionLat, pos.PositionLon))
+        : Number.POSITIVE_INFINITY;
+    return { ...s, distanceM };
+  });
+  return rows.sort((a, b) => {
+    if (a.paused !== b.paused) return a.paused ? 1 : -1;
+    return a.distanceM - b.distanceM;
+  });
+}
+
+export function formatDistance(m: number): string {
+  if (!Number.isFinite(m)) return "";
+  return m < 1000 ? `約${Math.round(m)}公尺` : `約${(m / 1000).toFixed(1)}公里`;
+}
+
 const ybikeSkill: SkillDefinition = {
   id: "ybike",
   name: "YouBike 即時車位",
@@ -150,8 +209,8 @@ const ybikeSkill: SkillDefinition = {
     ja: "YouBike の空き状況を調べます（TDX API キーが必要）。",
   },
   usage: {
-    zh: "YouBike 台北車站；YouBike 信義區；YouBike 市府路 要借；YouBike 要還",
-    en: "YouBike Taipei Main Station",
+    zh: "YouBike 台北車站；YouBike 信義區；YouBike 市府路 要借；直接傳送位置查附近站點",
+    en: "YouBike Taipei Main Station; or send a location for nearby stations",
     ja: "YouBike 台北駅",
   },
   category: {
@@ -162,10 +221,12 @@ const ybikeSkill: SkillDefinition = {
   defaultTrigger: "YouBike",
   naturalKeywords: ["有車可借嗎", "可借幾台", "附近有車嗎", "單車站", "YouBike", "ubike"],
   triggerAliases: ["ubike", "微笑單車", "單車"],
+  handlesLocation: true,
   fields: [
     { key: "tdxClientId", label: { zh: "TDX Client ID", en: "TDX Client ID", ja: "TDX Client ID" }, hint: "至 https://tdx.transportdata.tw 註冊取得，可與火車技能共用" },
     { key: "tdxClientSecret", label: { zh: "TDX Client Secret", en: "TDX Client Secret", ja: "TDX Client Secret" }, secret: true },
     { key: "city", label: { zh: "預設縣市", en: "Default city", ja: "既定の都市" }, hint: "例如 台北；指令中也可直接指定（YouBike 高雄 巨蛋）" },
+    { key: "nearRadius", label: { zh: "附近搜尋半徑（公尺）", en: "Nearby radius (m)", ja: "近隣検索の半径（m）" }, hint: "傳送位置時找多遠的站；100–1000，預設 1000（TDX 上限）" },
     { key: "cacheTtl", label: { zh: "站點快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 60 分鐘；車位動態固定快取 2 分鐘" },
   ],
   async health(): Promise<SkillHealth[]> {
@@ -186,6 +247,34 @@ const ybikeSkill: SkillDefinition = {
       await ctx.reply("YouBike 技能尚未設定 TDX API key，請到技能設定填寫（可與火車技能共用同一組）。");
       return;
     }
+    const ttlMs = parseTtl(ctx.config.cacheTtl, 60);
+
+    // 位置訊息：直接查附近站點（免站名）
+    if (ctx.location) {
+      const { latitude, longitude } = ctx.location;
+      const radius = Math.min(Math.max(Number(ctx.config.nearRadius) || NEARBY_RADIUS_MAX, 100), NEARBY_RADIUS_MAX);
+      try {
+        const token = await getToken(clientId, clientSecret);
+        const rows = (await fetchNearby(latitude, longitude, radius, token, ttlMs)).slice(0, 8);
+        if (rows.length === 0) {
+          await ctx.reply(`附近 ${radius} 公尺內沒有 YouBike 站點，試著移動後再傳一次位置。`);
+          return;
+        }
+        const lines = rows.map((s) => {
+          const status = s.paused ? "（暫停服務）" : "";
+          const rent = s.rent >= 0 ? `${s.rent}` : "?";
+          const ret = s.ret >= 0 ? `${s.ret}` : "?";
+          return `・${s.name}${status}（${formatDistance(s.distanceM)}）\n  可借 ${rent}／可還 ${ret}`;
+        });
+        logger.info("YouBike 附近查詢", { lat: latitude, lon: longitude, count: rows.length });
+        await ctx.reply(`附近的 YouBike（${radius} 公尺內）：\n${lines.join("\n")}`);
+      } catch (error) {
+        logger.error("YouBike 附近查詢失敗", { error: String(error) });
+        await ctx.reply("YouBike 資料來源目前無法使用，請稍後再試。");
+      }
+      return;
+    }
+
     const city = matchCity(ctx.args, CITIES[(ctx.config.city || "台北").trim()] ?? "Taipei");
     // 關鍵字保留站名原形（不切「站」字）；城市名由 matchCity 另行處理
     const keyword = ctx.args
@@ -198,7 +287,6 @@ const ybikeSkill: SkillDefinition = {
       );
       return;
     }
-    const ttlMs = parseTtl(ctx.config.cacheTtl, 60);
     try {
       const token = await getToken(clientId, clientSecret);
       const stationKey = `ybike-stations-${city}`;

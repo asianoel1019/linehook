@@ -16,6 +16,18 @@ function update(overrides: Partial<TgUpdate["message"]> = {}): TgUpdate {
 }
 
 describe("normalizeTelegramUpdate", () => {
+  it("位置訊息：無文字也保留經緯度", () => {
+    const msg = normalizeTelegramUpdate(
+      update({ text: undefined, location: { latitude: 25.0478, longitude: 121.517 } }),
+    );
+    assert.deepEqual(msg?.location, { latitude: 25.0478, longitude: 121.517 });
+    assert.equal(msg?.text, "");
+  });
+
+  it("位置缺經緯度視為無（無文字則整則丟棄）", () => {
+    assert.equal(normalizeTelegramUpdate(update({ text: undefined, location: {} })), null);
+  });
+
   it("私人訊息：chat 與 from 為使用者名稱（優先 @username）", () => {
     const msg = normalizeTelegramUpdate(update());
     assert.deepEqual(msg, {
