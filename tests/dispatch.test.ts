@@ -185,6 +185,42 @@ describe("dispatchIncoming", () => {
     assert.deepEqual(d.replies, []);
   });
 
+  it("有前綴時意圖路由用前綴後文字（助理名不污染參數）", async () => {
+    const d = makeDeps();
+    config.commands.enabled = false;
+    config.skills = [{ id: "ybike", enabled: true, trigger: "", allowedUsers: [], config: { tdxClientId: "id", tdxClientSecret: "sec" } }];
+    await dispatchIncoming(msg("阿寶請幫忙 YouBike ?", { messageId: "intent-prefix-1" }), d);
+    assert.equal(d.replies.length, 1);
+    assert.match(d.replies[0], /請指定站名/);
+    assert.doesNotMatch(d.replies[0], /阿寶/);
+  });
+
+  it("有前綴換算句照樣直達", async () => {
+    const d = makeDeps();
+    config.commands.enabled = false;
+    config.skills = [{ id: "exchange-rate", enabled: true, trigger: "", allowedUsers: [], config: {} }];
+    const savedCache = config.cachePath;
+    config.cachePath = mkdtempSync(join(tmpdir(), "fx-e2e-"));
+    const savedFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          result: "success",
+          base_code: "USD",
+          rates: { USD: 1, TWD: 32.5 },
+          time_last_update_utc: "Thu, 16 Oct 2026 00:00:00 +0000",
+        }),
+      )) as typeof fetch;
+    try {
+      await dispatchIncoming(msg("阿寶請幫忙 100美金等於台幣", { messageId: "fx-e2e-3" }), d);
+      assert.equal(d.replies.length, 1);
+      assert.match(d.replies[0], /100 USD = 3250\.00 TWD/);
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
+
   it("優惠速覽聚合五家來源", async () => {
     const d = makeDeps();
     config.commands.enabled = false;

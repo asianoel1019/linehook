@@ -192,7 +192,7 @@ const ybikeSkill: SkillDefinition = {
       .replace(/請幫忙|請幫|幫忙|查詢|查一下|YouBike|ubike|微笑單車|單車|腳踏車|車位|附近|哪裡|哪邊|要借|要還|借車|還車|可借|可還|有車|有位|的/gi, " ")
       .trim();
     const candidates = keyword.split(/\s+/).flatMap((t) => keywordCandidates(t));
-    if (candidates.length === 0) {
+    if (candidates.length === 0 || /^[?？!！….\s]+$/.test(keyword)) {
       await ctx.reply(
         "請指定站名、路名或區域名，例如：\nYouBike 台北車站\nYouBike 信義區\nYouBike 市府路 要借（只找有車的）\nYouBike 要還（只找有位可還）",
       );

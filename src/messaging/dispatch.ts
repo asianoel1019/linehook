@@ -634,11 +634,15 @@ async function runSkills(
     }
   }
 
+  // 無前綴意圖的比對本文：有助理前綴時用前綴後的 rest，
+  // 避免助理名污染技能參數（「阿寶請幫忙 YouBike ?」的 args 該是 ? 而不是全文）。
+  const intentText = hasPrefix && rest ? rest : text;
+
   // 無前綴意圖：匯率／幣價自然換算（「100美金等於台幣」「0.5比特幣值多少」）。
   // AI 對話模式內不搶（模式訊息優先走 AI）；停用或白名單不符時靜默略過。
   {
-    const fx = parseConversion(text);
-    const cx = fx ? null : parseCryptoConversion(text);
+    const fx = parseConversion(intentText);
+    const cx = fx ? null : parseCryptoConversion(intentText);
     const conv = fx
       ? { skillId: "exchange-rate", args: conversionArgs(fx) }
       : cx
@@ -661,11 +665,11 @@ async function runSkills(
 
   // 無前綴自然意圖（「台北天氣如何」→ 天氣；AI 對話模式內不搶，停用/白名單不符靜默略過）。
   {
-    const entry = findNaturalIntent(text, chat, fromMid, deps.platform);
+    const entry = findNaturalIntent(intentText, chat, fromMid, deps.platform);
     if (entry) {
       const def = getSkill(entry.id);
       if (def) {
-        await runMatchedSkill(entry, def, { text, args: text, chat, fromName, fromMid, images }, deps);
+        await runMatchedSkill(entry, def, { text, args: intentText, chat, fromName, fromMid, images }, deps);
         return;
       }
     }
