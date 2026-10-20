@@ -13,6 +13,7 @@ import { getService } from "./services.js";
 import { extractLocationFromText } from "./location.js";
 import { conversionArgs, parseConversion } from "../skills/exchange-rate/index.js";
 import { parseCryptoConversion } from "../skills/crypto/index.js";
+import { classifyIntent, collectRouterCandidates, routerAvailable } from "./intent-router.js";
 
 /** 無前綴自然意圖門檻（分數＝命中關鍵字去重後長度加總；群組更嚴）。 */
 export const NATURAL_INTENT_THRESHOLD = 4;
@@ -702,6 +703,8 @@ async function runSkills(
     }
   }
 
+  // 前綴迴圈是 fan-out（命中不 return）；handled 記住有沒有真的處理過，供 LLM 後備判斷。
+  let handled = false;
   for (const skill of config.skills) {
     const def = getSkill(skill.id);
     const decision = matchSkillEntry(
@@ -723,11 +726,34 @@ async function runSkills(
       const primaryTrigger = (skill.trigger || def!.defaultTrigger).trim();
       logger.info("顯示技能用法", { skill: skill.id, chat });
       await deps.replyTo(chat, skillUsageText(def!, primaryTrigger, config.language));
+      handled = true;
       continue;
     }
 
     const args = decision.args ?? "";
     await runMatchedSkill(skill, def!, { text, args, chat, fromName, fromMid, images }, deps);
+    handled = true;
+  }
+
+  // LLM 意圖分類後備（前面都沒命中才問；沒配 LLM 時自動關閉；失敗/無關靜默略過）。
+  if (!handled && text.trim() && routerAvailable()) {
+    try {
+      const decision = await classifyIntent(text, collectRouterCandidates());
+      if (decision?.skillId) {
+        const entry = config.skills.find((s) => s.id === decision.skillId);
+        const def = entry ? getSkill(entry.id) : undefined;
+        const allowed = entry?.allowedUsers ?? [];
+        if (
+          entry?.enabled &&
+          def &&
+          (allowed.length === 0 || allowed.includes(fromMid) || allowed.includes(chat))
+        ) {
+          await runMatchedSkill(entry, def, { text, args: decision.args || text, chat, fromName, fromMid, images }, deps);
+        }
+      }
+    } catch (error) {
+      logger.warn("意圖分類後備失敗", { chat, error: error instanceof Error ? error.message : String(error) });
+    }
   }
 }
 
