@@ -16,6 +16,7 @@ import { parseCron, nextRun } from "./cron.js";
 import { watchOptionsToCron } from "../skills/watch.js";
 import type { WatchOptions } from "../skills/types.js";
 import { dispatchIncoming, dispatchSkillTask, type DispatchDeps } from "../messaging/dispatch.js";
+import { extractLocationFromText } from "../messaging/location.js";
 import { chunkReplyText } from "../messaging/text.js";
 import { resolveLocalMediaPath } from "../messaging/media.js";
 import type { FlexInput, IMessagingService, LocationInput, SendInput, StickerInput } from "../messaging/types.js";
@@ -661,7 +662,8 @@ export class LineService implements IMessagingService {
         }
       }
 
-      // 位置訊息：raw.location 帶經緯度（contentType 15）；轉給附近查詢類技能
+      // 位置訊息：raw.location 帶經緯度（contentType 15）；自帳號有時只收到
+      // 文字版「[ Location ]＋地圖連結」，此時從文字還原。
       const rawLoc = (message.raw as { location?: { latitude?: number | string; longitude?: number | string; title?: unknown; address?: unknown } }).location;
       const lat = Number(rawLoc?.latitude);
       const lon = Number(rawLoc?.longitude);
@@ -673,7 +675,7 @@ export class LineService implements IMessagingService {
               ...(typeof rawLoc.title === "string" && rawLoc.title ? { title: rawLoc.title } : {}),
               ...(typeof rawLoc.address === "string" && rawLoc.address ? { address: rawLoc.address } : {}),
             }
-          : undefined;
+          : extractLocationFromText(text);
 
       recordMessage({
         time: new Date().toISOString(),

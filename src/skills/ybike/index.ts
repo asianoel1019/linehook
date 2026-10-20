@@ -172,13 +172,17 @@ export async function fetchNearby(
   const key = `ybike-nearby-${lat.toFixed(3)}-${lon.toFixed(3)}`;
   let stations = readCache<BikeStation[]>(key, ttlMs);
   if (!stations || stations.length === 0) {
-    const filter = encodeURIComponent(`nearby(${lat},${lon},${radius})`);
-    stations = await tdxGet<BikeStation[]>(`${TDX_BASE}/Station/NearBy?$spatialFilter=${filter}&$format=JSON`, token);
+    // spatialFilter 照 TDX 文件原形（不編碼逗號；編碼後部分環境會被拒）
+    const filter = `nearby(${lat},${lon},${radius})`;
+    stations = await tdxGet<BikeStation[]>(
+      `${TDX_BASE}/Station/NearBy?$spatialFilter=${filter}&$top=30&$format=JSON`,
+      token,
+    );
     if (stations.length > 0) writeCache(key, stations);
   }
-  const filter = encodeURIComponent(`nearby(${lat},${lon},${radius})`);
+  const filter = `nearby(${lat},${lon},${radius})`;
   const avail = await tdxGet<BikeAvailability[]>(
-    `${TDX_BASE}/Availability/NearBy?$spatialFilter=${filter}&$format=JSON`,
+    `${TDX_BASE}/Availability/NearBy?$spatialFilter=${filter}&$top=30&$format=JSON`,
     token,
   );
   const rows = mergeAvailability(stations, avail).map((s, i) => {

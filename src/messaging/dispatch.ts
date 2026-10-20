@@ -10,6 +10,7 @@ import type { IncomingMessage, Platform, SendInput } from "./types.js";
 import type { IncomingImage, IncomingLocation } from "./types.js";
 import { seenInbound } from "./dedup.js";
 import { getService } from "./services.js";
+import { extractLocationFromText } from "./location.js";
 import { conversionArgs, parseConversion } from "../skills/exchange-rate/index.js";
 import { parseCryptoConversion } from "../skills/crypto/index.js";
 
@@ -584,7 +585,9 @@ async function runSkills(
 
   // 位置訊息優先：交給宣告 handlesLocation 的技能（目前僅 YouBike 找附近站點）。
   // 連 AI 對話模式都不搶——位置只有附近查詢消費得了；無人處理時給一句提示。
-  if (location) {
+  // 文字版位置（部分平台降級成文字＋地圖連結）也在此還原。
+  const loc = location ?? extractLocationFromText(text);
+  if (loc) {
     const entry = config.skills.find((s) => {
       if (!s.enabled || !getSkill(s.id)?.handlesLocation) return false;
       const allowed = s.allowedUsers ?? [];
@@ -592,7 +595,7 @@ async function runSkills(
     });
     const def = entry ? getSkill(entry.id) : undefined;
     if (entry && def) {
-      await runMatchedSkill(entry, def, { text, args: text, chat, fromName, fromMid, images, location }, deps);
+      await runMatchedSkill(entry, def, { text, args: text, chat, fromName, fromMid, images, location: loc }, deps);
     } else {
       logger.info("收到位置訊息但無技能處理", { chat });
       await deps.replyTo(chat, "收到你的位置了，但目前沒有可查詢附近的技能。");

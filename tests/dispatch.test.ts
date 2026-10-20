@@ -317,4 +317,38 @@ describe("dispatchIncoming", () => {
     assert.equal(d.replies.length, 1);
     assert.match(d.replies[0], /沒有可查詢附近的技能/);
   });
+
+  it("文字版位置（地圖連結）也直送附近查詢", async () => {
+    const d = makeDeps();
+    config.commands.enabled = false;
+    config.skills = [{ id: "ybike", enabled: true, trigger: "", allowedUsers: [], config: { tdxClientId: "id", tdxClientSecret: "sec" } }];
+    const savedCache = config.cachePath;
+    config.cachePath = mkdtempSync(join(tmpdir(), "loc-e2e-"));
+    const savedFetch = globalThis.fetch;
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      if (url.includes("Station/NearBy")) {
+        return new Response(JSON.stringify([
+          { StationUID: "u1", StationID: "1", StationName: { Zh_tw: "近站" }, StationAddress: { Zh_tw: "近路" }, StationPosition: { PositionLat: 25.067, PositionLon: 121.598 }, BikesCapacity: 20 },
+        ]));
+      }
+      return new Response(JSON.stringify([
+        { StationUID: "u1", StationID: "1", ServiceStatus: 1, AvailableRentBikes: 4, AvailableReturnBikes: 4 },
+      ]));
+    }) as typeof fetch;
+    try {
+      await dispatchIncoming(
+        msg("[ Location ]\nhttps://maps.google.com/maps?q=25.067264,121.597898&ll=25.067264,121.597898&z=16", { messageId: "loc-e2e-3" }),
+        d,
+      );
+      assert.equal(d.replies.length, 1);
+      assert.match(d.replies[0], /附近的 YouBike/);
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
 });
