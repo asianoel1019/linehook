@@ -152,6 +152,7 @@ const burgerSkill: SkillDefinition = {
     ja: "ショッピング",
   },
   defaultTrigger: "漢堡王",
+  naturalKeywords: ["漢堡優惠", "漢堡王優惠", "摩斯優惠", "漢堡王", "摩斯漢堡", "漢堡", "摩斯", "買一送一", "優惠"],
   triggerAliases: ["摩斯", "mos", "mosburger", "華堡", "burgerking"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 60 分鐘；優惠不常變可設 6h、12h" },

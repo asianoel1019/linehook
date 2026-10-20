@@ -158,6 +158,7 @@ const unitSkill: SkillDefinition = {
     ja: "ツール",
   },
   defaultTrigger: "換算",
+  naturalKeywords: ["單位換算"],
   triggerAliases: ["單位換算", "單位", "convert", "轉換"],
   fields: [],
   async run(ctx: SkillContext): Promise<void> {

@@ -280,6 +280,7 @@ const typhoonSkill: SkillDefinition = {
   },
   category: { zh: "生活資訊", en: "Life", ja: "生活" },
   defaultTrigger: "颱風",
+  naturalKeywords: ["颱風動態", "颱風在哪", "颱風假"],
   triggerAliases: ["警報", "颱風預報", "警特報", "熱帶性低氣壓", "typhoon"],
   fields: [
     {

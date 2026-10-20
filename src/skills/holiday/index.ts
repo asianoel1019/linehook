@@ -246,6 +246,7 @@ const holidaySkill: SkillDefinition = {
   },
   category: { zh: "生活資訊", en: "Life", ja: "生活" },
   defaultTrigger: "放假",
+  naturalKeywords: ["今天放假嗎", "明天放假嗎", "要上班嗎", "補班嗎"],
   triggerAliases: ["假日", "上班嗎", "補班", "工作日", "holiday"],
   fields: [
     {

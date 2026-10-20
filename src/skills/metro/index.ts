@@ -128,6 +128,7 @@ const metroSkill: SkillDefinition = {
     ja: "交通",
   },
   defaultTrigger: "捷運",
+  naturalKeywords: ["捷運票價", "捷運班距", "末班捷運"],
   triggerAliases: ["地鐵", "mrt", "北捷", "班距"],
   fields: [
     { key: "tdxClientId", label: { zh: "TDX Client ID", en: "TDX Client ID", ja: "TDX Client ID" }, hint: "至 https://tdx.transportdata.tw 註冊取得，可與火車技能共用" },

@@ -118,6 +118,7 @@ const airQualitySkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "空品",
+  naturalKeywords: ["空氣好嗎", "空品如何", "空氣品質如何"],
   triggerAliases: ["空氣品質", "aqi", "空汙", "空氣"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 60 分鐘；可填 10m、30m" },

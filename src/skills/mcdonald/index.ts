@@ -121,6 +121,7 @@ const mcdonaldSkill: SkillDefinition = {
     ja: "ショッピング",
   },
   defaultTrigger: "麥當勞",
+  naturalKeywords: ["麥當勞優惠", "麥當勞", "買一送一", "優惠"],
   triggerAliases: ["麥當勞優惠", "mcdonald", "mcd", "麥記"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 6 小時；優惠不常變，可設 12h、1d" },

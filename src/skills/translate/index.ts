@@ -80,6 +80,7 @@ const translateSkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "翻譯",
+  naturalKeywords: ["翻成英文", "翻譯成英文"],
   triggerAliases: ["翻", "translate", "翻成", "譯"],
   fields: [],
   async health(): Promise<SkillHealth[]> {

@@ -307,6 +307,7 @@ const cpblSkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "中職",
+  naturalKeywords: ["中職戰績", "職棒戰績", "中華職棒"],
   triggerAliases: ["職棒", "cpbl", "中華職棒", "棒球"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 60 分鐘" },

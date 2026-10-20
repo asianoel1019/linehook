@@ -120,6 +120,7 @@ const priceCompareSkill: SkillDefinition = {
     ja: "ショッピング",
   },
   defaultTrigger: "比價",
+  naturalKeywords: ["幫我比價"],
   triggerAliases: ["比比看", "查價", "compare", "price"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 30 分鐘；可填 10m、1h", default: "30" },

@@ -153,6 +153,7 @@ const countdownSkill: SkillDefinition = {
   },
   category: { zh: "工具", en: "Utilities", ja: "ツール" },
   defaultTrigger: "紀念日",
+  naturalKeywords: ["還有幾天", "倒數幾天", "幾週年"],
   triggerAliases: ["紀念", "週年", "倒數計時", "countdown", "紀念日清單"],
   fields: [],
   async health(): Promise<SkillHealth[]> {

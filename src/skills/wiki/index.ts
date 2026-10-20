@@ -96,6 +96,7 @@ const wikiSkill: SkillDefinition = {
   },
   category: { zh: "工具", en: "Utilities", ja: "ツール" },
   defaultTrigger: "維基",
+  naturalKeywords: ["查維基", "維基一下"],
   triggerAliases: ["維基百科", "wiki", "wikipedia"],
   fields: [
     {

@@ -121,6 +121,7 @@ const flightSkill: SkillDefinition = {
     ja: "交通",
   },
   defaultTrigger: "機票",
+  naturalKeywords: ["機票多少", "便宜機票", "機票比價"],
   triggerAliases: ["廉航", "票價", "flight", "機票比價", "便宜機票"],
   fields: [
     {

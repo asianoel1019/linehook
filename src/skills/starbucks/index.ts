@@ -87,6 +87,7 @@ const starbucksSkill: SkillDefinition = {
     ja: "ショッピング",
   },
   defaultTrigger: "星巴克",
+  naturalKeywords: ["星巴克優惠", "星巴克", "買一送一", "優惠"],
   triggerAliases: ["咖啡優惠", "starbucks", "星冰樂"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 6 小時；可填 2h、360" },

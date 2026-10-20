@@ -104,6 +104,7 @@ const pollSkill: SkillDefinition = {
     ja: "ツール",
   },
   defaultTrigger: "投票",
+  naturalKeywords: ["投票結果"],
   triggerAliases: ["poll", "表決"],
   fields: [
     { key: "expireDays", label: { zh: "投票過期天數", en: "Expire days", ja: "有効期限（日）" }, hint: "預設 7 天；超過後自動清除", default: "7" },

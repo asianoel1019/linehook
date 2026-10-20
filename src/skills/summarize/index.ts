@@ -44,6 +44,7 @@ const summarizeSkill: SkillDefinition = {
     ja: "アシスタント",
   },
   defaultTrigger: "摘要",
+  naturalKeywords: ["幫我摘要", "總結一下"],
   triggerAliases: ["總結", "summary", "重點", "懶人包"],
   fields: [
     {

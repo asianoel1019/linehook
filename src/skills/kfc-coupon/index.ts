@@ -191,6 +191,7 @@ const kfcSkill: SkillDefinition = {
     ja: "ショッピング",
   },
   defaultTrigger: "肯德基",
+  naturalKeywords: ["肯德基優惠", "肯德基", "買一送一", "優惠"],
   triggerAliases: ["肯德雞", "肯德", "kfc", "KFC"],
   fields: [
     {

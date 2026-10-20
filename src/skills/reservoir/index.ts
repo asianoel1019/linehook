@@ -119,6 +119,7 @@ const reservoirSkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "水庫",
+  naturalKeywords: ["水庫水位", "蓄水率"],
   triggerAliases: ["水情", "蓄水", "reservoir"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 30 分鐘" },

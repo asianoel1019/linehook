@@ -70,6 +70,7 @@ const randomSkill: SkillDefinition = {
   },
   category: { zh: "工具", en: "Utilities", ja: "ツール" },
   defaultTrigger: "隨機",
+  naturalKeywords: ["今天吃什麼", "今天喝什麼", "抽籤決定"],
   triggerAliases: ["骰子", "硬幣", "抽籤", "吃什麼", "喝什麼", "random", "決定"],
   fields: [],
   async health(): Promise<SkillHealth[]> {

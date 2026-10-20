@@ -177,6 +177,7 @@ const lotteryInvoiceSkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "發票",
+  naturalKeywords: ["發票開獎", "統一發票", "大樂透", "威力彩"],
   triggerAliases: ["樂透", "大樂透", "威力彩", "統一發票", "對獎"],
   hideTrigger: true,
   fields: [

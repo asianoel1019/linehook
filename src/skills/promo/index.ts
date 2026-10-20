@@ -140,6 +140,7 @@ const promoSkill: SkillDefinition = {
     ja: "ショッピング",
   },
   defaultTrigger: "促銷",
+  naturalKeywords: ["全聯優惠", "家樂福優惠", "賣場優惠", "全聯", "家樂福", "買一送一", "優惠"],
   triggerAliases: ["全聯", "家樂福", "萬家福", "特價", "賣場優惠"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: { zh: "預設 6 小時；可填 2h、360", en: "Default 6h; e.g. 2h, 360", ja: "既定 6 時間；例 2h、360" } },

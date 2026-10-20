@@ -46,6 +46,7 @@ const qrSkill: SkillDefinition = {
     ja: "ツール",
   },
   defaultTrigger: "qr",
+  naturalKeywords: ["縮短網址"],
   triggerAliases: ["QR", "二維碼", "qrcode", "短網址", "縮網址", "shorten"],
   fields: [],
   async health(): Promise<SkillHealth[]> {

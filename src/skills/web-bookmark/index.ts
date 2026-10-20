@@ -148,6 +148,7 @@ const bookmarkSkill: SkillDefinition = {
     ja: "ツール",
   },
   defaultTrigger: "收藏",
+  naturalKeywords: ["收藏清單"],
   triggerAliases: ["bookmark", "書籤", "save"],
   fields: [
     { key: "maxBookmarks", label: { zh: "收藏上限", en: "Max bookmarks", ja: "最大ブックマーク数" }, hint: "預設 100；1–500", default: "100" },

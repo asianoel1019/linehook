@@ -139,6 +139,7 @@ const cryptoSkill: SkillDefinition = {
     ja: "金融",
   },
   defaultTrigger: "幣價",
+  naturalKeywords: ["幣價多少", "幣價如何"],
   triggerAliases: ["crypto", "比特幣", "以太坊", "狗狗幣"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 5 分鐘；可填 1m、60" },

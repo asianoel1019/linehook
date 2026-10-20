@@ -54,6 +54,7 @@ const taiexSkill: SkillDefinition = {
     ja: "金融",
   },
   defaultTrigger: "大盤",
+  naturalKeywords: ["大盤多少", "台股大盤", "加權指數", "今日大盤"],
   triggerAliases: ["加權指數", "台股", "taiex", "指數"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 5 分鐘；盤中建議填 1m" },

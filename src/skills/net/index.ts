@@ -84,6 +84,7 @@ const netSkill: SkillDefinition = {
   },
   category: { zh: "工具", en: "Utilities", ja: "ツール" },
   defaultTrigger: "網路",
+  naturalKeywords: ["我的ip", "查ip"],
   triggerAliases: ["ip", "dns", "我的ip", "myip", "net"],
   fields: [],
   async health(): Promise<SkillHealth[]> {

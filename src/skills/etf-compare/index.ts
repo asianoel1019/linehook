@@ -194,6 +194,7 @@ const etfCompareSkill: SkillDefinition = {
     ja: "金融",
   },
   defaultTrigger: "ETF",
+  naturalKeywords: ["ETF比較", "ETF怎麼選", "基金比較"],
   triggerAliases: ["etf", "etf比較", "基金比較"],
   fields: [
     { key: "cacheTtl", label: { zh: "快取時間（TTL）", en: "Cache TTL", ja: "キャッシュ TTL" }, hint: "預設 30 分鐘；可填 10m、1h", default: "30" },

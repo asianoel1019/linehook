@@ -106,6 +106,65 @@ describe("findNaturalIntent", () => {
   });
 });
 
+describe("全技能口語路由（交叉無搶話）", () => {
+  const ALL = [
+    "ai", "air-quality", "auto-reply", "burger-coupon", "bus", "countdown", "cpbl",
+    "crop-price", "crypto", "deals", "dict", "etf-compare", "exchange-rate", "flight",
+    "garbage", "holiday", "hsr", "kfc-coupon", "lottery-invoice", "lunar", "mcdonald",
+    "metro", "morning", "movie", "net", "oil-price", "outage", "poll", "postcode",
+    "price-alert", "price-compare", "promo", "qr", "quake", "random", "remind",
+    "reservoir", "rss", "starbucks", "stock", "summarize", "taiex", "todo", "train",
+    "translate", "typhoon", "unit", "weather", "web-bookmark", "website", "wiki", "ybike",
+  ];
+  const CASES: Array<[string, string | null]> = [
+    ["高雄空氣好嗎", "air-quality"],
+    ["漢堡王優惠", "burger-coupon"],
+    ["跨年還有幾天", "countdown"],
+    ["中職戰績", "cpbl"],
+    ["比特幣幣價多少", "crypto"],
+    ["蘋果什麼意思", "dict"],
+    ["ETF比較0050", "etf-compare"],
+    ["便宜機票台北東京", "flight"],
+    ["明天放假嗎", "holiday"],
+    ["肯德基100元優惠", "kfc-coupon"],
+    ["麥當勞買一送一", "mcdonald"],
+    ["全聯買一送一", "promo"],
+    ["統一發票開獎了嗎", "lottery-invoice"],
+    ["麥當勞優惠", "mcdonald"],
+    ["捷運班距", "metro"],
+    ["早安晨報", "morning"],
+    ["電影時刻", "movie"],
+    ["我的ip是多少", "net"],
+    ["投票結果", "poll"],
+    ["幫我比價iPhone", "price-compare"],
+    ["全聯優惠", "promo"],
+    ["縮短網址https://example.com", "qr"],
+    ["今天吃什麼", "random"],
+    ["石門水庫水位", "reservoir"],
+    ["星巴克優惠", "starbucks"],
+    ["幫我摘要這篇", "summarize"],
+    ["台股大盤", "taiex"],
+    ["翻成英文你好嗎", "translate"],
+    ["颱風動態如何", "typhoon"],
+    ["單位換算", "unit"],
+    ["收藏清單", "web-bookmark"],
+    ["維基一下台灣", "wiki"],
+    ["摩斯優惠", "burger-coupon"],
+    ["抽籤決定午餐", "random"],
+    // 閒聊不觸發
+    ["麥當勞好吃", null],
+    ["比特幣", null],
+    ["你好嗎", null],
+    ["今天天氣不錯", null],
+  ];
+  for (const [text, expected] of CASES) {
+    it(`「${text}」→ ${expected ?? "無"}`, () => {
+      config.skills = ALL.map((id) => entry(id));
+      assert.equal(findNaturalIntent(text, "U_natural_user", "u1", "line")?.id ?? null, expected);
+    });
+  }
+});
+
 describe("無前綴自然意圖 E2E", () => {
   it("台北天氣如何直達天氣技能", async () => {
     const d = makeDeps();

@@ -194,6 +194,7 @@ const morningSkill: SkillDefinition = {
     ja: "生活",
   },
   defaultTrigger: "晨報",
+  naturalKeywords: ["早安晨報"],
   triggerAliases: ["早安", "早報", "morning"],
   fields: [
     {

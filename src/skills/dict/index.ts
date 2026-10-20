@@ -102,6 +102,7 @@ const dictSkill: SkillDefinition = {
   },
   category: { zh: "工具", en: "Utilities", ja: "ツール" },
   defaultTrigger: "辭典",
+  naturalKeywords: ["什麼意思", "是什麼意思"],
   triggerAliases: ["查詞", "萌典", "國語辭典", "dict", "注音"],
   fields: [
     {
