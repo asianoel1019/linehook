@@ -24,6 +24,27 @@ function cityOf(ctx: { config: Record<string, string> }, override?: string): str
   return (override || ctx.config.city || "台北").trim();
 }
 
+/** 1 金衡盎司 = 8.294 台錢（1 錢 = 3.75g）。 */
+const TROY_OZ_TO_QIAN = 8.294;
+
+/** 黃金晨報行（純函式，可測試）：US$4,120 ▲+0.40%（約NT$16,100/錢）。 */
+export function formatGoldLine(price: number | undefined, prev: number | undefined, usdTwd: number | undefined): string {
+  if (price === undefined || !Number.isFinite(price)) return "黃金：暫無資料";
+  const base = `黃金 US$${price.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  let change = "";
+  if (prev !== undefined && Number.isFinite(prev) && prev !== 0) {
+    const diff = price - prev;
+    const pct = ((diff / prev) * 100).toFixed(2);
+    const arrow = diff > 0 ? "▲" : diff < 0 ? "▼" : "＝";
+    change = ` ${arrow}${diff >= 0 ? "+" : ""}${pct}%`;
+  }
+  const perQian =
+    usdTwd !== undefined && Number.isFinite(usdTwd)
+      ? `（約NT$${Math.round((price * usdTwd) / TROY_OZ_TO_QIAN).toLocaleString("en-US")}/錢）`
+      : "";
+  return `${base}${change}${perQian}`;
+}
+
 async function compose(city: string): Promise<string> {
   const now = nowInTz();
   const dateStr = `${now.getMonth() + 1}月${now.getDate()}日 星期${WEEKDAYS[now.getDay()]}`;
@@ -101,6 +122,18 @@ async function compose(city: string): Promise<string> {
   }
 
   try {
+    const { meta } = await fetchChart("GC=F", "5d");
+    const price = meta.regularMarketPrice;
+    const prev = meta.chartPreviousClose ?? meta.previousClose;
+    const fx = await getRates("USD", 360 * 60 * 1000);
+    const usdTwd = fx.rates.TWD;
+    lines.push(formatGoldLine(price, prev, usdTwd));
+  } catch (error) {
+    logger.warn("晨報黃金失敗", { error: error instanceof Error ? error.message : String(error) });
+    lines.push("黃金：暫無資料");
+  }
+
+  try {
     // 假日判斷（沿用放假技能的假日表；未啟用放假技能也能用，行事曆本身免 key）
     if ((config.skills.find((s) => s.id === "morning")?.config?.showHoliday ?? "on") !== "off") {
       const makeup = config.skills.find((s) => s.id === "holiday")?.config?.makeupDays;
@@ -132,9 +165,9 @@ const morningSkill: SkillDefinition = {
   id: "morning",
   name: "晨報",
   description: {
-    zh: "每天固定時間推送早安晨報（天氣/空品/油價/台股/匯率/農曆）。",
-    en: "Daily morning digest (weather/AQI/gas prices/TAIEX/FX/lunar date).",
-    ja: "毎朝のモーニングダイジェスト（天気/AQI/ガソリン/株価/為替/旧暦）。",
+    zh: "每天固定時間推送早安晨報（天氣/空品/油價/台股/黃金/匯率/農曆）。",
+    en: "Daily morning digest (weather/AQI/gas prices/TAIEX/gold/FX/lunar date).",
+    ja: "毎朝のモーニングダイジェスト（天気/AQI/ガソリン/株価/金/為替/旧暦）。",
   },
   usage: {
     zh: "晨報 08:00 高雄",
