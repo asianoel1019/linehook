@@ -15,7 +15,8 @@ import { parseNum, computePercent, matchName, joinStatus } from "../src/skills/r
 import { filterOutages, formatCase, parseNewsRss } from "../src/skills/outage/index.js";
 import { parseTableItems, matchBudget } from "../src/skills/mcdonald/index.js";
 import { parseOfficialRows, parseZxcRows, findTeam } from "../src/skills/cpbl/index.js";
-import { mergeAvailability, matchCity } from "../src/skills/ybike/index.js";
+import { mergeAvailability, matchCity, normName, keywordCandidates, detectIntent, sortByIntent } from "../src/skills/ybike/index.js";
+import ybikeSkill from "../src/skills/ybike/index.js";
 import { matchOperator, findStationId, formatHeadway } from "../src/skills/metro/index.js";
 import { resolveSymbol } from "../src/skills/stock/index.js";
 
@@ -221,6 +222,79 @@ describe("ybike helpers", () => {
     );
     assert.equal(rows[0].rent, 3);
     assert.equal(rows[0].paused, true);
+  });
+
+  it("normName 臺→台；keywordCandidates 去站尾", () => {
+    assert.equal(normName("臺北車站"), "台北車站");
+    assert.deepEqual(keywordCandidates("市政府站"), ["市政府站", "市政府"]);
+    assert.deepEqual(keywordCandidates("  "), []);
+  });
+
+  it("detectIntent 借還意圖", () => {
+    assert.equal(detectIntent("市府路 要借"), "rent");
+    assert.equal(detectIntent("要還車"), "ret");
+    assert.equal(detectIntent("台北車站"), null);
+  });
+
+  it("sortByIntent 依意圖排序、暫停沉底", () => {
+    const rows = [
+      { name: "A", address: "", rent: 0, ret: 10, capacity: 10, paused: false, updated: "" },
+      { name: "B", address: "", rent: 5, ret: 1, capacity: 10, paused: false, updated: "" },
+      { name: "C", address: "", rent: 9, ret: 9, capacity: 10, paused: true, updated: "" },
+    ];
+    assert.deepEqual(sortByIntent(rows, "rent").map((r) => r.name), ["B", "A", "C"]);
+    assert.deepEqual(sortByIntent(rows, "ret").map((r) => r.name), ["A", "B", "C"]);
+    assert.deepEqual(sortByIntent(rows, null).map((r) => r.name), ["A", "B", "C"]);
+  });
+
+  it("run()：臺北車站＋要借（正規化＋有車優先）", async () => {
+    const savedFetch = globalThis.fetch;
+    const savedCache = config.cachePath;
+    config.cachePath = mkdtempSync(join(tmpdir(), "ybike-e2e-"));
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      if (url.includes("/Station/")) {
+        return new Response(JSON.stringify([
+          { StationUID: "u1", StationID: "1", StationName: { Zh_tw: "臺北車站(東三門)" }, StationAddress: { Zh_tw: "北平西路" }, BikesCapacity: 30 },
+          { StationUID: "u2", StationID: "2", StationName: { Zh_tw: "臺北車站(西一門)" }, StationAddress: { Zh_tw: "北平西路" }, BikesCapacity: 30 },
+        ]));
+      }
+      return new Response(JSON.stringify([
+        { StationUID: "u1", StationID: "1", ServiceStatus: 1, AvailableRentBikes: 0, AvailableReturnBikes: 20, SrcUpdateTime: "2026-10-20T10:00:00" },
+        { StationUID: "u2", StationID: "2", ServiceStatus: 1, AvailableRentBikes: 5, AvailableReturnBikes: 10, SrcUpdateTime: "2026-10-20T10:00:00" },
+      ]));
+    }) as typeof fetch;
+    const replies: string[] = [];
+    try {
+      await ybikeSkill.run({
+        text: "YouBike 臺北車站 要借",
+        args: "臺北車站 要借",
+        fromName: "t",
+        chat: "c",
+        fromMid: "u",
+        config: { tdxClientId: "id", tdxClientSecret: "sec", city: "台北" },
+        reply: async (t: string) => {
+          replies.push(t);
+        },
+        sendImage: async () => {},
+        sendFile: async () => {},
+        schedule: () => "s",
+        watch: () => "w",
+        unwatch: () => true,
+        watches: () => [],
+        taskState: () => undefined,
+      } as never);
+      assert.equal(replies.length, 1);
+      const lines = replies[0].split("\n");
+      assert.ok(lines[1].includes("西一門"), `有車的應在前：${replies[0]}`);
+      assert.ok(lines[2].includes("可借 5"));
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
   });
 });
 

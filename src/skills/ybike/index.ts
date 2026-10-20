@@ -107,6 +107,40 @@ export function matchCity(args: string, fallback: string): string {
   return fallback;
 }
 
+/** 正規化比對字串（臺→台；全半形空白收斂）。 */
+export function normName(s: string): string {
+  return s.replace(/臺/g, "台").replace(/\s+/g, "");
+}
+
+/** 站名模糊候選：原字＋去站尾（「市政府站」→ 兼試「市政府」）。 */
+export function keywordCandidates(keyword: string): string[] {
+  const base = normName(keyword);
+  if (!base) return [];
+  const out = [base];
+  const noStation = base.replace(/站$/, "");
+  if (noStation && noStation !== base) out.push(noStation);
+  return out;
+}
+
+export type BikeIntent = "rent" | "ret" | null;
+
+/** 借還意圖偵測（借/租/騎 → 借車；還/停 → 還車）。 */
+export function detectIntent(text: string): BikeIntent {
+  if (/還車|還\b|要還|停車|空位|可還/.test(text)) return "ret";
+  if (/借車|借\b|要借|租車|租|騎車|騎|可借/.test(text)) return "rent";
+  return null;
+}
+
+/** 依意圖排序（借→可借多在前；還→可還多在前；暫停服務沉底）。 */
+export function sortByIntent(rows: StationStatus[], intent: BikeIntent): StationStatus[] {
+  if (!intent) return rows;
+  const key = intent === "rent" ? "rent" : "ret";
+  return [...rows].sort((a, b) => {
+    if (a.paused !== b.paused) return a.paused ? 1 : -1;
+    return (b[key] < 0 ? -1 : b[key]) - (a[key] < 0 ? -1 : a[key]);
+  });
+}
+
 const ybikeSkill: SkillDefinition = {
   id: "ybike",
   name: "YouBike 即時車位",
@@ -116,7 +150,7 @@ const ybikeSkill: SkillDefinition = {
     ja: "YouBike の空き状況を調べます（TDX API キーが必要）。",
   },
   usage: {
-    zh: "YouBike 台北車站",
+    zh: "YouBike 台北車站；YouBike 信義區；YouBike 市府路 要借；YouBike 要還",
     en: "YouBike Taipei Main Station",
     ja: "YouBike 台北駅",
   },
@@ -126,7 +160,7 @@ const ybikeSkill: SkillDefinition = {
     ja: "交通",
   },
   defaultTrigger: "YouBike",
-  naturalKeywords: ["有車可借嗎", "可借幾台", "YouBike", "ubike"],
+  naturalKeywords: ["有車可借嗎", "可借幾台", "附近有車嗎", "單車站", "YouBike", "ubike"],
   triggerAliases: ["ubike", "微笑單車", "單車"],
   fields: [
     { key: "tdxClientId", label: { zh: "TDX Client ID", en: "TDX Client ID", ja: "TDX Client ID" }, hint: "至 https://tdx.transportdata.tw 註冊取得，可與火車技能共用" },
@@ -153,12 +187,15 @@ const ybikeSkill: SkillDefinition = {
       return;
     }
     const city = matchCity(ctx.args, CITIES[(ctx.config.city || "台北").trim()] ?? "Taipei");
+    // 關鍵字保留站名原形（不切「站」字）；城市名由 matchCity 另行處理
     const keyword = ctx.args
-      .replace(/請幫忙|請幫|幫忙|查詢|YouBike|ubike|微笑單車|單車|腳踏車|車位|站|的/gi, " ")
-      .replace(/台北|臺北|新北|桃園|新竹|苗栗|台中|臺中|嘉義|台南|臺南|高雄|屏東|宜蘭|花蓮|台東|臺東/g, " ")
+      .replace(/請幫忙|請幫|幫忙|查詢|查一下|YouBike|ubike|微笑單車|單車|腳踏車|車位|附近|哪裡|哪邊|要借|要還|借車|還車|可借|可還|有車|有位|的/gi, " ")
       .trim();
-    if (!keyword) {
-      await ctx.reply("請指定站名或路名，例如：阿寶請幫忙 YouBike 台北車站");
+    const candidates = keyword.split(/\s+/).flatMap((t) => keywordCandidates(t));
+    if (candidates.length === 0) {
+      await ctx.reply(
+        "請指定站名、路名或區域名，例如：\nYouBike 台北車站\nYouBike 信義區\nYouBike 市府路 要借（只找有車的）\nYouBike 要還（只找有位可還）",
+      );
       return;
     }
     const ttlMs = parseTtl(ctx.config.cacheTtl, 60);
@@ -174,11 +211,17 @@ const ybikeSkill: SkillDefinition = {
         `${TDX_BASE}/Availability/City/${city}?$format=JSON`,
         token,
       );
-      const rows = mergeAvailability(stations, avail)
-        .filter((s) => s.name.includes(keyword) || s.address.includes(keyword))
-        .slice(0, 8);
+      const intent = detectIntent(ctx.args);
+      const rows = sortByIntent(
+        mergeAvailability(stations, avail).filter((s) => {
+          const name = normName(s.name);
+          const addr = normName(s.address);
+          return candidates.some((c) => name.includes(c) || addr.includes(c));
+        }),
+        intent,
+      ).slice(0, 8);
       if (rows.length === 0) {
-        await ctx.reply(`在${city}查無「${keyword}」相關站點，請換個站名或路名試試。`);
+        await ctx.reply(`在${city}查無「${keyword}」相關站點，請換個站名、路名或區域名試試。`);
         return;
       }
       const lines = rows.map((s) => {
