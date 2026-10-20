@@ -160,6 +160,57 @@ export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: 
 /** TDX 附近站上限半徑（公尺；超過會被 TDX 拒絕）。 */
 export const NEARBY_RADIUS_MAX = 1000;
 
+/** 從錯誤訊息挖 HTTP 狀態碼（net 層格式為 `HTTP <code>`）。 */
+export function httpStatusOf(error: unknown): number | null {
+  const m = /HTTP (\d{3})/.exec(error instanceof Error ? error.message : String(error));
+  return m ? Number(m[1]) : null;
+}
+
+/** 站點地址開頭縣市 → TDX 城市代碼（Availability 備援用；多數決）。 */
+const ADDRESS_CITY: Array<[string, string]> = [
+  ["台北市", "Taipei"],
+  ["臺北市", "Taipei"],
+  ["新北市", "NewTaipei"],
+  ["桃園市", "Taoyuan"],
+  ["新竹市", "Hsinchu"],
+  ["新竹縣", "HsinchuCounty"],
+  ["苗栗縣", "MiaoliCounty"],
+  ["台中市", "Taichung"],
+  ["臺中市", "Taichung"],
+  ["嘉義市", "Chiayi"],
+  ["嘉義縣", "ChiayiCounty"],
+  ["台南市", "Tainan"],
+  ["臺南市", "Tainan"],
+  ["高雄市", "Kaohsiung"],
+  ["屏東縣", "PingtungCounty"],
+  ["宜蘭縣", "YilanCounty"],
+  ["花蓮縣", "HualienCounty"],
+  ["台東縣", "TaitungCounty"],
+  ["臺東縣", "TaitungCounty"],
+];
+
+export function cityFromAddresses(addresses: string[]): string | null {
+  const votes = new Map<string, number>();
+  for (const addr of addresses) {
+    const a = (addr || "").trim();
+    for (const [prefix, city] of ADDRESS_CITY) {
+      if (a.startsWith(prefix)) {
+        votes.set(city, (votes.get(city) ?? 0) + 1);
+        break;
+      }
+    }
+  }
+  let best: string | null = null;
+  let bestN = 0;
+  for (const [city, n] of votes) {
+    if (n > bestN) {
+      best = city;
+      bestN = n;
+    }
+  }
+  return best;
+}
+
 /** 抓附近站點＋即時車位，回傳依距離排序（暫停服務沉底）。 */
 export async function fetchNearby(
   lat: number,
@@ -172,19 +223,31 @@ export async function fetchNearby(
   const key = `ybike-nearby-${lat.toFixed(3)}-${lon.toFixed(3)}`;
   let stations = readCache<BikeStation[]>(key, ttlMs);
   if (!stations || stations.length === 0) {
-    // spatialFilter 照 TDX 文件原形（不編碼逗號；編碼後部分環境會被拒）
+    // spatialFilter 照 TDX 文件原形（附近站點；Availability 備援見下方）
     const filter = `nearby(${lat},${lon},${radius})`;
     stations = await tdxGet<BikeStation[]>(
-      `${TDX_BASE}/Station/NearBy?$spatialFilter=${filter}&$top=30&$format=JSON`,
+      `${TDX_BASE}/Station/NearBy?$spatialFilter=${filter}&$format=JSON`,
       token,
     );
     if (stations.length > 0) writeCache(key, stations);
   }
   const filter = `nearby(${lat},${lon},${radius})`;
-  const avail = await tdxGet<BikeAvailability[]>(
-    `${TDX_BASE}/Availability/NearBy?$spatialFilter=${filter}&$top=30&$format=JSON`,
-    token,
-  );
+  let avail: BikeAvailability[];
+  try {
+    avail = await tdxGet<BikeAvailability[]>(
+      `${TDX_BASE}/Availability/NearBy?$spatialFilter=${filter}&$format=JSON`,
+      token,
+    );
+  } catch (error) {
+    if (httpStatusOf(error) !== 404) throw error;
+    // Availability 沒有 NearBy 版：從站點地址多數決縣市，抓整縣市再過濾
+    const city = cityFromAddresses(stations.map((s) => s.StationAddress?.Zh_tw ?? ""));
+    logger.warn("Availability/NearBy 不存在，改抓縣市", { city });
+    if (!city) throw error;
+    const all = await tdxGet<BikeAvailability[]>(`${TDX_BASE}/Availability/City/${city}?$format=JSON`, token);
+    const wanted = new Set(stations.map((s) => s.StationUID || s.StationID));
+    avail = all.filter((a) => wanted.has(a.StationUID || a.StationID));
+  }
   const rows = mergeAvailability(stations, avail).map((s, i) => {
     const pos = stations[i]?.StationPosition;
     const distanceM =

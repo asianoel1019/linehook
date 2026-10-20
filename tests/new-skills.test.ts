@@ -15,7 +15,7 @@ import { parseNum, computePercent, matchName, joinStatus } from "../src/skills/r
 import { filterOutages, formatCase, parseNewsRss } from "../src/skills/outage/index.js";
 import { parseTableItems, matchBudget } from "../src/skills/mcdonald/index.js";
 import { parseOfficialRows, parseZxcRows, findTeam } from "../src/skills/cpbl/index.js";
-import { mergeAvailability, matchCity, normName, keywordCandidates, detectIntent, sortByIntent, haversineMeters, formatDistance, fetchNearby } from "../src/skills/ybike/index.js";
+import { mergeAvailability, matchCity, normName, keywordCandidates, detectIntent, sortByIntent, haversineMeters, formatDistance, fetchNearby, cityFromAddresses } from "../src/skills/ybike/index.js";
 import ybikeSkill from "../src/skills/ybike/index.js";
 import { matchOperator, findStationId, formatHeadway } from "../src/skills/metro/index.js";
 import { resolveSymbol } from "../src/skills/stock/index.js";
@@ -381,6 +381,73 @@ describe("ybike helpers", () => {
       const rows = await fetchNearby(25.0478, 121.517, 1000, "tok", 60_000);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].distanceM, Number.POSITIVE_INFINITY);
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
+
+  it("cityFromAddresses 多數決", () => {
+    assert.equal(cityFromAddresses(["臺北市南港區三重路", "台北市南港區忠孝東路", "新北市板橋區"]), "Taipei");
+    assert.equal(cityFromAddresses(["高雄市前鎮區"]), "Kaohsiung");
+    assert.equal(cityFromAddresses(["火星"]), null);
+    assert.equal(cityFromAddresses([]), null);
+  });
+
+  it("fetchNearby：Availability/NearBy 404 時改抓該縣市", async () => {
+    const savedFetch = globalThis.fetch;
+    const savedCache = config.cachePath;
+    config.cachePath = mkdtempSync(join(tmpdir(), "ybike-near-"));
+    const seen: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      seen.push(url);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      if (url.includes("Station/NearBy")) {
+        return new Response(JSON.stringify([
+          { StationUID: "u1", StationID: "1", StationName: { Zh_tw: "近站" }, StationAddress: { Zh_tw: "臺北市南港區三重路" }, StationPosition: { PositionLat: 25.067, PositionLon: 121.598 }, BikesCapacity: 20 },
+        ]));
+      }
+      if (url.includes("Availability/NearBy")) {
+        return new Response("{}", { status: 404 });
+      }
+      if (url.includes("Availability/City/Taipei")) {
+        return new Response(JSON.stringify([
+          { StationUID: "u1", StationID: "1", ServiceStatus: 1, AvailableRentBikes: 6, AvailableReturnBikes: 6 },
+          { StationUID: "other", StationID: "9", ServiceStatus: 1, AvailableRentBikes: 9, AvailableReturnBikes: 9 },
+        ]));
+      }
+      throw new Error(`unexpected url: ${url}`);
+    }) as typeof fetch;
+    try {
+      const rows = await fetchNearby(25.067264, 121.597898, 1000, "tok", 60_000);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].name, "近站");
+      assert.equal(rows[0].rent, 6);
+      assert.ok(seen.some((u) => u.includes("Availability/City/Taipei")), "應走縣市備援");
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
+
+  it("fetchNearby：非 404 錯誤直接拋出", async () => {
+    const savedFetch = globalThis.fetch;
+    const savedCache = config.cachePath;
+    config.cachePath = mkdtempSync(join(tmpdir(), "ybike-near-"));
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("Station/NearBy")) {
+        return new Response(JSON.stringify([
+          { StationUID: "u1", StationID: "1", StationName: { Zh_tw: "近站" }, StationAddress: { Zh_tw: "臺北市南港區" }, BikesCapacity: 20 },
+        ]));
+      }
+      return new Response("{}", { status: 500 });
+    }) as typeof fetch;
+    try {
+      await assert.rejects(fetchNearby(25.067264, 121.597898, 1000, "tok", 60_000), /HTTP 500/);
     } finally {
       globalThis.fetch = savedFetch;
       config.cachePath = savedCache;
