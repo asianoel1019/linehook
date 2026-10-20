@@ -2,7 +2,12 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { resolveCoin, findCoinStrict, parseCryptoConversion, formatCryptoReply } from "../src/skills/crypto/index.js";
 import { parseConversion, conversionArgs, toCode, findCurrencies } from "../src/skills/exchange-rate/index.js";
-import { resolveSymbol, OTC_CODES } from "../src/skills/stock/index.js";
+import { resolveSymbol, resolveSymbolLive, OTC_CODES } from "../src/skills/stock/index.js";
+import stockSkill from "../src/skills/stock/index.js";
+import { config } from "../src/config.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mkdtempSync } from "node:fs";
 import { detectBrands, extractKeyword, filterDeals, formatDeals, type DealItem } from "../src/skills/deals/index.js";
 import { toQuote } from "../src/skills/taiex/index.js";
 import { fromUsgs, fromCwa, formatQuake } from "../src/skills/quake/index.js";
@@ -388,5 +393,106 @@ describe("stock resolveSymbol（公司名＋上櫃）", () => {
   it("子字串後援與未知回空", () => {
     assert.equal(resolveSymbol("我想問台積電"), "2330.TW");
     assert.equal(resolveSymbol("亂七八糟"), "");
+  });
+
+  it("高力進靜態表", () => {
+    assert.equal(resolveSymbol("股價 高力"), "8996.TW");
+  });
+});
+
+describe("stock resolveSymbolLive（TWSE 全名單活路）", () => {
+  const savedFetch = globalThis.fetch;
+  const savedCache = config.cachePath;
+  const twseStub = (rows: Array<Record<string, string>>) =>
+    (async () => new Response(JSON.stringify(rows))) as typeof fetch;
+  const row = (code: string, short: string, name: string) => ({
+    公司代號: code,
+    公司簡稱: short,
+    公司名稱: name,
+  });
+
+  it("靜態表沒有的上市名可解", async () => {
+    config.cachePath = mkdtempSync(join(tmpdir(), "stock-live-"));
+    globalThis.fetch = twseStub([row("8996", "高力", "高力熱處理工業股份有限公司")]);
+    try {
+      assert.equal(await resolveSymbolLive("高力股價"), "8996.TW");
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
+
+  it("多候選寧可放棄（無精確命中時）", async () => {
+    config.cachePath = mkdtempSync(join(tmpdir(), "stock-live-"));
+    globalThis.fetch = twseStub([row("2912", "統一超", "統一超商"), row("1219", "統一實", "統一實業")]);
+    try {
+      assert.equal(await resolveSymbolLive("統一"), "");
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
+
+  it("名單抓不到回空（不炸）", async () => {
+    config.cachePath = mkdtempSync(join(tmpdir(), "stock-live-"));
+    globalThis.fetch = (async () => {
+      throw new Error("斷線");
+    }) as typeof fetch;
+    try {
+      assert.equal(await resolveSymbolLive("高力"), "");
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
+
+  it("run() 經活路查到冷門股", async () => {
+    config.cachePath = mkdtempSync(join(tmpdir(), "stock-live-"));
+    const replies: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("openapi.twse.com.tw")) {
+        return new Response(JSON.stringify([row("9991", "測試鋼鐵", "測試鋼鐵股份有限公司")]));
+      }
+      return new Response(
+        JSON.stringify({
+          chart: {
+            result: [
+              {
+                meta: { symbol: "9991.TW", shortName: "測試鋼鐵", regularMarketPrice: 50, chartPreviousClose: 49, currency: "TWD" },
+                timestamp: [],
+                indicators: { quote: [{ close: [] }] },
+              },
+            ],
+          },
+        }),
+      );
+    }) as typeof fetch;
+    try {
+      await stockSkill.run({
+        text: "",
+        args: "測試鋼鐵",
+        fromName: "t",
+        chat: "c",
+        fromMid: "u",
+        config: {},
+        reply: async (t: string) => {
+          replies.push(t);
+        },
+        sendImage: async () => {},
+        sendFile: async () => {},
+        schedule: () => "s",
+        watch: () => "w",
+        unwatch: () => true,
+        watches: () => [],
+        taskState: () => undefined,
+      } as never);
+      assert.equal(replies.length, 1);
+      assert.match(replies[0], /測試鋼鐵/);
+      assert.match(replies[0], /9991/);
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
   });
 });

@@ -1,5 +1,6 @@
 import { logger } from "@lw/logger";
 import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
+import { fetchJson as netFetchJson } from "@lw/net";
 import type { SkillContext, SkillDefinition, SkillHealth } from "@lw/skills/types";
 
 const UA = "Mozilla/5.0 (compatible; ImHook/1.0)";
@@ -225,6 +226,7 @@ const NAME_MAP: Record<string, string> = {
   保瑞: "6472.TW",
   大樹: "6469.TWO",
   晶碩: "6491.TW",
+  高力: "8996.TW",
 };
 
 /** 上櫃代號集合（直接打代號時決定 .TWO 後綴）。 */
@@ -234,12 +236,12 @@ export const OTC_CODES: Set<string> = new Set(
     .map((s) => s.slice(0, -4)),
 );
 
+const CLEAN_RE =
+  /請幫忙|請幫|幫忙|查詢|查一下|股價|股票|行情|現在|報價|價格|多少錢|多少|值得|走勢|漲跌|如何|怎麼|嗎|值|漲|跌|的/g;
+
 export function resolveSymbol(text: string): string {
   const norm = text.replace(/臺/g, "台");
-  const cleaned = norm.replace(
-    /請幫忙|請幫|幫忙|查詢|查一下|股價|股票|行情|現在|報價|價格|多少錢|多少|值得|走勢|漲跌|如何|怎麼|嗎|值|漲|跌|的/g,
-    " ",
-  );
+  const cleaned = norm.replace(CLEAN_RE, " ");
   for (const raw of cleaned.split(/\s+/)) {
     const t = raw.trim();
     if (!t) continue;
@@ -255,6 +257,70 @@ export function resolveSymbol(text: string): string {
   const keys = Object.keys(NAME_MAP).sort((a, b) => b.length - a.length);
   for (const k of keys) {
     if (norm.includes(k)) return NAME_MAP[k];
+  }
+  return "";
+}
+
+const TWSE_LIST_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L";
+const TWSE_LIST_TTL = 7 * 24 * 3600_000;
+const TWSE_CACHE = "stock-twse-list";
+
+interface TwseEntry {
+  code: string;
+  short: string;
+  name: string;
+}
+
+async function loadTwseList(): Promise<TwseEntry[]> {
+  const cached = readCache<TwseEntry[]>(TWSE_CACHE, TWSE_LIST_TTL);
+  if (cached && cached.length > 0) return cached;
+  const data = await netFetchJson<Array<Record<string, string>>>(TWSE_LIST_URL, undefined, {
+    timeoutMs: 20_000,
+    maxBytes: 4 * 1024 * 1024,
+  });
+  const list = data
+    .map((d) => ({
+      code: (d["公司代號"] ?? "").trim(),
+      short: (d["公司簡稱"] ?? "").trim(),
+      name: (d["公司名稱"] ?? "").trim(),
+    }))
+    .filter((d) => /^\d{4}$/.test(d.code) && d.short);
+  if (list.length === 0) throw new Error("TWSE 名單為空");
+  writeCache(TWSE_CACHE, list);
+  return list;
+}
+
+/**
+ * 活路：靜態表查無時，對 TWSE 上市全名單比對（冷門公司名如「高力」）。
+ * 單一 token 精確命中簡稱才回；多個候選一律放棄（寧可回用法也不報錯價）。
+ * 上櫃冷門名不在此表，仍須打代號。
+ */
+export async function resolveSymbolLive(text: string): Promise<string> {
+  const norm = text.replace(/臺/g, "台");
+  const tokens = norm
+    .replace(CLEAN_RE, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2);
+  if (tokens.length === 0) return "";
+  let list: TwseEntry[];
+  try {
+    list = await loadTwseList();
+  } catch (error) {
+    logger.warn("TWSE 名單載入失敗", { error: error instanceof Error ? error.message : String(error) });
+    return "";
+  }
+  const normShort = (s: string): string => s.replace(/臺/g, "台");
+  for (const t of tokens) {
+    const exact = list.find((d) => normShort(d.short) === t || normShort(d.name) === t);
+    if (exact) return `${exact.code}.TW`;
+  }
+  for (const t of tokens) {
+    const cands = list.filter((d) => {
+      const s = normShort(d.short);
+      return s.includes(t) || t.includes(s);
+    });
+    if (cands.length === 1) return `${cands[0].code}.TW`;
   }
   return "";
 }
@@ -312,7 +378,11 @@ const stockSkill: SkillDefinition = {
     }
   },
   async run(ctx: SkillContext): Promise<void> {
-    const symbol = resolveSymbol(ctx.args);
+    let symbol = resolveSymbol(ctx.args);
+    if (!symbol) {
+      // 靜態表查無：走 TWSE 全名單活路（冷門公司名）
+      symbol = await resolveSymbolLive(ctx.args);
+    }
     if (!symbol) {
       await ctx.reply("請指定股票代號，例如：阿寶請幫忙 股價 2330（美股：股價 AAPL）");
       return;
