@@ -269,12 +269,17 @@ export function formatFlight(s: FlightStatus): string {
   return lines.join("\n");
 }
 
+/** 航空公司代碼正規化（去空白轉大寫；TDX 偶有大小寫/空白出入）。 */
+export function normAirline(s: string | undefined): string {
+  return (s ?? "").trim().toUpperCase();
+}
+
 async function queryFids(
   direction: "dep" | "arr",
   airline: string,
   number: string,
   token: string,
-): Promise<FidsRecord[]> {
+): Promise<{ records: FidsRecord[]; exact: boolean }> {
   const endpoint = direction === "dep" ? "Departure" : "Arrival";
   const filter = encodeURIComponent(`FlightNumber eq '${number}'`);
   const data = await tdxGet<FidsRecord[]>(
@@ -282,25 +287,29 @@ async function queryFids(
     token,
   );
   const list = Array.isArray(data) ? data : [];
-  // 同班號可能有多家共掛（codeshare）：優先指定航空，否則全留
-  const exact = list.filter((r) => (r.AirlineID ?? "").toUpperCase() === airline.toUpperCase());
-  return (exact.length > 0 ? exact : list).slice(0, 3);
+  // 同班號可能有多家共掛（codeshare）：優先指定航空，否則全留（呼叫端標示）
+  const want = normAirline(airline);
+  const exact = list.filter((r) => normAirline(r.AirlineID) === want);
+  if (exact.length > 0) return { records: exact.slice(0, 3), exact: true };
+  return { records: list.slice(0, 3), exact: false };
 }
 
-/** 查指定航班雙向（或單向）即時動態。 */
+/** 查指定航班雙向（或單向）即時動態；exact=false 表示混入他航同號航班。 */
 export async function lookupFlight(
   airline: string,
   number: string,
   direction: "dep" | "arr" | "both",
   token: string,
-): Promise<FlightStatus[]> {
+): Promise<{ rows: FlightStatus[]; exact: boolean }> {
   const dirs = direction === "both" ? (["dep", "arr"] as const) : [direction];
   const out: FlightStatus[] = [];
+  let exact = true;
   for (const d of dirs) {
-    const records = await queryFids(d, airline, number, token);
-    for (const r of records) out.push(toStatus(r, d));
+    const res = await queryFids(d, airline, number, token);
+    if (!res.exact && res.records.length > 0) exact = false;
+    for (const r of res.records) out.push(toStatus(r, d));
   }
-  return out;
+  return { rows: out, exact };
 }
 
 const TASK = "flight-watch";
@@ -669,11 +678,18 @@ const flightStatusSkill: SkillDefinition = {
       }
       try {
         const token = await getToken(clientId, clientSecret);
-        const current = await lookupFlight(fn.airline, fn.number, direction, token);
-        if (current.length === 0) {
+        const found = await lookupFlight(fn.airline, fn.number, direction, token);
+        if (found.rows.length === 0) {
           await ctx.reply(`目前查不到 ${label} 的動態（可能非今日航班），請確認班號。`);
           return;
         }
+        if (!found.exact) {
+          await ctx.reply(
+            `查無 ${label}，今日同號其他航空：\n${found.rows.map(formatFlight).join("\n\n")}\n（如要追蹤其中一班，請用完整班號訂閱）`,
+          );
+          return;
+        }
+        const current = found.rows;
         const sub: FlightSub = {
           airline: fn.airline,
           number: fn.number,
@@ -702,13 +718,14 @@ const flightStatusSkill: SkillDefinition = {
     }
     try {
       const token = await getToken(clientId, clientSecret);
-      const rows = await lookupFlight(fn.airline, fn.number, parseDirection(ctx.args), token);
-      if (rows.length === 0) {
+      const found = await lookupFlight(fn.airline, fn.number, parseDirection(ctx.args), token);
+      if (found.rows.length === 0) {
         await ctx.reply(`目前查不到 ${fn.airline}${fn.number} 的動態（可能非今日航班），請確認班號。`);
         return;
       }
-      logger.info("航班動態查詢", { flight: `${fn.airline}${fn.number}`, count: rows.length });
-      await ctx.reply(rows.map(formatFlight).join("\n\n"));
+      const note = found.exact ? "" : `查無 ${fn.airline}${fn.number}，今日同號其他航空：\n`;
+      logger.info("航班動態查詢", { flight: `${fn.airline}${fn.number}`, count: found.rows.length, exact: found.exact });
+      await ctx.reply(`${note}${found.rows.map(formatFlight).join("\n\n")}`);
     } catch (error) {
       logger.error("航班動態查詢失敗", { error: String(error) });
       await ctx.reply("航班資料來源目前無法使用，請稍後再試。");
@@ -757,7 +774,8 @@ const flightStatusSkill: SkillDefinition = {
 
     for (const sub of due) {
       try {
-        const rows = await lookupFlight(sub.airline, sub.number, sub.direction, token);
+        const found = await lookupFlight(sub.airline, sub.number, sub.direction, token);
+        const rows = found.rows;
         if (rows.length === 0) continue;
         const sig = rows.map(statusSignature).join(";");
         if (sig === sub.lastSig) continue;

@@ -13,6 +13,8 @@ import flightStatusSkill, {
   shouldPoll,
   isTripOver,
   todayYmd,
+  normAirline,
+  lookupFlight,
 } from "../src/skills/flight-status/index.js";
 import type { SkillContext } from "../src/skills/types.js";
 
@@ -431,5 +433,111 @@ describe("flight-status 旅程日期", () => {
     const subs = (saved as { subs: Array<{ done: boolean; label: string }> }).subs;
     assert.equal(subs.find((s) => s.label === "JX716")?.done, true);
     assert.equal(subs.find((s) => s.label === "JX715")?.done, false);
+  });
+});
+
+describe("flight-status 同號他航", () => {
+  const savedFetch = globalThis.fetch;
+  const otherAirline = { ...ARR, AirlineID: "BR", FlightNumber: "100" };
+
+  it("normAirline 去空白轉大寫", () => {
+    assert.equal(normAirline(" jx "), "JX");
+    assert.equal(normAirline(undefined), "");
+  });
+
+  it("lookupFlight 優先指定航空並標 exact", async () => {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      return new Response(JSON.stringify([ARR, otherAirline]));
+    }) as typeof fetch;
+    try {
+      const found = await lookupFlight("CI", "100", "arr", "tok");
+      assert.equal(found.exact, true);
+      assert.ok(found.rows.length > 0);
+      assert.ok(found.rows.every((r) => r.airline === "CI"));
+    } finally {
+      globalThis.fetch = savedFetch;
+    }
+  });
+
+  it("查無指定航空時標示他航（不裝作命中）", async () => {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      return new Response(JSON.stringify([otherAirline]));
+    }) as typeof fetch;
+    try {
+      const found = await lookupFlight("CI", "100", "arr", "tok");
+      assert.equal(found.exact, false);
+      assert.equal(found.rows[0].airline, "BR");
+
+      const replies: string[] = [];
+      await flightStatusSkill.run({
+        text: "航班 JX715",
+        args: "JX715",
+        fromName: "t",
+        chat: "c",
+        fromMid: "u",
+        config: { tdxClientId: "id", tdxClientSecret: "sec" },
+        reply: async (t: string) => {
+          replies.push(t);
+        },
+        sendImage: async () => {},
+        sendFile: async () => {},
+        schedule: () => "s",
+        watch: () => "w",
+        unwatch: () => true,
+        watches: () => [],
+        taskState: () => undefined,
+      } as never);
+      assert.equal(replies.length, 1);
+      assert.match(replies[0], /查無 JX715，今日同號其他航空/);
+    } finally {
+      globalThis.fetch = savedFetch;
+    }
+  });
+
+  it("訂閱遇到他航不建檔", async () => {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      return new Response(JSON.stringify([otherAirline]));
+    }) as typeof fetch;
+    const store: { state?: Record<string, unknown> } = {};
+    const replies: string[] = [];
+    try {
+      await flightStatusSkill.run({
+        text: "",
+        args: "訂閱 JX715",
+        fromName: "t",
+        chat: "c",
+        fromMid: "u",
+        config: { tdxClientId: "id", tdxClientSecret: "sec" },
+        reply: async (t: string) => {
+          replies.push(t);
+        },
+        sendImage: async () => {},
+        sendFile: async () => {},
+        schedule: () => "s",
+        watch: (o: { state?: Record<string, unknown> }) => {
+          store.state = o.state;
+          return "w1";
+        },
+        unwatch: () => true,
+        watches: () => [],
+        taskState: () => undefined,
+      } as never);
+      assert.match(replies[0], /查無 JX715/);
+      assert.equal(store.state, undefined);
+    } finally {
+      globalThis.fetch = savedFetch;
+    }
   });
 });
