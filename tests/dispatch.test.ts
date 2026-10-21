@@ -397,4 +397,39 @@ describe("dispatchIncoming", () => {
       config.cachePath = savedCache;
     }
   });
+
+  it("班號問句直送航班動態", async () => {
+    const d = makeDeps();
+    config.commands.enabled = false;
+    config.skills = [{ id: "flight-status", enabled: true, trigger: "", allowedUsers: [], config: { tdxClientId: "id", tdxClientSecret: "sec" } }];
+    const savedCache = config.cachePath;
+    config.cachePath = mkdtempSync(join(tmpdir(), "flight-e2e-"));
+    const savedFetch = globalThis.fetch;
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      if (url.includes("/Departure")) {
+        return new Response(JSON.stringify([]));
+      }
+      return new Response(JSON.stringify([
+        {
+          FlightDate: "2026-10-21", FlightNumber: "100", AirlineID: "CI",
+          DepartureAirportID: "HKG", ArrivalAirportID: "TPE",
+          ScheduleArrivalTime: "2026-10-21T15:30", EstimatedArrivalTime: "2026-10-21T16:05",
+          ArrivalRemark: "延誤DELAYED", Terminal: "2", Gate: "D4",
+        },
+      ]));
+    }) as typeof fetch;
+    try {
+      await dispatchIncoming(msg("CI100到了沒", { messageId: "flight-e2e-1" }), d);
+      assert.equal(d.replies.length, 1);
+      assert.match(d.replies[0], /CI100/);
+      assert.match(d.replies[0], /延誤/);
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
 });

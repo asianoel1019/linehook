@@ -13,6 +13,7 @@ import { getService } from "./services.js";
 import { extractLocationFromText } from "./location.js";
 import { conversionArgs, parseConversion } from "../skills/exchange-rate/index.js";
 import { parseCryptoConversion } from "../skills/crypto/index.js";
+import { parseFlightIntent } from "../skills/flight-status/index.js";
 import { classifyIntent, collectRouterCandidates, routerAvailable } from "./intent-router.js";
 
 /** 無前綴自然意圖門檻（分數＝命中關鍵字去重後長度加總；群組更嚴）。 */
@@ -686,6 +687,24 @@ async function runSkills(
         (allowed.length === 0 || allowed.includes(fromMid) || allowed.includes(chat))
       ) {
         await runMatchedSkill(entry, def, { text, args: conv.args, chat, fromName, fromMid, images }, deps);
+        return;
+      }
+    }
+  }
+
+  // 無前綴意圖：航班班號（「CI100到了沒」→ flight-status）。
+  {
+    const fn = parseFlightIntent(intentText);
+    if (fn) {
+      const entry = config.skills.find((s) => s.id === "flight-status");
+      const def = getSkill("flight-status");
+      const allowed = entry?.allowedUsers ?? [];
+      if (
+        entry?.enabled &&
+        def &&
+        (allowed.length === 0 || allowed.includes(fromMid) || allowed.includes(chat))
+      ) {
+        await runMatchedSkill(entry, def, { text, args: intentText, chat, fromName, fromMid, images }, deps);
         return;
       }
     }
