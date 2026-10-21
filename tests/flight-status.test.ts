@@ -8,6 +8,11 @@ import flightStatusSkill, {
   statusSummary,
   statusSignature,
   formatFlight,
+  parseFlightDate,
+  parseTrip,
+  shouldPoll,
+  isTripOver,
+  todayYmd,
 } from "../src/skills/flight-status/index.js";
 import type { SkillContext } from "../src/skills/types.js";
 
@@ -237,5 +242,194 @@ describe("flight-status onTask", () => {
     } finally {
       globalThis.fetch = savedFetch;
     }
+  });
+});
+
+describe("flight-status 旅程日期", () => {
+  const TODAY = "2026-10-20";
+
+  it("parseFlightDate：M/D、中月日、跨年", () => {
+    assert.deepEqual(parseFlightDate("11/18", TODAY), { ymd: "2026-11-18", matched: "11/18" });
+    assert.deepEqual(parseFlightDate("11月18日", TODAY), { ymd: "2026-11-18", matched: "11月18日" });
+    assert.deepEqual(parseFlightDate("1/5", TODAY)?.ymd, "2027-01-05");
+    assert.equal(parseFlightDate("亂講話", TODAY), null);
+    assert.equal(parseFlightDate("13/45", TODAY), null);
+  });
+
+  it("parseTrip：使用者原句配對＋行程名", () => {
+    const r = parseTrip("行程 11/18 JX715 11/24 JX716 東京行", TODAY);
+    assert.equal(r.legs.length, 2);
+    assert.deepEqual(r.legs[0], { flight: { airline: "JX", number: "715" }, date: "2026-11-18" });
+    assert.deepEqual(r.legs[1], { flight: { airline: "JX", number: "716" }, date: "2026-11-24" });
+    assert.equal(r.name, "東京行");
+  });
+
+  it("parseTrip：先班號後日期也配對", () => {
+    const r = parseTrip("行程 JX715 11/18", TODAY);
+    assert.equal(r.legs.length, 1);
+    assert.deepEqual(r.legs[0], { flight: { airline: "JX", number: "715" }, date: "2026-11-18" });
+    assert.equal(r.name, "");
+  });
+
+  it("shouldPoll／isTripOver 窗口", () => {
+    assert.equal(shouldPoll({}, TODAY), true);
+    assert.equal(shouldPoll({ date: "2026-11-18" }, TODAY), false);
+    assert.equal(shouldPoll({ date: "2026-10-20" }, TODAY), true);
+    assert.equal(shouldPoll({ date: "2026-10-19" }, TODAY), true);
+    assert.equal(shouldPoll({ date: "2026-10-21" }, TODAY), true);
+    assert.equal(shouldPoll({ date: "2026-10-18" }, TODAY), false);
+    assert.equal(isTripOver({ date: "2026-10-18" }, TODAY), true);
+    assert.equal(isTripOver({ date: "2026-10-19" }, TODAY), false);
+    assert.equal(isTripOver({}, TODAY), false);
+  });
+
+  it("todayYmd 格式", () => {
+    assert.match(todayYmd(), /^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("run() 行程：一次建兩段＋共享 tripId", async () => {
+    const replies: string[] = [];
+    let state: Record<string, unknown> | undefined;
+    await flightStatusSkill.run({
+      text: "航班 行程 11/18 JX715 11/24 JX716 東京行",
+      args: "行程 11/18 JX715 11/24 JX716 東京行",
+      fromName: "t",
+      chat: "c",
+      fromMid: "u",
+      config: { tdxClientId: "id", tdxClientSecret: "sec" },
+      reply: async (t: string) => {
+        replies.push(t);
+      },
+      sendImage: async () => {},
+      sendFile: async () => {},
+      schedule: () => "s",
+      watch: (o: { state?: Record<string, unknown> }) => {
+        state = o.state;
+        return "w1";
+      },
+      unwatch: () => true,
+      watches: () => [],
+      taskState: () => undefined,
+    } as never);
+    // 行程建立不打網路（等窗口才查）
+    assert.equal(replies.length, 1);
+    assert.match(replies[0], /已建立行程「東京行」/);
+    assert.match(replies[0], /JX715/);
+    assert.match(replies[0], /JX716/);
+    const subs = (state as { subs: Array<{ tripId: string; date: string; label: string }> }).subs;
+    assert.equal(subs.length, 2);
+    assert.equal(subs[0].tripId, subs[1].tripId);
+  });
+
+  it("run() 未來單段訂閱：不驗證、等窗口", async () => {
+    const replies: string[] = [];
+    let state: Record<string, unknown> | undefined;
+    const future = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
+    const md = `${Number(future.slice(5, 7))}/${Number(future.slice(8, 10))}`;
+    await flightStatusSkill.run({
+      text: "",
+      args: `訂閱 JX715 ${md}`,
+      fromName: "t",
+      chat: "c",
+      fromMid: "u",
+      config: { tdxClientId: "id", tdxClientSecret: "sec" },
+      reply: async (t: string) => {
+        replies.push(t);
+      },
+      sendImage: async () => {},
+      sendFile: async () => {},
+      schedule: () => "s",
+      watch: (o: { state?: Record<string, unknown> }) => {
+        state = o.state;
+        return "w1";
+      },
+      unwatch: () => true,
+      watches: () => [],
+      taskState: () => undefined,
+    } as never);
+    assert.equal(replies.length, 1);
+    assert.match(replies[0], /前一天開始追蹤/);
+    const subs = (state as { subs: Array<{ lastSig: string; date: string }> }).subs;
+    assert.equal(subs.length, 1);
+    assert.equal(subs[0].lastSig, "");
+  });
+
+  it("run() 清單行程成團＋取消行程", async () => {
+    const store: { state?: Record<string, unknown> } = {
+      state: {
+        subs: [
+          { airline: "JX", number: "715", direction: "both", label: "JX715", lastSig: "", done: false, date: "2026-11-18", tripId: "t1", tripLabel: "東京行" },
+          { airline: "JX", number: "716", direction: "both", label: "JX716", lastSig: "", done: false, date: "2026-11-24", tripId: "t1", tripLabel: "東京行" },
+          { airline: "CI", number: "100", direction: "both", label: "CI100", lastSig: "x", done: false },
+        ],
+      },
+    };
+    const mkCtx = (args: string, replies: string[]) =>
+      ({
+        text: "",
+        args,
+        fromName: "t",
+        chat: "c",
+        fromMid: "u",
+        config: { tdxClientId: "id", tdxClientSecret: "sec" },
+        reply: async (t: string) => {
+          replies.push(t);
+        },
+        sendImage: async () => {},
+        sendFile: async () => {},
+        schedule: () => "s",
+        watch: (o: { state?: Record<string, unknown> }) => {
+          store.state = o.state;
+          return "w1";
+        },
+        unwatch: () => true,
+        watches: () => [],
+        taskState: () => store.state,
+      }) as never;
+    const r1: string[] = [];
+    await flightStatusSkill.run(mkCtx("清單", r1));
+    assert.match(r1[0], /🧳 東京行/);
+    assert.match(r1[0], /JX715/);
+    assert.match(r1[0], /CI100/);
+
+    const r2: string[] = [];
+    await flightStatusSkill.run(mkCtx("取消行程 東京", r2));
+    assert.match(r2[0], /已取消行程：東京行（2 段）/);
+    const subs = (store.state as { subs: unknown[] }).subs;
+    assert.equal(subs.length, 1);
+  });
+
+  it("onTask：太早跳過不打擾；過期靜默結案", async () => {
+    const future = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
+    const past = new Date(Date.now() - 60 * 86_400_000).toISOString().slice(0, 10);
+    const replies: string[] = [];
+    let saved: Record<string, unknown> | undefined;
+    await flightStatusSkill.onTask!({
+      taskId: "t",
+      task: "flight-watch",
+      chat: "c",
+      fromName: "n",
+      config: {},
+      args: {},
+      state: {
+        subs: [
+          { airline: "JX", number: "715", direction: "both", label: "JX715", lastSig: "", done: false, date: future },
+          { airline: "JX", number: "716", direction: "both", label: "JX716", lastSig: "x", done: false, date: past },
+        ],
+      },
+      saveState: async (patch: Record<string, unknown>) => {
+        saved = patch;
+      },
+      reply: async (t: string) => {
+        replies.push(t);
+      },
+      sendImage: async () => {},
+      sendFile: async () => {},
+    } as never);
+    // 未打 TDX（太早），無推播；過期那段結案存檔
+    assert.deepEqual(replies, []);
+    const subs = (saved as { subs: Array<{ done: boolean; label: string }> }).subs;
+    assert.equal(subs.find((s) => s.label === "JX716")?.done, true);
+    assert.equal(subs.find((s) => s.label === "JX715")?.done, false);
   });
 });

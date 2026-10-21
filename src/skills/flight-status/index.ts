@@ -1,5 +1,6 @@
 import { logger } from "@lw/logger";
 import { fetchJson as netFetchJson } from "@lw/net";
+import { nowInTz } from "@lw/time";
 import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
 
 const TDX_AUTH = "https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token";
@@ -312,6 +313,123 @@ interface FlightSub {
   label: string;
   lastSig: string;
   done: boolean;
+  /** 出發日期（YYYY-MM-DD；缺省 = 當天即查）。 */
+  date?: string;
+  /** 同行程共用 id（行程指令建立）。 */
+  tripId?: string;
+  /** 行程顯示名。 */
+  tripLabel?: string;
+}
+
+/** 今天 YYYY-MM-DD（設定時區）。 */
+export function todayYmd(now = nowInTz()): string {
+  const p = (n: number): string => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
+}
+
+function addDaysYmd(ymd: string, n: number): string {
+  const t = Date.parse(`${ymd}T00:00:00Z`);
+  if (Number.isNaN(t)) return ymd;
+  return new Date(t + n * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * 從文字找第一個日期（M/D、M-D、X月X日）→ YYYY-MM-DD（已過走次年）。
+ * 回傳日期與吃掉的原文片段（供行程解析剝除）。
+ */
+export function parseFlightDate(text: string, today: string): { ymd: string; matched: string } | null {
+  const y = Number(today.slice(0, 4));
+  const p = (n: number): string => String(n).padStart(2, "0");
+  const roll = (mo: number, d: number): string | null => {
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    let ymd = `${y}-${p(mo)}-${p(d)}`;
+    if (ymd < today) ymd = `${y + 1}-${p(mo)}-${p(d)}`;
+    return ymd;
+  };
+  const cn = /(\d{1,2})\s*月\s*(\d{1,2})\s*[日號]?/.exec(text);
+  if (cn) {
+    const ymd = roll(Number(cn[1]), Number(cn[2]));
+    if (ymd) return { ymd, matched: cn[0] };
+  }
+  const md = /(\d{1,2})[\/\-](\d{1,2})/.exec(text);
+  if (md) {
+    const ymd = roll(Number(md[1]), Number(md[2]));
+    if (ymd) return { ymd, matched: md[0] };
+  }
+  return null;
+}
+
+export interface TripLeg {
+  flight: FlightNo;
+  date: string | null;
+}
+
+/**
+ * 解析行程敘述（「11/18 JX715 11/24 JX716 東京行」）→ 航段列＋行程名。
+ * 日期與班號按出現順序配對（前後皆可）；剩餘文字為行程名（可無）。
+ */
+export function parseTrip(text: string, today: string): { legs: TripLeg[]; name: string } {
+  const cleaned = text.replace(/請幫忙|請幫|幫忙|查詢|查一下|航班|班機|動態|訂閱|行程|取消|退訂|清單|列表|的|出境|入境|出發|回程|去程/gi, " ");
+  const tokens = cleaned.split(/[\s、，,＋+]+/).map((t) => t.trim()).filter(Boolean);
+  const legs: TripLeg[] = [];
+  let pendingDate: string | null = null;
+  let pendingFlight: FlightNo | null = null;
+  const consumed: string[] = [];
+  const eat = (token: string, kind: "date" | "flight", value: { ymd: string; matched: string } | FlightNo): void => {
+    consumed.push(token);
+    if (kind === "date") {
+      const ymd = (value as { ymd: string }).ymd;
+      if (pendingFlight) {
+        legs.push({ flight: pendingFlight, date: ymd });
+        pendingFlight = null;
+      } else {
+        pendingDate = ymd;
+      }
+    } else {
+      const flight = value as FlightNo;
+      if (pendingDate) {
+        legs.push({ flight, date: pendingDate });
+        pendingDate = null;
+      } else {
+        if (pendingFlight) legs.push({ flight: pendingFlight, date: null });
+        pendingFlight = flight;
+      }
+    }
+  };
+  for (const token of tokens) {
+    const d = parseFlightDate(token, today);
+    if (d) {
+      eat(token, "date", d);
+      continue;
+    }
+    const fn = parseFlightNo(token);
+    if (fn) {
+      eat(token, "flight", fn);
+      continue;
+    }
+  }
+  if (pendingFlight) legs.push({ flight: pendingFlight, date: pendingDate });
+  else if (pendingDate && legs.length > 0 && legs[legs.length - 1].date === null) {
+    legs[legs.length - 1].date = pendingDate;
+  }
+  const consumedSet = new Set(consumed);
+  const name = tokens
+    .filter((t) => !consumedSet.has(t))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return { legs, name };
+}
+
+/** 該訂閱今天要不要查（無日期天天查；有日期只查前一天～後一天）。 */
+export function shouldPoll(sub: Pick<FlightSub, "date">, today: string): boolean {
+  if (!sub.date) return true;
+  return today >= addDaysYmd(sub.date, -1) && today <= addDaysYmd(sub.date, 1);
+}
+
+/** 行程是否已過期（出發日＋1 之後 → 自動結案）。 */
+export function isTripOver(sub: Pick<FlightSub, "date">, today: string): boolean {
+  return !!sub.date && today > addDaysYmd(sub.date, 1);
 }
 
 interface FlightState {
@@ -332,13 +450,13 @@ const flightStatusSkill: SkillDefinition = {
   id: "flight-status",
   name: "航班動態",
   description: {
-    zh: "班機號查詢即時動態（起降時間/延誤/登機門），可訂閱異動自動通知（需 TDX API key）。",
-    en: "Live flight status by flight number with change alerts (requires TDX API key).",
+    zh: "班機號查詢即時動態（起降時間/延誤/登機門），可訂閱異動通知、組旅程追蹤多段航班（需 TDX API key）。",
+    en: "Live flight status by flight number with change alerts and trip tracking (requires TDX API key).",
     ja: "便名で運航状況を查詢、変更を通知（TDX API キーが必要）。",
   },
   usage: {
-    zh: "航班 CI100；航班 長榮100 出境；航班 訂閱 CI100；航班 清單；航班 取消 CI100",
-    en: "flight CI100; flight subscribe CI100; flight list; flight cancel CI100",
+    zh: "航班 CI100；航班 長榮100 出境；航班 訂閱 JX715 11/18；航班 行程 11/18 JX715 11/24 JX716 東京行；航班 清單；航班 取消 CI100",
+    en: "flight CI100; flight subscribe JX715 11/18; flight list; flight cancel CI100",
     ja: "航班 CI100",
   },
   category: {
@@ -390,7 +508,7 @@ const flightStatusSkill: SkillDefinition = {
     const minutes = pollMinutesOf(ctx.config);
     const watchOpts = { task: TASK, everyMinutes: minutes };
 
-    // 取消訂閱
+    // 取消訂閱（航班／整團行程）
     if (/^(取消|退訂|停止|刪除)/.test(args)) {
       if (subs.length === 0) {
         await ctx.reply("目前沒有航班異動訂閱。");
@@ -400,6 +518,28 @@ const flightStatusSkill: SkillDefinition = {
       if (/全部/.test(args) && !parseFlightNo(target)) {
         for (const w of ctx.watches()) ctx.unwatch(w.id);
         await ctx.reply(`已取消全部 ${subs.length} 個航班訂閱。`);
+        return;
+      }
+      // 取消行程 <關鍵字>：整團砍掉
+      if (/^(取消行程|退訂行程)/.test(args.replace(/請幫忙|請幫|幫忙|的/g, " ").trim())) {
+        const kw = args
+          .replace(/請幫忙|請幫|幫忙|取消行程|退訂行程|取消|退訂|停止|刪除|的/g, " ")
+          .trim();
+        const hit = subs.filter((s) => s.tripId && (s.tripLabel ?? "").includes(kw));
+        if (hit.length === 0) {
+          await ctx.reply(`找不到行程「${kw}」，請用「航班 清單」查看。`);
+          return;
+        }
+        const ids = new Set(hit.map((s) => s.tripId));
+        const names = [...new Set(hit.map((s) => s.tripLabel ?? s.label))].join("、");
+        const kept = subs.filter((s) => !ids.has(s.tripId));
+        subs.splice(0, subs.length, ...kept);
+        if (subs.length === 0) {
+          for (const w of ctx.watches()) ctx.unwatch(w.id);
+        } else {
+          ctx.watch({ ...watchOpts, state: { subs } });
+        }
+        await ctx.reply(`已取消行程：${names}（${hit.length} 段）`);
         return;
       }
       const fn = parseFlightNo(target);
@@ -422,22 +562,88 @@ const flightStatusSkill: SkillDefinition = {
       return;
     }
 
-    // 訂閱清單
+    // 訂閱清單（行程成團顯示）
     if (/^(清單|列表|list)$/i.test(args)) {
       if (subs.length === 0) {
         await ctx.reply("目前沒有航班訂閱。用法：阿寶請幫忙 航班 訂閱 CI100");
         return;
       }
-      const lines = subs.map((s) => `・${s.label}${s.done ? "（已結束）" : ""}`);
+      const singles = subs.filter((s) => !s.tripId);
+      const trips = new Map<string, FlightSub[]>();
+      for (const s of subs) {
+        if (!s.tripId) continue;
+        const arr = trips.get(s.tripId) ?? [];
+        arr.push(s);
+        trips.set(s.tripId, arr);
+      }
+      const lines: string[] = singles.map(
+        (s) => `・${s.label}${s.date ? `（${s.date.slice(5)}）` : ""}${s.done ? "（已結束）" : ""}`,
+      );
+      for (const group of trips.values()) {
+        const label = group[0].tripLabel ?? "行程";
+        lines.push(`🧳 ${label}：`);
+        for (const s of group) {
+          lines.push(`　・${s.label}${s.date ? `（${s.date.slice(5)}）` : ""}${s.done ? "（已結束）" : ""}`);
+        }
+      }
       await ctx.reply(`航班訂閱（${subs.length}）：\n${lines.join("\n")}`);
       return;
     }
 
-    // 訂閱異動通知
+    // 行程：多段一次訂（「航班 行程 11/18 JX715 11/24 JX716 東京行」）
+    if (/^行程/.test(args)) {
+      const today = todayYmd();
+      const { legs, name } = parseTrip(args, today);
+      if (legs.length === 0) {
+        await ctx.reply("用法：阿寶請幫忙 航班 行程 11/18 JX715 11/24 JX716（可加行程名）");
+        return;
+      }
+      if (subs.length + legs.length > MAX_SUBS) {
+        await ctx.reply(`行程共 ${legs.length} 段，加上現有訂閱會超過上限（${MAX_SUBS} 個），請先取消舊的。`);
+        return;
+      }
+      const tripId = `t${Date.now().toString(36)}`;
+      const tripLabel =
+        name || legs.map((l) => `${l.flight.airline}${l.flight.number}${l.date ? l.date.slice(5) : ""}`).join("＋");
+      const direction = parseDirection(args);
+      let skipped = 0;
+      let added = 0;
+      for (const leg of legs) {
+        if (subs.some((s) => s.airline === leg.flight.airline && s.number === leg.flight.number && (s.date ?? null) === leg.date)) {
+          skipped++;
+          continue;
+        }
+        added++;
+        subs.push({
+          airline: leg.flight.airline,
+          number: leg.flight.number,
+          direction,
+          label: `${leg.flight.airline}${leg.flight.number}`,
+          lastSig: "",
+          done: false,
+          ...(leg.date ? { date: leg.date } : {}),
+          tripId,
+          tripLabel,
+        });
+      }
+      ctx.watch({ ...watchOpts, state: { subs } });
+      const legLines = legs.map(
+        (l) => `・${l.flight.airline}${l.flight.number}${l.date ? `（${l.date.slice(5)}出發，前一天開始追蹤）` : ""}`,
+      );
+      logger.info("已建立航班行程", { chat: ctx.chat, tripLabel, legs: legs.length });
+      if (added === 0) {
+        await ctx.reply("這些航班都已經訂閱過了（可用「航班 清單」查看）。");
+        return;
+      }
+      await ctx.reply(`已建立行程「${tripLabel}」：\n${legLines.join("\n")}${skipped > 0 ? `\n（${skipped} 段已訂閱過，略過）` : ""}\n（「航班 取消行程 ${tripLabel}」可整團取消）`);
+      return;
+    }
+
+    // 訂閱異動通知（可帶日期：「航班 訂閱 JX715 11/18」）
     if (/^訂閱/.test(args)) {
       const fn = parseFlightNo(args);
       if (!fn) {
-        await ctx.reply("用法：阿寶請幫忙 航班 訂閱 CI100（取消：航班 取消 CI100）");
+        await ctx.reply("用法：阿寶請幫忙 航班 訂閱 CI100（可加日期：航班 訂閱 JX715 11/18；取消：航班 取消 CI100）");
         return;
       }
       if (subs.length >= MAX_SUBS) {
@@ -450,6 +656,17 @@ const flightStatusSkill: SkillDefinition = {
       }
       const direction = parseDirection(args);
       const label = `${fn.airline}${fn.number}`;
+      const today = todayYmd();
+      const dateHit = parseFlightDate(args, today);
+      const date = dateHit ? dateHit.ymd : undefined;
+      // 未來日期：FIDS 還沒有這班，先建檔等窗口（不即時驗證）
+      if (date && !shouldPoll({ date }, today)) {
+        subs.push({ airline: fn.airline, number: fn.number, direction, label, lastSig: "", done: false, date });
+        ctx.watch({ ...watchOpts, state: { subs } });
+        logger.info("已訂閱航班（未來）", { chat: ctx.chat, label, date });
+        await ctx.reply(`已訂閱 ${label}（${date.slice(5)}）異動通知，將於出發前一天開始追蹤。`);
+        return;
+      }
       try {
         const token = await getToken(clientId, clientSecret);
         const current = await lookupFlight(fn.airline, fn.number, direction, token);
@@ -464,6 +681,7 @@ const flightStatusSkill: SkillDefinition = {
           label,
           lastSig: current.map(statusSignature).join(";"),
           done: false,
+          ...(date ? { date } : {}),
         };
         subs.push(sub);
         ctx.watch({ ...watchOpts, state: { subs } });
@@ -501,10 +719,30 @@ const flightStatusSkill: SkillDefinition = {
     const active = subs.filter((s) => !s.done);
     if (active.length === 0) return;
 
+    // 先過窗口：太早不查、過期結案（這批不需 token 也不打 TDX）
+    const today = todayYmd();
+    let changed = false;
+    const due: FlightSub[] = [];
+    for (const sub of active) {
+      if (sub.date && !shouldPoll(sub, today)) {
+        if (isTripOver(sub, today) && !sub.done) {
+          sub.done = true;
+          changed = true;
+          logger.info("航班追蹤到期結案", { flight: sub.label, date: sub.date });
+        }
+        continue;
+      }
+      due.push(sub);
+    }
+    if (due.length === 0) {
+      if (changed) await ctx.saveState({ subs });
+      return;
+    }
     const clientId = ctx.config.tdxClientId?.trim();
     const clientSecret = ctx.config.tdxClientSecret?.trim();
     if (!clientId || !clientSecret) {
       logger.warn("航班推播跳過：未設定 TDX key");
+      if (changed) await ctx.saveState({ subs });
       return;
     }
 
@@ -513,23 +751,25 @@ const flightStatusSkill: SkillDefinition = {
       token = await getToken(clientId, clientSecret);
     } catch (error) {
       logger.warn("航班推播跳過：TDX 認證失敗", { error: error instanceof Error ? error.message : String(error) });
+      if (changed) await ctx.saveState({ subs });
       return;
     }
 
-    let changed = false;
-    for (const sub of active) {
+    for (const sub of due) {
       try {
         const rows = await lookupFlight(sub.airline, sub.number, sub.direction, token);
         if (rows.length === 0) continue;
         const sig = rows.map(statusSignature).join(";");
         if (sig === sub.lastSig) continue;
+        const first = sub.lastSig === "";
         sub.lastSig = sig;
         changed = true;
         const icon = sub.direction === "dep" ? "🛫" : sub.direction === "arr" ? "🛬" : "✈️";
+        const title = sub.tripLabel ? `【${sub.tripLabel}】${sub.label}` : sub.label;
         const finished = rows.some((r) => r.actual);
         if (finished) sub.done = true;
         await ctx.reply(
-          `${icon} ${sub.label} 異動：\n${rows.map(formatFlight).join("\n\n")}${finished ? "\n（航班已結束，停止追蹤）" : ""}`,
+          `${icon} ${title}${first ? " 開始追蹤" : " 異動"}：\n${rows.map(formatFlight).join("\n\n")}${finished ? "\n（航班已結束，停止追蹤）" : ""}`,
         );
         logger.info("航班異動推播", { flight: sub.label });
       } catch (error) {

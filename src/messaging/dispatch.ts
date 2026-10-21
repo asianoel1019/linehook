@@ -13,7 +13,7 @@ import { getService } from "./services.js";
 import { extractLocationFromText } from "./location.js";
 import { conversionArgs, parseConversion } from "../skills/exchange-rate/index.js";
 import { parseCryptoConversion } from "../skills/crypto/index.js";
-import { parseFlightIntent } from "../skills/flight-status/index.js";
+import { parseFlightIntent, parseFlightNo } from "../skills/flight-status/index.js";
 import { classifyIntent, collectRouterCandidates, routerAvailable } from "./intent-router.js";
 
 /** 無前綴自然意圖門檻（分數＝命中關鍵字去重後長度加總；群組更嚴）。 */
@@ -693,8 +693,11 @@ async function runSkills(
   }
 
   // 無前綴意圖：航班班號（「CI100到了沒」→ flight-status）。
+  // 有前綴且原文帶航班/班機時放寬為純班號（「阿寶請幫忙 航班 JX715 11/18」）。
   {
-    const fn = parseFlightIntent(intentText);
+    const fn =
+      parseFlightIntent(intentText) ??
+      (hasPrefix && /航班|班機/.test(text) ? parseFlightNo(intentText) : null);
     if (fn) {
       const entry = config.skills.find((s) => s.id === "flight-status");
       const def = getSkill("flight-status");

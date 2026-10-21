@@ -432,4 +432,29 @@ describe("dispatchIncoming", () => {
       config.cachePath = savedCache;
     }
   });
+
+  it("有前綴航班＋班號直送（免情境詞）", async () => {
+    const d = makeDeps();
+    config.commands.enabled = false;
+    config.skills = [{ id: "flight-status", enabled: true, trigger: "", allowedUsers: [], config: { tdxClientId: "id", tdxClientSecret: "sec" } }];
+    const savedCache = config.cachePath;
+    config.cachePath = mkdtempSync(join(tmpdir(), "flight-e2e-"));
+    const savedFetch = globalThis.fetch;
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      return new Response(JSON.stringify([]));
+    }) as typeof fetch;
+    try {
+      // 有「航班」二字＋班號即命中（不需 到了沒 等情境詞）
+      await dispatchIncoming(msg("阿寶請幫忙 航班 JX715", { messageId: "flight-e2e-2" }), d);
+      assert.equal(d.replies.length, 1);
+      assert.match(d.replies[0], /查不到 JX715/);
+    } finally {
+      globalThis.fetch = savedFetch;
+      config.cachePath = savedCache;
+    }
+  });
 });
