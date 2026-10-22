@@ -522,7 +522,7 @@ describe("flight-status 同號他航", () => {
         taskState: () => undefined,
       } as never);
       assert.equal(replies.length, 1);
-      assert.match(replies[0], /查無 JX715，今日同號其他航空/);
+      assert.match(replies[0], /查無 JX715，近期同號其他航空/);
     } finally {
       globalThis.fetch = savedFetch;
     }
@@ -562,6 +562,66 @@ describe("flight-status 同號他航", () => {
       } as never);
       assert.match(replies[0], /查無 JX715/);
       assert.equal(store.state, undefined);
+    } finally {
+      globalThis.fetch = savedFetch;
+    }
+  });
+});
+
+describe("flight-status 非 ASCII 代碼與跨日榜單", () => {
+  const savedFetch = globalThis.fetch;
+
+  it("normAirline：全形與零寬字元", () => {
+    assert.equal(normAirline("ＪＸ"), "JX");
+    assert.equal(normAirline("JX\u200B"), "JX");
+    assert.equal(normAirline("JX\uFEFF"), "JX");
+    assert.equal(normAirline("jx"), "JX");
+  });
+
+  it("toStatus 正規化顯示代碼", () => {
+    const s = toStatus({ AirlineID: "ＪＸ", FlightNumber: "715" }, "dep");
+    assert.equal(s.airline, "JX");
+  });
+
+  it("全形 JX715 命中（之前會掉進他航）", async () => {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      return new Response(JSON.stringify([
+        { AirlineID: "ＪＸ", FlightNumber: "715", FlightDate: "2026-10-23" },
+        { AirlineID: "BR", FlightNumber: "715", FlightDate: "2026-10-22" },
+      ]));
+    }) as typeof fetch;
+    try {
+      const found = await lookupFlight("JX", "715", "dep", "tok");
+      assert.equal(found.exact, true);
+      assert.equal(found.rows.length, 1);
+      assert.equal(found.rows[0].airline, "JX");
+    } finally {
+      globalThis.fetch = savedFetch;
+    }
+  });
+
+  it("指定日期只留當天", async () => {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      return new Response(JSON.stringify([
+        { AirlineID: "BR", FlightNumber: "715", FlightDate: "2026-10-21" },
+        { AirlineID: "BR", FlightNumber: "715", FlightDate: "2026-10-22" },
+      ]));
+    }) as typeof fetch;
+    try {
+      const found = await lookupFlight("BR", "715", "arr", "tok", "2026-10-22");
+      assert.equal(found.rows.length, 1);
+      assert.equal(found.rows[0].date, "2026-10-22");
+      const empty = await lookupFlight("BR", "715", "arr", "tok", "2026-10-25");
+      assert.equal(empty.rows.length, 0);
+      assert.equal(empty.exact, false);
     } finally {
       globalThis.fetch = savedFetch;
     }

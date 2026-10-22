@@ -177,9 +177,9 @@ function pick(record: FidsRecord, ...keys: Array<keyof FidsRecord>): string {
   return "";
 }
 
-/** FIDS 原始記錄 → 顯示用狀態（出境/入境分開取欄位）。 */
+/** FIDS 原始記錄 → 顯示用狀態（出境/入境分開取欄位；航空公司代碼一併正規化）。 */
 export function toStatus(record: FidsRecord, direction: "dep" | "arr"): FlightStatus {
-  const airline = record.AirlineID ?? "";
+  const airline = normAirline(record.AirlineID) || (record.AirlineID ?? "");
   const number = (record.FlightNumber ?? "").replace(/^0+/, "");
   if (direction === "dep") {
     return {
@@ -269,9 +269,16 @@ export function formatFlight(s: FlightStatus): string {
   return lines.join("\n");
 }
 
-/** 航空公司代碼正規化（去空白轉大寫；TDX 偶有大小寫/空白出入）。 */
+/** 航空公司代碼正規化（全形轉半形、去零寬字/空白轉大寫；TDX 偶有非 ASCII 出入）。 */
 export function normAirline(s: string | undefined): string {
-  return (s ?? "").trim().toUpperCase();
+  return (s ?? "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/[\uFF21-\uFF3A\uFF41-\uFF5A\uFF10-\uFF19]/g, (c) =>
+      String.fromCharCode(c.charCodeAt(0) - 0xFEE0),
+    )
+    .replace(/　/g, " ")
+    .trim()
+    .toUpperCase();
 }
 
 /** ICAO → IATA（TDX 有時給 ICAO，如星宇 SJX、長榮 EVA、華航 CAL）。 */
@@ -320,7 +327,7 @@ async function queryFids(
   airline: string,
   number: string,
   token: string,
-): Promise<{ records: FidsRecord[]; exact: boolean }> {
+): Promise<FidsRecord[]> {
   const endpoint = direction === "dep" ? "Departure" : "Arrival";
   const filter = encodeURIComponent(`FlightNumber eq '${number}'`);
   const data = await tdxGet<FidsRecord[]>(
@@ -328,10 +335,9 @@ async function queryFids(
     token,
   );
   const list = Array.isArray(data) ? data : [];
-  // 同班號可能有多家共掛（codeshare）：優先指定航空，否則全留（呼叫端標示）
+  // 同班號可能有多家共掛（codeshare）：優先指定航空，否則全留（lookupFlight 標示）
   const exact = list.filter((r) => matchAirline(r.AirlineID, airline));
-  if (exact.length > 0) return { records: exact.slice(0, 3), exact: true };
-  return { records: list.slice(0, 3), exact: false };
+  return (exact.length > 0 ? exact : list).slice(0, 3);
 }
 
 /** 查指定航班雙向（或單向）即時動態；exact=false 表示混入他航同號航班。 */
@@ -340,15 +346,20 @@ export async function lookupFlight(
   number: string,
   direction: "dep" | "arr" | "both",
   token: string,
+  date?: string,
 ): Promise<{ rows: FlightStatus[]; exact: boolean }> {
   const dirs = direction === "both" ? (["dep", "arr"] as const) : [direction];
   const out: FlightStatus[] = [];
-  let exact = true;
   for (const d of dirs) {
-    const res = await queryFids(d, airline, number, token);
-    if (!res.exact && res.records.length > 0) exact = false;
-    for (const r of res.records) out.push(toStatus(r, d));
+    const records = await queryFids(d, airline, number, token);
+    for (const r of records) {
+      const st = toStatus(r, d);
+      // 有指定日期只留當天（榜單橫跨多天；缺日期欄位時保留）
+      if (date && st.date && st.date !== date) continue;
+      out.push(st);
+    }
   }
+  const exact = out.length > 0 && out.every((s) => matchAirline(s.airline, airline));
   return { rows: out, exact };
 }
 
@@ -718,14 +729,14 @@ const flightStatusSkill: SkillDefinition = {
       }
       try {
         const token = await getToken(clientId, clientSecret);
-        const found = await lookupFlight(fn.airline, fn.number, direction, token);
+        const found = await lookupFlight(fn.airline, fn.number, direction, token, date);
         if (found.rows.length === 0) {
           await ctx.reply(`目前查不到 ${label} 的動態（可能非今日航班），請確認班號。`);
           return;
         }
         if (!found.exact) {
           await ctx.reply(
-            `查無 ${label}，今日同號其他航空：\n${found.rows.map(formatFlight).join("\n\n")}\n（如要追蹤其中一班，請用完整班號訂閱）`,
+            `查無 ${label}，近期同號其他航空：\n${found.rows.map(formatFlight).join("\n\n")}\n（如要追蹤其中一班，請用完整班號訂閱）`,
           );
           return;
         }
@@ -763,8 +774,9 @@ const flightStatusSkill: SkillDefinition = {
         await ctx.reply(`目前查不到 ${fn.airline}${fn.number} 的動態（可能非今日航班），請確認班號。`);
         return;
       }
-      const note = found.exact ? "" : `查無 ${fn.airline}${fn.number}，今日同號其他航空：\n`;
-      logger.info("航班動態查詢", { flight: `${fn.airline}${fn.number}`, count: found.rows.length, exact: found.exact });
+      const note = found.exact ? "" : `查無 ${fn.airline}${fn.number}，近期同號其他航空：\n`;
+      const airlines = [...new Set(found.rows.map((r) => r.airline))];
+      logger.info("航班動態查詢", { flight: `${fn.airline}${fn.number}`, count: found.rows.length, exact: found.exact, airlines });
       await ctx.reply(`${note}${found.rows.map(formatFlight).join("\n\n")}`);
     } catch (error) {
       logger.error("航班動態查詢失敗", { error: String(error) });
@@ -814,7 +826,7 @@ const flightStatusSkill: SkillDefinition = {
 
     for (const sub of due) {
       try {
-        const found = await lookupFlight(sub.airline, sub.number, sub.direction, token);
+        const found = await lookupFlight(sub.airline, sub.number, sub.direction, token, sub.date);
         const rows = found.rows;
         if (rows.length === 0) continue;
         const sig = rows.map(statusSignature).join(";");
