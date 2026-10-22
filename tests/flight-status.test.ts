@@ -14,6 +14,7 @@ import flightStatusSkill, {
   isTripOver,
   todayYmd,
   normAirline,
+  matchAirline,
   lookupFlight,
 } from "../src/skills/flight-status/index.js";
 import type { SkillContext } from "../src/skills/types.js";
@@ -443,6 +444,31 @@ describe("flight-status 同號他航", () => {
   it("normAirline 去空白轉大寫", () => {
     assert.equal(normAirline(" jx "), "JX");
     assert.equal(normAirline(undefined), "");
+  });
+
+  it("matchAirline IATA/ICAO 互通", () => {
+    assert.equal(matchAirline("JX", "JX"), true);
+    assert.equal(matchAirline("SJX", "JX"), true);
+    assert.equal(matchAirline("CAL", "CI"), true);
+    assert.equal(matchAirline("BR", "JX"), false);
+    assert.equal(matchAirline(undefined, "JX"), false);
+  });
+
+  it("ICAO 代碼也算命中（SJX→JX）", async () => {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      return new Response(JSON.stringify([{ ...ARR, AirlineID: "SJX", FlightNumber: "715" }]));
+    }) as typeof fetch;
+    try {
+      const found = await lookupFlight("JX", "715", "arr", "tok");
+      assert.equal(found.exact, true);
+      assert.equal(found.rows[0].airline, "SJX");
+    } finally {
+      globalThis.fetch = savedFetch;
+    }
   });
 
   it("lookupFlight 優先指定航空並標 exact", async () => {

@@ -274,6 +274,47 @@ export function normAirline(s: string | undefined): string {
   return (s ?? "").trim().toUpperCase();
 }
 
+/** ICAO → IATA（TDX 有時給 ICAO，如星宇 SJX、長榮 EVA、華航 CAL）。 */
+const ICAO_TO_IATA: Record<string, string> = {
+  CAL: "CI",
+  EVA: "BR",
+  SJX: "JX",
+  TTL: "IT",
+  UIA: "B7",
+  MDA: "AE",
+  CPA: "CX",
+  JAL: "JL",
+  ANA: "NH",
+  KAL: "KE",
+  AAR: "OZ",
+  SIA: "SQ",
+  THA: "TG",
+  HVN: "VN",
+  PAL: "PR",
+  MAS: "MH",
+  UAE: "EK",
+  QTR: "QR",
+  QFA: "QF",
+  UAL: "UA",
+  DAL: "DL",
+  AAL: "AA",
+  ACA: "AC",
+  BAW: "BA",
+  AFR: "AF",
+  KLM: "KL",
+  DLH: "LH",
+  THY: "TK",
+};
+
+/** 比對指定航空（IATA/ICAO 互通）。 */
+export function matchAirline(recordAirline: string | undefined, want: string): boolean {
+  const got = normAirline(recordAirline);
+  const w = normAirline(want);
+  if (!got || !w) return false;
+  if (got === w) return true;
+  return (ICAO_TO_IATA[got] ?? got) === w || got === (ICAO_TO_IATA[w] ?? w);
+}
+
 async function queryFids(
   direction: "dep" | "arr",
   airline: string,
@@ -288,8 +329,7 @@ async function queryFids(
   );
   const list = Array.isArray(data) ? data : [];
   // 同班號可能有多家共掛（codeshare）：優先指定航空，否則全留（呼叫端標示）
-  const want = normAirline(airline);
-  const exact = list.filter((r) => normAirline(r.AirlineID) === want);
+  const exact = list.filter((r) => matchAirline(r.AirlineID, airline));
   if (exact.length > 0) return { records: exact.slice(0, 3), exact: true };
   return { records: list.slice(0, 3), exact: false };
 }
