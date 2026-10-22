@@ -334,10 +334,7 @@ async function queryFids(
     `${TDX_BASE}/FIDS/Airport/${endpoint}?$filter=${filter}&$top=30&$format=JSON`,
     token,
   );
-  const list = Array.isArray(data) ? data : [];
-  // 同班號可能有多家共掛（codeshare）：優先指定航空，否則全留（lookupFlight 標示）
-  const exact = list.filter((r) => matchAirline(r.AirlineID, airline));
-  return (exact.length > 0 ? exact : list).slice(0, 3);
+  return Array.isArray(data) ? data : [];
 }
 
 /** 查指定航班雙向（或單向）即時動態；exact=false 表示混入他航同號航班。 */
@@ -349,18 +346,20 @@ export async function lookupFlight(
   date?: string,
 ): Promise<{ rows: FlightStatus[]; exact: boolean }> {
   const dirs = direction === "both" ? (["dep", "arr"] as const) : [direction];
-  const out: FlightStatus[] = [];
+  const matched: FlightStatus[] = [];
+  const others: FlightStatus[] = [];
   for (const d of dirs) {
     const records = await queryFids(d, airline, number, token);
     for (const r of records) {
       const st = toStatus(r, d);
       // 有指定日期只留當天（榜單橫跨多天；缺日期欄位時保留）
       if (date && st.date && st.date !== date) continue;
-      out.push(st);
+      (matchAirline(st.airline, airline) ? matched : others).push(st);
     }
   }
-  const exact = out.length > 0 && out.every((s) => matchAirline(s.airline, airline));
-  return { rows: out, exact };
+  // 有命中指定航空就只留它家的；完全沒有才列同號他航（呼叫端掛查無警語）
+  if (matched.length > 0) return { rows: matched, exact: true };
+  return { rows: others, exact: false };
 }
 
 const TASK = "flight-watch";

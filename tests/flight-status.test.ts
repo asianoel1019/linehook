@@ -626,4 +626,31 @@ describe("flight-status 非 ASCII 代碼與跨日榜單", () => {
       globalThis.fetch = savedFetch;
     }
   });
+
+  it("回歸：去程有JX、回程無JX時不混入他航（實況重演）", async () => {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("openid-connect/token")) {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      if (url.includes("/Departure")) {
+        return new Response(JSON.stringify([
+          { AirlineID: "JX", FlightNumber: "715", FlightDate: "2026-10-23", DepartureAirportID: "TPE", ArrivalAirportID: "HAN" },
+        ]));
+      }
+      return new Response(JSON.stringify([
+        { AirlineID: "BR", FlightNumber: "715", FlightDate: "2026-10-21" },
+        { AirlineID: "BR", FlightNumber: "715", FlightDate: "2026-10-22" },
+        { AirlineID: "IT", FlightNumber: "715", FlightDate: "2026-10-22" },
+      ]));
+    }) as typeof fetch;
+    try {
+      const found = await lookupFlight("JX", "715", "both", "tok");
+      assert.equal(found.exact, true);
+      assert.equal(found.rows.length, 1);
+      assert.equal(found.rows[0].airline, "JX");
+    } finally {
+      globalThis.fetch = savedFetch;
+    }
+  });
 });
