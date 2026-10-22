@@ -7,6 +7,10 @@ import autoReplySkill, {
   parseWeekdays,
   resolveAutoReply,
   ruleScheduleOk,
+  splitVariants,
+  pickVariant,
+  parseProbability,
+  rollProbability,
 } from "../src/skills/auto-reply/index.js";
 import type { SkillContext } from "../src/skills/types.js";
 
@@ -186,5 +190,77 @@ describe("auto-reply run()", () => {
       },
     } as unknown as SkillContext);
     assert.deepEqual(replies, ["已收到"]);
+  });
+});
+
+describe("auto-reply 多則輪替與機率", () => {
+  it("splitVariants：|| 分隔、去空；無分隔回原文", () => {
+    assert.deepEqual(splitVariants("早安||早安安||早☀️"), ["早安", "早安安", "早☀️"]);
+    assert.deepEqual(splitVariants("只有一則"), ["只有一則"]);
+    assert.deepEqual(splitVariants(""), []);
+    assert.deepEqual(splitVariants(undefined), []);
+    assert.deepEqual(splitVariants("a||||b"), ["a", "b"]);
+  });
+
+  it("pickVariant：邊界索引", () => {
+    assert.equal(pickVariant(["a", "b", "c"], 0), "a");
+    assert.equal(pickVariant(["a", "b", "c"], 0.5), "b");
+    assert.equal(pickVariant(["a", "b", "c"], 0.9999), "c");
+    assert.equal(pickVariant([], 0.5), "");
+  });
+
+  it("parseProbability：夾取 0–1、非法回 1", () => {
+    assert.equal(parseProbability(0.3), 0.3);
+    assert.equal(parseProbability("0.5"), 0.5);
+    assert.equal(parseProbability(2), 1);
+    assert.equal(parseProbability(-1), 0);
+    assert.equal(parseProbability(undefined), 1);
+    assert.equal(parseProbability("壞的"), 1);
+  });
+
+  it("rollProbability：p=1 必中、p=0 必不中", () => {
+    assert.equal(rollProbability(1, 0.99), true);
+    assert.equal(rollProbability(0, 0), false);
+    assert.equal(rollProbability(0.5, 0.4), true);
+    assert.equal(rollProbability(0.5, 0.6), false);
+  });
+
+  it("run()：多則回覆落在集合內且套用變數", async () => {
+    const replies: string[] = [];
+    await autoReplySkill.run({
+      ...ctxFor("報價", "variant-chat", "u1"),
+      config: {
+        cooldownSec: "0",
+        rules: JSON.stringify([{ keyword: "報價", match: "contains", text: "Hi {{name}}||Yo {{name}}" }]),
+      },
+      reply: async (t: string) => {
+        replies.push(t);
+      },
+    } as unknown as SkillContext);
+    assert.equal(replies.length, 1);
+    assert.ok(replies[0] === "Hi 小明" || replies[0] === "Yo 小明", replies[0]);
+  });
+
+  it("run()：機率 0 不回且不吃冷卻", async () => {
+    const rules = [{ keyword: "報價", match: "contains", text: "已收到", probability: 0 }];
+    const r1: string[] = [];
+    await autoReplySkill.run({
+      ...ctxFor("報價", "prob-chat", "u1"),
+      config: { cooldownSec: "60", rules: JSON.stringify(rules) },
+      reply: async (t: string) => {
+        r1.push(t);
+      },
+    } as unknown as SkillContext);
+    assert.deepEqual(r1, []);
+    // 冷卻沒被吃掉：同規則機率改 1 立刻能回
+    const r2: string[] = [];
+    await autoReplySkill.run({
+      ...ctxFor("報價", "prob-chat", "u1"),
+      config: { cooldownSec: "60", rules: JSON.stringify([{ ...rules[0], probability: 1 }]) },
+      reply: async (t: string) => {
+        r2.push(t);
+      },
+    } as unknown as SkillContext);
+    assert.deepEqual(r2, ["已收到"]);
   });
 });

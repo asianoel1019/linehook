@@ -17,6 +17,8 @@ export interface AutoReplyRule {
   weekdays?: string;
   /** 這條規則的冷卻秒數（覆蓋全域 cooldownSec）。 */
   cooldownSec?: number;
+  /** 回覆機率 0–1（例如 0.3 = 30% 才回；缺省/非法 = 每次都回）。 */
+  probability?: number;
 }
 
 /** 冷卻 key：每「對話＋寄件者」分開算——群組裡一人觸發不再靜音全團。 */
@@ -127,6 +129,35 @@ export function isCooling(key: string, cooldownSec: number, now = Date.now()): b
   return now - last < cooldownSec * 1000;
 }
 
+/** 回覆文字切多則（`||` 分隔；無分隔回原文；全空回空陣列）。 */
+export function splitVariants(text: string | undefined): string[] {
+  if (!text) return [];
+  const parts = text
+    .split("||")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts : [text];
+}
+
+/** 從多則挑一則（rand ∈ [0,1)；測試可注入固定值）。 */
+export function pickVariant(variants: string[], rand = Math.random()): string {
+  if (variants.length === 0) return "";
+  const idx = Math.min(Math.floor(rand * variants.length), variants.length - 1);
+  return variants[idx];
+}
+
+/** 機率正規化（0–1；缺省/非法回 1 = 每次都回）。 */
+export function parseProbability(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(Math.max(n, 0), 1);
+}
+
+/** 擲骰子（rand 可注入；p=1 必中、p=0 必不中）。 */
+export function rollProbability(p: number, rand = Math.random()): boolean {
+  return rand < p;
+}
+
 /** 一條規則被排除的人類可讀原因（時段/星期）。 */
 export function scheduleBlockReason(rule: AutoReplyRule, now: Date): string {
   const from = parseHm(rule.timeFrom);
@@ -218,7 +249,12 @@ const autoReplySkill: SkillDefinition = {
     {
       key: "text",
       label: { zh: "回覆文字", en: "Reply text", ja: "返信テキスト" },
-      hint: "可用 {{name}}（對方名稱）、{{keyword}}、{{text}}",
+      hint: "可用 {{name}}（對方名稱）、{{keyword}}、{{text}}；多則用 || 分隔隨機挑一則",
+    },
+    {
+      key: "probability",
+      label: { zh: "回覆機率", en: "Reply probability", ja: "返信確率" },
+      hint: "0–1，例如 0.3（30% 才回）；留空或 1 = 每次都回",
     },
     { key: "timeFrom", label: { zh: "起始時間", en: "From", ja: "開始時刻" }, hint: "HH:mm，例如 09:00；留空 = 全天" },
     {
@@ -252,6 +288,13 @@ const autoReplySkill: SkillDefinition = {
     }
 
     const rule = decision.rule;
+
+    // 機率 gate：沒中就不回（也不吃冷卻，下次照樣能中）
+    if (!rollProbability(parseProbability(rule.probability))) {
+      logger.info("自動回覆機率略過", { chat: ctx.chat, from: ctx.fromMid, keyword: rule.keyword });
+      return;
+    }
+
     const key = cooldownKey(ctx.chat, ctx.fromMid);
     cooldown.set(key, Date.now());
 
@@ -264,7 +307,8 @@ const autoReplySkill: SkillDefinition = {
       text,
     };
 
-    if (rule.text) await ctx.reply(renderTemplate(rule.text, vars));
+    const replyText = pickVariant(splitVariants(rule.text));
+    if (replyText) await ctx.reply(renderTemplate(replyText, vars));
     if (rule.image) await ctx.sendImage(rule.image, rule.filename);
     if (rule.filePath) await ctx.sendFile(rule.filePath, rule.filename);
   },
