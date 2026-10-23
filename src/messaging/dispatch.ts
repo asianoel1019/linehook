@@ -15,6 +15,11 @@ import { conversionArgs, parseConversion } from "../skills/exchange-rate/index.j
 import { parseCryptoConversion } from "../skills/crypto/index.js";
 import { parseFlightIntent, parseFlightNo } from "../skills/flight-status/index.js";
 import { classifyIntent, collectRouterCandidates, routerAvailable } from "./intent-router.js";
+import { nowInTz, zonedTimeToMs } from "../time.js";
+import {
+  loadSchedulesMeta,
+  recordLastRun,
+} from "../schedules-meta.js";
 
 /** 無前綴自然意圖門檻（分數＝命中關鍵字去重後長度加總；群組更嚴）。 */
 export const NATURAL_INTENT_THRESHOLD = 4;
@@ -423,6 +428,11 @@ export interface DispatchDeps {
   readTaskState(id: string): Record<string, unknown> | undefined;
   saveTaskState(id: string, state: Record<string, unknown>): boolean;
   cancelScheduledTask(id: string): boolean;
+  /**
+   * 改期（勿擾延後用）。選填：沒有的平台在勿擾時段照常執行並記 warn。
+   * 各 adapter 實作皆為一行委派（this.updateScheduled）。
+   */
+  updateScheduledTask?: (id: string, patch: { runAt?: number; repeat?: string | null }) => ScheduledJobView | null;
   enqueueText(to: string, text: string): Promise<void>;
   getQueueStats(): { pending: number; running: boolean };
   listScheduled(): ScheduledJobView[];
@@ -446,6 +456,50 @@ export async function dispatchIncoming(msg: IncomingMessage, deps: DispatchDeps)
 }
 
 /**
+ * 勿擾窗口（分鐘制）。from == to 視為未設定（回 null），避免誤開全天靜音。
+ */
+export interface QuietWindow {
+  fromMin: number;
+  toMin: number;
+}
+
+export function parseQuietWindow(from: string, to: string): QuietWindow | null {
+  const m = (s: string): number | null => {
+    const r = /^\s*([01]?\d|2[0-3])\s*[:：]\s*([0-5]\d)\s*$/.exec(s ?? "");
+    return r ? Number(r[1]) * 60 + Number(r[2]) : null;
+  };
+  const f = m(from);
+  const t = m(to);
+  if (f === null || t === null || f === t) return null;
+  return { fromMin: f, toMin: t };
+}
+
+/** 此刻是否在勿擾窗口內（支援跨夜：from > to）。 */
+export function isQuietMinutes(nowMin: number, w: QuietWindow): boolean {
+  if (w.fromMin < w.toMin) return nowMin >= w.fromMin && nowMin < w.toMin;
+  return nowMin >= w.fromMin || nowMin < w.toMin;
+}
+
+/**
+ * 算出勿擾結束時刻（ms）：今天的 to，若已過則順延一天。
+ * parts 取自 nowInTz() 的本地欄位（即設定時區牆鐘）。
+ */
+export function quietEndMs(
+  nowMs: number,
+  parts: { year: number; month: number; day: number },
+  w: QuietWindow,
+  timeZone: string,
+): number {
+  const at = (day: number): number =>
+    zonedTimeToMs(
+      { year: parts.year, month: parts.month, day, hour: Math.floor(w.toMin / 60), minute: w.toMin % 60 },
+      timeZone,
+    );
+  const end = at(parts.day);
+  return end <= nowMs ? at(parts.day + 1) : end;
+}
+
+/**
  * 技能週期任務觸發分派：找出技能定義並呼叫 onTask。
  * 技能被停用/移除時略過執行（保留排程，重啟技能後恢復）。
  */
@@ -457,6 +511,42 @@ export async function dispatchSkillTask(job: ScheduledJob, deps: DispatchDeps): 
   if (!skillEntry?.enabled || !def?.onTask) {
     logger.info("略過技能任務（技能停用或無 onTask）", { skill: ref.skillId, task: ref.task, chat: ref.chat });
     return;
+  }
+  // 推播總管：全域靜音／單一靜音直接略過（保留排程）；勿擾時段延後到結束（不丟失）。
+  const meta = loadSchedulesMeta();
+  if (meta.globalMute) {
+    logger.info("推播被全域靜音略過", { skill: ref.skillId, task: ref.task, chat: ref.chat });
+    return;
+  }
+  if (meta.muted[job.id]) {
+    logger.info("推播被單一靜音略過", { skill: ref.skillId, task: ref.task, chat: ref.chat });
+    return;
+  }
+  const qw = meta.quiet.enabled ? parseQuietWindow(meta.quiet.from, meta.quiet.to) : null;
+  if (qw) {
+    const now = nowInTz();
+    if (isQuietMinutes(now.getHours() * 60 + now.getMinutes(), qw)) {
+      if (deps.updateScheduledTask) {
+        const end = quietEndMs(
+          Date.now(),
+          { year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() },
+          qw,
+          config.timezone,
+        );
+        const moved = deps.updateScheduledTask(job.id, { runAt: end });
+        logger.info("勿擾時段，推播延後執行", {
+          skill: ref.skillId,
+          task: ref.task,
+          chat: ref.chat,
+          end: new Date(end).toISOString(),
+          moved: !!moved,
+        });
+        if (moved) return;
+        // 改期失敗 → 掉下去照常執行（寧可吵到也不丟失）
+      } else {
+        logger.warn("勿擾時段但此平台不支援改期，照常執行", { skill: ref.skillId, task: ref.task });
+      }
+    }
   }
   const chat = ref.chat;
   const taskCtx: SkillTaskContext = {
@@ -493,12 +583,15 @@ export async function dispatchSkillTask(job: ScheduledJob, deps: DispatchDeps): 
   logger.info("觸發技能任務", { skill: ref.skillId, task: ref.task, chat });
   try {
     await def.onTask(taskCtx);
+    recordLastRun(job.id, { at: Date.now(), ok: true });
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     logger.error("技能任務執行失敗", {
       skill: ref.skillId,
       task: ref.task,
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
     });
+    recordLastRun(job.id, { at: Date.now(), ok: false, error: message });
   }
 }
 

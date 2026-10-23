@@ -26,6 +26,13 @@ import {
 } from "../line/client.js";
 import type { IMessagingService, Platform } from "../messaging/types.js";
 import { getService, listServices } from "../messaging/services.js";
+import { parseQuietWindow } from "../messaging/dispatch.js";
+import {
+  pruneSchedulesMeta,
+  setGlobalMute,
+  setJobMuted,
+  setQuietHours,
+} from "../schedules-meta.js";
 import { recordMetric, renderMetrics } from "../metrics.js";
 import { llmUsage } from "../llm-usage.js";
 import { persistInbound } from "../messaging/inbox.js";
@@ -66,6 +73,7 @@ import { parseDateTimeInTz } from "../time.js";
 import { renderDashboardHtml } from "./pages/dashboard.js";
 import { renderSettingsHtml } from "./pages/settings.js";
 import { renderConsoleHtml } from "./pages/console.js";
+import { renderSchedulesHtml } from "./pages/schedules.js";
 import { renderSkillsHtml } from "./pages/skills.js";
 import { renderLoginHtml } from "./pages/login.js";
 import { renderReadmeHtml, sanitizeReadmeHtml as sanitizeReadmeHtmlImpl } from "./pages/readme.js";
@@ -709,6 +717,94 @@ export function createServer(line: IMessagingService): express.Express {
   });
   app.get("/console", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
     res.type("html").send(renderConsoleHtml());
+  });
+  // P1 統一排程中心：跨平台所有排程（含技能任務）一覽＋靜音/勿擾控制。
+  // 取消/改頻率沿用既有 /settings/scheduled/*（body 帶 platform）。
+  const describeCronShort = (cron: string | undefined): string => {
+    if (!cron) return "單次";
+    const p = cron.trim().split(/\s+/);
+    if (p.length !== 5) return cron;
+    const [mi, h] = p;
+    if (/^\*\/\d+$/.test(mi) && h === "*") return `每 ${mi.slice(2)} 分鐘`;
+    if (mi === "*" && h === "*") return "每分鐘";
+    if (/^\d+$/.test(mi) && /^\d+$/.test(h) && p[2] === "*" && p[3] === "*" && p[4] === "*") {
+      return `每天 ${h.padStart(2, "0")}:${mi.padStart(2, "0")}`;
+    }
+    return cron;
+  };
+  app.get("/schedules", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
+    res.type("html").send(renderSchedulesHtml());
+  });
+  app.get("/schedules.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    const alive = new Set<string>();
+    const jobs: Array<Record<string, unknown>> = [];
+    for (const svc of listServices()) {
+      for (const j of svc.listScheduled()) {
+        alive.add(j.id);
+        const st = j.skillTask;
+        jobs.push({
+          platform: svc.platform,
+          id: j.id,
+          runAt: j.runAt,
+          repeat: j.repeat ?? null,
+          recurring: j.recurring,
+          summary: j.summary,
+          freq: describeCronShort(j.repeat),
+          lastError: j.lastError ?? null,
+          skillTask: st
+            ? {
+                skillId: st.skillId,
+                task: st.task,
+                chat: st.chat,
+                args: st.args,
+                skillName: getSkill(st.skillId)?.name ?? st.skillId,
+              }
+            : null,
+        });
+      }
+    }
+    const meta = pruneSchedulesMeta(alive);
+    jobs.sort((a, b) => String(a.runAt).localeCompare(String(b.runAt)));
+    res.json({
+      jobs: jobs.map((j) => ({
+        ...j,
+        muted: meta.muted[String(j.id)] === true,
+        lastRun: (meta.lastRuns[String(j.id)] ?? null) as { at: number; ok: boolean; error?: string } | null,
+      })),
+      quiet: meta.quiet,
+      globalMute: meta.globalMute,
+    });
+  });
+  app.post("/schedules/mute", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
+    const body = asRecord(req.body) ?? {};
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) {
+      res.status(400).json({ ok: false, error: "id 必填" });
+      return;
+    }
+    const meta = setJobMuted(id, body.muted !== false);
+    audit(req, "schedules.mute", `${id}:${body.muted !== false ? "muted" : "unmuted"}`);
+    res.json({ ok: true, muted: meta.muted[id] === true });
+  });
+  app.post("/schedules/quiet", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
+    const body = asRecord(req.body) ?? {};
+    const enabled = body.enabled === true;
+    const from = typeof body.from === "string" ? body.from : "23:00";
+    const to = typeof body.to === "string" ? body.to : "07:00";
+    if (enabled && !parseQuietWindow(from, to)) {
+      res.status(400).json({ ok: false, error: "時段無效（HH:mm，且起訖不可相同）" });
+      return;
+    }
+    const meta = setQuietHours({ enabled, from, to });
+    audit(req, "schedules.quiet", enabled ? `${from}-${to}` : "off");
+    res.json({ ok: true, quiet: meta.quiet });
+  });
+  app.post("/schedules/mute-all", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
+    const body = asRecord(req.body) ?? {};
+    const meta = setGlobalMute(body.muted !== false);
+    audit(req, "schedules.mute-all", body.muted !== false ? "on" : "off");
+    res.json({ ok: true, globalMute: meta.globalMute });
   });
   app.get("/skills", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
     res.type("html").send(renderSkillsHtml());

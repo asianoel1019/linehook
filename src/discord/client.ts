@@ -575,6 +575,7 @@ export class DiscordService implements IMessagingService {
       readTaskState: (id) => this.readTaskState(id),
       saveTaskState: (id, state) => this.saveTaskState(id, state),
       cancelScheduledTask: (id) => this.scheduler.cancel(id),
+      updateScheduledTask: (id, patch) => this.updateScheduled(id, patch),
       enqueueText: (to, text) => this.enqueueText(to, text),
       getQueueStats: () => this.getQueueStats(),
       listScheduled: () => this.listScheduled(),
