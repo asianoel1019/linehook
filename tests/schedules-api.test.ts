@@ -119,6 +119,8 @@ describe("/schedules 一覽與控制", () => {
     assert.ok(html.includes('data-tab="schedules"'));
     assert.ok(html.includes('id="tab-schedules"'));
     assert.ok(html.includes('id="sch-status"'));
+    assert.ok(html.includes("schPills"));
+    assert.ok(html.includes("sch-pill"));
     assert.ok(html.includes("schLoad"));
     assert.ok(html.includes("/schedules.json"));
   });

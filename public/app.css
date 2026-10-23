@@ -55,6 +55,14 @@
   .fn-card.setting { color: #fbcfe8; border: 1px solid rgba(244,114,182,.3); border-left: 3px solid rgba(244,114,182,.75); border-radius: 4px 10px 10px 4px; background: linear-gradient(90deg, rgba(244,114,182,.08), rgba(0,0,0,.3)); }
   .fn-card.setting:hover { background: linear-gradient(90deg, rgba(244,114,182,.2), rgba(0,0,0,.3)); box-shadow: 0 0 16px rgba(244,114,182,.4); }
   .fn-card.setting.active { color: #fff; background: linear-gradient(90deg, rgba(244,114,182,.45), rgba(129,140,248,.25)); border-color: transparent; border-left: 3px solid #f472b6; box-shadow: 0 0 20px rgba(244,114,182,.5); }
+  /* 排程頁籤告警態：有靜音/勿擾生效時整顆亮琥珀色，遠看也知道開著 */
+  #skills-subnav .fn-card.alert { color: #fde68a; border-color: rgba(245,158,11,.7); border-left: 3px solid #f59e0b; background: linear-gradient(90deg, rgba(245,158,11,.35), rgba(0,0,0,.3)); box-shadow: 0 0 18px rgba(245,158,11,.5); }
+  /* 狀態藥丸：綠＝生效中／正開著，灰＝關著，琥珀＝有單條靜音 */
+  .sch-pill { display: inline-block; padding: 3px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid; margin: 2px 8px 2px 0; white-space: nowrap; }
+  .sch-pill.green { color: #6ee7b7; border-color: rgba(52,211,153,.7); background: rgba(52,211,153,.14); box-shadow: 0 0 10px rgba(52,211,153,.3); }
+  .sch-pill.red { color: #fca5a5; border-color: rgba(248,113,113,.7); background: rgba(248,113,113,.14); box-shadow: 0 0 10px rgba(248,113,113,.3); }
+  .sch-pill.amber { color: #fcd34d; border-color: rgba(245,158,11,.7); background: rgba(245,158,11,.14); box-shadow: 0 0 10px rgba(245,158,11,.3); }
+  .sch-pill.gray { color: #9db4c8; border-color: rgba(148,163,184,.4); background: rgba(148,163,184,.1); }
   .plat-off { display: none !important; }
   .platform-switch { display: flex; gap: 6px; margin: 0 0 4px; }
   .platform-switch button { flex: 1; padding: 7px 10px; font-size: 12px; font-weight: 700; border-radius: 999px; border: 1px solid rgba(34,211,238,.3); background: rgba(0,0,0,.3); color: #a5f3fc; cursor: pointer; transition: all .25s ease; }

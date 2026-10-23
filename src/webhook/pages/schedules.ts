@@ -52,6 +52,29 @@ export function schedulesTabScript(): string {
     if (j.skillTask) return (j.skillTask.skillName || j.skillTask.skillId) + " / " + j.skillTask.task;
     return j.summary || j.id.slice(0, 8);
   }
+  function schPills(d, mutedCount) {
+    function pill(text, color) {
+      var s = document.createElement("span");
+      s.className = "sch-pill " + color;
+      s.textContent = text;
+      return s;
+    }
+    var q = d.quiet || {};
+    var pills = [];
+    if (!q.enabled) {
+      pills.push(pill(T("sched_quiet_short") + "：" + T("sched_quiet_off"), "gray"));
+    } else if (d.quietActive) {
+      pills.push(pill(T("sched_quiet_short") + " " + (q.from || "?") + "–" + (q.to || "?") + " " + T("sched_quiet_active"), "green"));
+    } else {
+      pills.push(pill(T("sched_quiet_short") + " " + (q.from || "?") + "–" + (q.to || "?") + " " + T("sched_quiet_idle"), "gray"));
+    }
+    pills.push(pill(
+      T("sched_mute_all_short") + "：" + (d.globalMute === true ? T("sched_on") : T("sched_off")),
+      d.globalMute === true ? "red" : "gray"
+    ));
+    pills.push(pill(mutedCount + " " + T("sched_muted_jobs"), mutedCount > 0 ? "amber" : "gray"));
+    return pills;
+  }
   function schLoad() {
     schMsg("");
     fetch("/schedules.json", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
@@ -62,20 +85,16 @@ export function schedulesTabScript(): string {
       document.getElementById("sch-mute-all").checked = d.globalMute === true;
       var host = document.getElementById("sch-list");
       var jobs = (d.jobs || []).slice().sort(function (a, b) { return String(a.runAt).localeCompare(String(b.runAt)); });
-      // 狀態列＋頁籤亮點：勿擾開關/是否正生效、全部靜音、單條靜音數，一眼可見。
+      // 狀態藥丸＋頁籤亮燈：綠＝生效中／正開著，灰＝關著，琥珀＝有單條靜音。
       var mutedCount = jobs.filter(function (j) { return j.muted; }).length;
-      var qText = !q.enabled
-        ? T("sched_quiet_off")
-        : (q.from || "?") + "–" + (q.to || "?") + "（" + (d.quietActive ? T("sched_quiet_active") : T("sched_quiet_idle")) + "）";
       var stEl = document.getElementById("sch-status");
       if (stEl) {
-        stEl.textContent = T("sched_state") + "：" + T("sched_quiet_short") + " " + qText +
-          "｜" + T("sched_mute_all_short") + " " + (d.globalMute === true ? T("sched_on") : T("sched_off")) +
-          "｜" + mutedCount + " " + T("sched_muted_jobs");
+        stEl.replaceChildren.apply(stEl, schPills(d, mutedCount));
       }
       var tabBtn = document.querySelector('#skills-subnav .fn-card[data-tab="schedules"]');
       if (tabBtn) {
         var alert = d.globalMute === true || d.quietActive === true || mutedCount > 0;
+        tabBtn.classList.toggle("alert", alert);
         tabBtn.textContent = alert ? T("nav_schedules") + " ●" : T("nav_schedules");
       }
       if (jobs.length === 0) {
