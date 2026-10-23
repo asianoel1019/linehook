@@ -28,7 +28,7 @@ import {
 import type { IMessagingService, Platform } from "../messaging/types.js";
 import type { SkillContext } from "../skills/types.js";
 import { getService, listServices } from "../messaging/services.js";
-import { parseQuietWindow } from "../messaging/dispatch.js";
+import { parseQuietWindow, isQuietMinutes } from "../messaging/dispatch.js";
 import {
   pruneSchedulesMeta,
   setGlobalMute,
@@ -72,7 +72,7 @@ import {
   verifyCredentialsAsync,
 } from "../middleware/session.js";
 import { parseCron } from "../line/cron.js";
-import { parseDateTimeInTz } from "../time.js";
+import { parseDateTimeInTz, nowInTz } from "../time.js";
 import { renderDashboardHtml } from "./pages/dashboard.js";
 import { renderSettingsHtml } from "./pages/settings.js";
 import { renderConsoleHtml } from "./pages/console.js";
@@ -769,6 +769,10 @@ export function createServer(line: IMessagingService): express.Express {
     }
     const meta = pruneSchedulesMeta(alive);
     jobs.sort((a, b) => String(a.runAt).localeCompare(String(b.runAt)));
+    // 勿擾「現在是否生效」由 server 算（跟 dispatch 延後判定同一套函式，單一真相）。
+    const qw = meta.quiet.enabled ? parseQuietWindow(meta.quiet.from, meta.quiet.to) : null;
+    const now = nowInTz();
+    const quietActive = qw ? isQuietMinutes(now.getHours() * 60 + now.getMinutes(), qw) : false;
     res.json({
       jobs: jobs.map((j) => ({
         ...j,
@@ -776,6 +780,7 @@ export function createServer(line: IMessagingService): express.Express {
         lastRun: (meta.lastRuns[String(j.id)] ?? null) as { at: number; ok: boolean; error?: string } | null,
       })),
       quiet: meta.quiet,
+      quietActive,
       globalMute: meta.globalMute,
     });
   });

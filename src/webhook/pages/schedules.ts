@@ -7,6 +7,7 @@ export function schedulesTabBody(): string {
   return `
 <div class="glass" style="margin-bottom:16px">
   <h2 style="margin-top:0" data-i18n="sched_quiet_title">勿擾與靜音</h2>
+  <div id="sch-status" class="msg" style="font-size:13px;margin-bottom:10px"></div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input id="sch-quiet-on" type="checkbox" style="width:auto"><span data-i18n="sched_quiet">勿擾時段（延後執行，不丟失）</span></label></div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px"><input id="sch-quiet-from" placeholder="23:00" style="width:110px;flex:0 0 auto"><span>–</span><input id="sch-quiet-to" placeholder="07:00" style="width:110px;flex:0 0 auto"><button type="button" id="sch-quiet-save" data-i18n="sched_save" style="flex:0 0 auto">儲存</button><span id="sch-quiet-msg" class="msg"></span></div>
   <div class="msg" style="font-size:12px;color:#94a3b8;margin-bottom:10px" data-i18n="sched_quiet_hint">格式 HH:mm；起晚於訖代表跨夜。一次性訊息不受影響。</div>
@@ -61,6 +62,22 @@ export function schedulesTabScript(): string {
       document.getElementById("sch-mute-all").checked = d.globalMute === true;
       var host = document.getElementById("sch-list");
       var jobs = (d.jobs || []).slice().sort(function (a, b) { return String(a.runAt).localeCompare(String(b.runAt)); });
+      // 狀態列＋頁籤亮點：勿擾開關/是否正生效、全部靜音、單條靜音數，一眼可見。
+      var mutedCount = jobs.filter(function (j) { return j.muted; }).length;
+      var qText = !q.enabled
+        ? T("sched_quiet_off")
+        : (q.from || "?") + "–" + (q.to || "?") + "（" + (d.quietActive ? T("sched_quiet_active") : T("sched_quiet_idle")) + "）";
+      var stEl = document.getElementById("sch-status");
+      if (stEl) {
+        stEl.textContent = T("sched_state") + "：" + T("sched_quiet_short") + " " + qText +
+          "｜" + T("sched_mute_all_short") + " " + (d.globalMute === true ? T("sched_on") : T("sched_off")) +
+          "｜" + mutedCount + " " + T("sched_muted_jobs");
+      }
+      var tabBtn = document.querySelector('#skills-subnav .fn-card[data-tab="schedules"]');
+      if (tabBtn) {
+        var alert = d.globalMute === true || d.quietActive === true || mutedCount > 0;
+        tabBtn.textContent = alert ? T("nav_schedules") + " ●" : T("nav_schedules");
+      }
       if (jobs.length === 0) {
         host.innerHTML = '<div class="msg">' + T("sched_no_jobs") + "</div>";
         return;

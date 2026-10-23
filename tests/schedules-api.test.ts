@@ -103,6 +103,7 @@ describe("/schedules 一覽與控制", () => {
     assert.equal(skill.muted, false);
     assert.equal(skill.lastRun, null);
     assert.equal(skill.freq, "每天 08:00");
+    assert.equal(typeof body?.quietActive, "boolean");
   });
 
   it("GET /schedules：已併入技能頁籤，轉址到 /skills#schedules", async () => {
@@ -117,6 +118,7 @@ describe("/schedules 一覽與控制", () => {
     const html = await res.text();
     assert.ok(html.includes('data-tab="schedules"'));
     assert.ok(html.includes('id="tab-schedules"'));
+    assert.ok(html.includes('id="sch-status"'));
     assert.ok(html.includes("schLoad"));
     assert.ok(html.includes("/schedules.json"));
   });
