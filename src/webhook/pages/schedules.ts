@@ -2,12 +2,15 @@
  * 排程本質是技能的延伸（watch 任務＋技能發起的一次性推播），以「技能」頁第 4 頁籤呈現；
  * 資料與控制 API（/schedules.json 等）維持不變，頁籤 JS 打同一批端點。 */
 export function schedulesTabBody(): string {
+  // 注意：不要用全域 .field（240px＋1fr 兩欄 grid），這裡每列都是整排控制項；
+  // 用自帶 flex-wrap 的列，窄螢幕自動換行不重疊。
   return `
 <div class="glass" style="margin-bottom:16px">
   <h2 style="margin-top:0" data-i18n="sched_quiet_title">勿擾與靜音</h2>
-  <div class="field"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input id="sch-quiet-on" type="checkbox" style="width:auto"><span data-i18n="sched_quiet">勿擾時段（延後執行，不丟失）</span></label></div>
-  <div class="field"><span style="display:flex;gap:8px;align-items:center"><input id="sch-quiet-from" placeholder="23:00" style="width:110px"><span>–</span><input id="sch-quiet-to" placeholder="07:00" style="width:110px"><button type="button" id="sch-quiet-save" data-i18n="sched_save">儲存</button><span id="sch-quiet-msg" class="msg"></span></span><div class="hint" data-i18n="sched_quiet_hint">格式 HH:mm；起晚於訖代表跨夜。一次性訊息不受影響。</div></div>
-  <div class="field"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input id="sch-mute-all" type="checkbox" style="width:auto"><span data-i18n="sched_mute_all">全部靜音（所有推播直接略過）</span></label></div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input id="sch-quiet-on" type="checkbox" style="width:auto"><span data-i18n="sched_quiet">勿擾時段（延後執行，不丟失）</span></label></div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px"><input id="sch-quiet-from" placeholder="23:00" style="width:110px;flex:0 0 auto"><span>–</span><input id="sch-quiet-to" placeholder="07:00" style="width:110px;flex:0 0 auto"><button type="button" id="sch-quiet-save" data-i18n="sched_save" style="flex:0 0 auto">儲存</button><span id="sch-quiet-msg" class="msg"></span></div>
+  <div class="msg" style="font-size:12px;color:#94a3b8;margin-bottom:10px" data-i18n="sched_quiet_hint">格式 HH:mm；起晚於訖代表跨夜。一次性訊息不受影響。</div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input id="sch-mute-all" type="checkbox" style="width:auto"><span data-i18n="sched_mute_all">全部靜音（所有推播直接略過）</span></label></div>
 </div>
 <div class="glass">
   <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
