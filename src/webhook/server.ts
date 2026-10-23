@@ -25,6 +25,7 @@ import {
   type StickerInput,
 } from "../line/client.js";
 import type { IMessagingService, Platform } from "../messaging/types.js";
+import type { SkillContext } from "../skills/types.js";
 import { getService, listServices } from "../messaging/services.js";
 import { parseQuietWindow } from "../messaging/dispatch.js";
 import {
@@ -34,6 +35,7 @@ import {
   setQuietHours,
 } from "../schedules-meta.js";
 import { recordMetric, renderMetrics } from "../metrics.js";
+import { getSkillJournals, getSkillUsage } from "../skill-stats.js";
 import { llmUsage } from "../llm-usage.js";
 import { persistInbound } from "../messaging/inbox.js";
 import { verifyWhatsAppSignature } from "../whatsapp/client.js";
@@ -815,8 +817,27 @@ export function createServer(line: IMessagingService): express.Express {
     health: Record<string, Array<{ name: string; ok: boolean; detail?: string }>>;
   } | null = null;
   app.get("/skills/health", statusAccess, requireSessionOrApi("read"), async (_req, res) => {
+    // P2 統一健康模型：探測（快取 60s）＋被動執行日誌（每次新鮮）＋近期技能死信。
+    const journals = getSkillJournals();
+    const journal: Record<
+      string,
+      { lastAt: number | null; lastOk: boolean | null; lastError?: string; consecFails: number; lastSuccessAt: number | null }
+    > = {};
+    for (const [id, j] of Object.entries(journals)) {
+      journal[id] = {
+        lastAt: j.lastAt,
+        lastOk: j.lastOk,
+        ...(j.lastError ? { lastError: j.lastError } : {}),
+        consecFails: j.consecFails,
+        lastSuccessAt: j.lastSuccessAt,
+      };
+    }
+    const recentErrors = readDeadLetters(100)
+      .filter((d) => d.kind.startsWith("skill:"))
+      .slice(0, 10)
+      .map((d) => ({ skill: d.kind.slice("skill:".length), time: d.time, summary: d.summary, error: d.error }));
     if (skillsHealthCache && Date.now() - skillsHealthCache.at < 60_000) {
-      res.json({ health: skillsHealthCache.health, cached: true });
+      res.json({ health: skillsHealthCache.health, journal, recentErrors, cached: true });
       return;
     }
     const result: Record<string, Array<{ name: string; ok: boolean; detail?: string }>> = {};
@@ -844,8 +865,87 @@ export function createServer(line: IMessagingService): express.Express {
       }),
     );
     skillsHealthCache = { at: Date.now(), health: result };
-    res.json({ health: result, cached: false });
+    res.json({ health: result, journal, recentErrors, cached: false });
   });
+  // P2 使用分析：近 7 日呼叫／失敗率／最後使用（被動日誌，不觸發探測）。
+  app.get("/skills/usage.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
+    res.json({ skills: getSkillUsage() });
+  });
+  // P2 技能試跑：沙盒執行 def.run，只收集輸出（reply/媒體/排程/watch 全部攔截），不發送、不留狀態。
+  app.post(
+    "/skills/dry-run",
+    statusAccess,
+    requireSessionOrApi("admin"),
+    requireSameOrigin,
+    rateLimit,
+    async (req, res) => {
+      const body = asRecord(req.body) ?? {};
+      const id = typeof body.id === "string" ? body.id.trim() : "";
+      const text = typeof body.text === "string" ? body.text : "";
+      if (!id) {
+        res.status(400).json({ ok: false, error: "id 必填" });
+        return;
+      }
+      const def = getSkill(id);
+      if (!def) {
+        res.status(404).json({ ok: false, error: "找不到技能" });
+        return;
+      }
+      const entry = config.skills.find((s) => s.id === id);
+      const replies: string[] = [];
+      const media: Array<{ kind: string; filename?: string }> = [];
+      const scheduled: string[] = [];
+      const watched: string[] = [];
+      const ctx: SkillContext = {
+        text,
+        args: text,
+        fromName: "試跑",
+        chat: "dry-run",
+        fromMid: "",
+        config: { ...(entry?.config ?? {}) },
+        reply: async (t) => {
+          replies.push(t);
+        },
+        sendImage: async (_source, filename) => {
+          media.push({ kind: "image", ...(filename ? { filename } : {}) });
+        },
+        sendFile: async (_source, filename) => {
+          media.push({ kind: "file", ...(filename ? { filename } : {}) });
+        },
+        schedule: (t, runAt) => {
+          scheduled.push(`${new Date(runAt).toISOString()} ${t}`);
+          return `dry-${scheduled.length}`;
+        },
+        watch: (opts) => {
+          watched.push(opts.task);
+          return `dry-${watched.length}`;
+        },
+        unwatch: () => false,
+        watches: () => [],
+        taskState: () => undefined,
+      };
+      audit(req, "skills.dryrun", `${id} ${text.slice(0, 50)}`);
+      try {
+        await Promise.race([
+          def.run(ctx),
+          new Promise<never>((_, reject) => {
+            const timer = setTimeout(() => reject(new Error("試跑逾時（20s）")), 20000);
+            if (typeof timer.unref === "function") timer.unref();
+          }),
+        ]);
+        res.json({ ok: true, replies, media, scheduled, watched });
+      } catch (error) {
+        res.json({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          replies,
+          media,
+          scheduled,
+          watched,
+        });
+      }
+    },
+  );
   app.post(
     "/skills/llm/models",
     statusAccess,

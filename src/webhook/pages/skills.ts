@@ -64,7 +64,7 @@ export function renderSkillsHtml() {
   <div class="field"><label data-i18n="lbl_assistant_name">助理名稱</label><input id="assistant-name" type="text" placeholder="阿寶"></div>
   <div class="actions"><button type="button" id="skills-save" data-i18n="save_settings">儲存</button><span id="skills-msg" class="msg"></span></div>
 </div>
-<div style="margin:10px 0 6px;display:flex;gap:12px;align-items:center;flex-wrap:wrap"><input id="skill-filter" data-i18n-ph="ph_filter_skills" placeholder="快速篩選：名稱、ID、觸發詞、說明…" style="width:100%;max-width:460px"><label style="display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer"><input id="skill-filter-disabled" type="checkbox"><span data-i18n="lbl_disabled_only">只看未啟用</span></label></div>
+<div style="margin:10px 0 6px;display:flex;gap:12px;align-items:center;flex-wrap:wrap"><input id="skill-filter" data-i18n-ph="ph_filter_skills" placeholder="快速篩選：名稱、ID、觸發詞、說明…" style="width:100%;max-width:460px"><label style="display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer"><input id="skill-filter-disabled" type="checkbox"><span data-i18n="lbl_disabled_only">只看未啟用</span></label><label style="display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer"><span data-i18n="lbl_sort">排序</span><select id="skill-sort"></select></label></div>
 <div id="skillList"></div>
 </div>
 
@@ -470,6 +470,11 @@ export function renderSkillsHtml() {
     healthBox.style.cssText = "margin-top:4px;font-size:12px";
     healthBox.setAttribute("data-skill-id", def.id);
     title.appendChild(healthBox);
+    var usageBox = document.createElement("div");
+    usageBox.className = "skill-usage";
+    usageBox.style.cssText = "margin-top:4px;font-size:12px;color:#9db4c8";
+    usageBox.setAttribute("data-skill-id", def.id);
+    title.appendChild(usageBox);
     var conflicts = (window.SKILL_CONFLICTS || {})[def.id] || [];
     if (conflicts.length > 0) {
       var warnBox = document.createElement("div");
@@ -603,6 +608,57 @@ export function renderSkillsHtml() {
       body.appendChild(ruleActions);
     }
 
+    // P2 試跑：沙盒執行，只看輸出不實際發送。
+    var dryWrap = document.createElement("div");
+    dryWrap.style.cssText = "margin-top:10px;border-top:1px solid rgba(255,255,255,.08);padding-top:8px";
+    var dryRow = document.createElement("div");
+    dryRow.style.cssText = "display:flex;gap:8px;align-items:center";
+    var dryInput = document.createElement("input");
+    dryInput.type = "text";
+    dryInput.placeholder = T("ph_dry_run");
+    dryInput.style.cssText = "flex:1";
+    var dryBtn = document.createElement("button");
+    dryBtn.type = "button";
+    dryBtn.textContent = T("btn_dry_run");
+    dryRow.append(dryInput, dryBtn);
+    dryWrap.appendChild(dryRow);
+    var dryNote = document.createElement("div");
+    dryNote.className = "msg";
+    dryNote.style.cssText = "font-size:11px;margin-top:4px";
+    dryNote.textContent = T("dryrun_preview_note");
+    dryWrap.appendChild(dryNote);
+    var dryOut = document.createElement("div");
+    dryOut.className = "msg";
+    dryOut.style.cssText = "margin-top:6px;font-size:12px;white-space:pre-wrap";
+    dryWrap.appendChild(dryOut);
+    dryBtn.addEventListener("click", function () {
+      var q = dryInput.value.trim();
+      if (!q) return;
+      dryOut.textContent = "…";
+      fetch("/skills/dry-run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: def.id, text: q })
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, data: d }; });
+      }).then(function (r) {
+        if (!r) return;
+        if (!r.ok) { dryOut.textContent = "失敗：" + ((r.data && r.data.error) || ""); return; }
+        var d = r.data || {};
+        var lines = [];
+        ((d.replies || [])).forEach(function (t) { lines.push("回覆：" + t); });
+        ((d.media || [])).forEach(function (m) { lines.push("媒體：" + m.kind + (m.filename ? " " + m.filename : "")); });
+        ((d.scheduled || [])).forEach(function (s) { lines.push("排程：" + s); });
+        ((d.watched || [])).forEach(function (w) { lines.push("監控：" + w); });
+        if (d.ok === false) lines.push("失敗：" + (d.error || ""));
+        dryOut.textContent = lines.length > 0 ? lines.join("\n") : "（無輸出）";
+      }).catch(function () { dryOut.textContent = "讀取失敗"; });
+    });
+    dryInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); dryBtn.click(); }
+    });
+    body.appendChild(dryWrap);
+
     card.appendChild(body);
 
     var entry = { card: card, body: body, toggleBtn: toggleBtn, open: false };
@@ -698,19 +754,69 @@ export function renderSkillsHtml() {
     filterBlocks("hidden-list", "manage-filter", "[data-search]");
   }
 
-  function renderSkillList(skills) {
+  // P2 使用分析：id -> usage.json 列（fill 前為空；排序時無數據視為 0 次）。
+  var SKILL_USAGE = {};
+  var HEALTH_DATA = null;
+  var LAST_SKILLS = null;
+
+  function usageRuns(id) {
+    var r = SKILL_USAGE[id];
+    return r ? r.runs7d : 0;
+  }
+
+  function fillHealthBox() {
+    if (!HEALTH_DATA) return;
+    var journal = HEALTH_DATA.journal || {};
+    Array.prototype.forEach.call(document.querySelectorAll(".skill-health"), function (box) {
+      var id = box.getAttribute("data-skill-id");
+      var parts = [];
+      var list = (HEALTH_DATA.health || {})[id];
+      if (list && list.length > 0) {
+        parts.push(list.map(function (h) {
+          return (h.ok ? "✅ " : "❌ ") + h.name + (h.detail ? "（" + h.detail + "）" : "");
+        }).join("　"));
+      }
+      var j = journal[id];
+      if (j && j.lastAt) {
+        var s = (j.lastOk ? "✅ " : "❌ ") + T("lbl_last_run") + " " + new Date(j.lastAt).toLocaleString();
+        if (j.consecFails > 0) s += "｜" + T("lbl_consec_fails") + " " + j.consecFails + " 次" + (j.lastError ? "：" + j.lastError : "");
+        parts.push(s);
+      }
+      if (parts.length > 0) box.textContent = parts.join("　");
+    });
+  }
+
+  function fillUsageBox() {
+    Array.prototype.forEach.call(document.querySelectorAll(".skill-usage"), function (box) {
+      var r = SKILL_USAGE[box.getAttribute("data-skill-id")];
+      if (!r) return;
+      box.textContent = r.runs7d > 0
+        ? T("lbl_usage_7d") + " " + r.runs7d + " 次｜" + T("lbl_usage_fail") + " " + r.failRate + "%"
+        : T("lbl_usage_never");
+    });
+  }
+
+  function renderSkillList(skills, sortMode) {
     openCards = [];
     var byId = {};
     (skills || []).forEach(function (s) { byId[s.id] = s; });
     var list = $("skillList");
     var items = [];
-    SKILL_DEFS.forEach(function (def) {
+    SKILL_DEFS.forEach(function (def, idx) {
       var card = buildSkillCard(byId[def.id] || { id: def.id, enabled: false, trigger: def.defaultTrigger, config: {} });
       if (!card) return;
       card.setAttribute("data-search", searchHay([def.name, def.id, def.description, def.defaultTrigger, def.category]));
-      items.push({ el: card, categoryZh: def.categoryZh, category: def.category });
+      items.push({ el: card, categoryZh: def.categoryZh, category: def.category, idx: idx, id: def.id });
     });
-    if (!renderGroups(list, items, { grid: true })) {
+    if (sortMode && sortMode !== "default") {
+      var desc = sortMode === "more";
+      items.sort(function (a, b) {
+        var d = usageRuns(desc ? b.id : a.id) - usageRuns(desc ? a.id : b.id);
+        return d !== 0 ? d : a.idx - b.idx;
+      });
+      // 排序檢視壓平分類（找「沒人用的」時跨分類一次看完）。
+      list.replaceChildren.apply(list, items.map(function (it) { return it.el; }));
+    } else if (!renderGroups(list, items, { grid: true })) {
       var empty = document.createElement("div");
       empty.className = "glass msg";
       empty.textContent = T("no_skills");
@@ -718,6 +824,8 @@ export function renderSkillsHtml() {
       return;
     }
     applySkillFilter();
+    fillHealthBox();
+    fillUsageBox();
   }
 
   function collectSkills() {
@@ -755,6 +863,10 @@ export function renderSkillsHtml() {
     return out.filter(function (s) { return s.id; });
   }
 
+  function currentSortMode() {
+    return $("skill-sort") ? $("skill-sort").value : "default";
+  }
+
   function loadSkills() {
     fetch("/settings.json", { cache: "no-store" })
       .then(function (res) {
@@ -765,8 +877,10 @@ export function renderSkillsHtml() {
         if (!s) return;
         $("assistant-enabled").checked = !!(s.assistant && s.assistant.enabled);
         $("assistant-name").value = (s.assistant && s.assistant.name) || "阿寶";
-        renderSkillList(s.skills);
+        LAST_SKILLS = s.skills;
+        renderSkillList(s.skills, currentSortMode());
         loadHealth();
+        loadUsage();
       })
       .catch(function () {});
   }
@@ -775,18 +889,38 @@ export function renderSkillsHtml() {
     fetch("/skills/health", { cache: "no-store" })
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (data) {
-        if (!data || !data.health) return;
-        Array.prototype.forEach.call(document.querySelectorAll(".skill-health"), function (box) {
-          var id = box.getAttribute("data-skill-id");
-          var list = data.health[id];
-          if (!list || list.length === 0) return;
-          var parts = list.map(function (h) {
-            return (h.ok ? "\u2705 " : "\u274c ") + h.name + (h.detail ? "（" + h.detail + "）" : "");
-          });
-          box.textContent = parts.join("　");
-        });
+        if (!data) return;
+        HEALTH_DATA = data;
+        fillHealthBox();
       })
       .catch(function () {});
+  }
+
+  function loadUsage() {
+    fetch("/skills/usage.json", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        SKILL_USAGE = {};
+        ((data && data.skills) || []).forEach(function (r) { SKILL_USAGE[r.id] = r; });
+        fillUsageBox();
+        // 用量到齊後若使用者已切排序，重排一次（不再打 API）。
+        if (LAST_SKILLS && currentSortMode() !== "default") renderSkillList(LAST_SKILLS, currentSortMode());
+      })
+      .catch(function () {});
+  }
+
+  function initSkillSort() {
+    var sel = $("skill-sort");
+    if (!sel) return;
+    [["default", "sort_default"], ["more", "sort_more"], ["less", "sort_less"]].forEach(function (kv) {
+      var o = document.createElement("option");
+      o.value = kv[0];
+      o.textContent = T(kv[1]);
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", function () {
+      if (LAST_SKILLS) renderSkillList(LAST_SKILLS, sel.value);
+    });
   }
 
   $("skills-save").addEventListener("click", function () {
@@ -815,6 +949,7 @@ export function renderSkillsHtml() {
   $("skill-filter-disabled").addEventListener("change", applySkillFilter);
   $("manage-filter").addEventListener("input", applyManageFilter);
 
+  initSkillSort();
   loadSkills();
   loadInstalled();
   loadAiSettings();

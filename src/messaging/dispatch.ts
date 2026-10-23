@@ -88,6 +88,7 @@ export function findNaturalIntent(
 }
 import { writeDeadLetter } from "../deadletter.js";
 import { recordMetric } from "../metrics.js";
+import { recordSkillRun } from "../skill-stats.js";
 import type { SkillConfig } from "../config.js";
 import type { SkillDefinition } from "../skills/types.js";
 import type { ForwardRule } from "../config.js";
@@ -584,6 +585,7 @@ export async function dispatchSkillTask(job: ScheduledJob, deps: DispatchDeps): 
   try {
     await def.onTask(taskCtx);
     recordLastRun(job.id, { at: Date.now(), ok: true });
+    recordSkillRun(ref.skillId, true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger.error("技能任務執行失敗", {
@@ -592,6 +594,7 @@ export async function dispatchSkillTask(job: ScheduledJob, deps: DispatchDeps): 
       error: message,
     });
     recordLastRun(job.id, { at: Date.now(), ok: false, error: message });
+    recordSkillRun(ref.skillId, false, message);
   }
 }
 
@@ -666,9 +669,11 @@ async function runMatchedSkill(
       },
     };
     await def.run(ctx);
+    recordSkillRun(skill.id, true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger.error("技能執行失敗", { skill: skill.id, error: message });
+    recordSkillRun(skill.id, false, message);
     writeDeadLetter({
       platform: deps.platform,
       kind: `skill:${skill.id}`,
