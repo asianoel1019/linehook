@@ -14,6 +14,8 @@ import {
   matchForwardRule,
   matchSkillEntry,
   parseCommandInput,
+  selectTriggerHit,
+  type TriggerHit,
 } from "./dispatch.js";
 import { SKILL_RATE_LIMIT_DEFAULT, SKILL_RATE_LIMIT_STRICT } from "./dispatch.js";
 import { resolveAutoReply } from "../skills/auto-reply/index.js";
@@ -127,6 +129,7 @@ export function simulateDispatch(input: SimulateInput): SimulateResult {
   }
 
   if (!layer1) {
+    const prefixHits: TriggerHit[] = [];
     for (const skill of config.skills) {
       const def = getSkill(skill.id);
       const decision = matchSkillEntry(
@@ -162,6 +165,9 @@ export function simulateDispatch(input: SimulateInput): SimulateResult {
           label: name,
           detail: `Layer 2：${decision.trigger}＋問號 → 回覆用法說明`,
         });
+        if (def) {
+          prefixHits.push({ skill, def, trigger: decision.trigger ?? "", args: decision.args ?? "", usage: true });
+        }
         continue;
       }
       if (decision.outcome === "miss") {
@@ -172,6 +178,15 @@ export function simulateDispatch(input: SimulateInput): SimulateResult {
       // hit：附上模式、觸發詞、參數；另報限流與自動回覆判定（皆為當下唯讀近似）
       const mode = def ? effectiveMode(skill, def) : "assistant";
       const parts: string[] = [mode === "any" ? "每則訊息模式" : `助理模式・觸發詞「${decision.trigger}」`];
+      if (def && mode !== "any") {
+        prefixHits.push({
+          skill,
+          def,
+          trigger: decision.trigger ?? "",
+          args: decision.args ?? "",
+          usage: false,
+        });
+      }
       if (decision.args) parts.push(`參數：「${decision.args}」`);
       let outcome: SimulateOutcome = "hit";
       if (skill.id === "auto-reply") {
@@ -195,6 +210,20 @@ export function simulateDispatch(input: SimulateInput): SimulateResult {
         outcome = "blocked";
       }
       stages.push({ stage: "skill", outcome, label: name, detail: parts.join("・") });
+    }
+
+    // 仲裁（與真實管線同一規則）：前綴命中多個時只執行最長觸發詞
+    if (prefixHits.length >= 2) {
+      const winner = selectTriggerHit(prefixHits);
+      const losers = prefixHits.filter((h) => h !== winner).map((h) => h.skill.id);
+      stages.push({
+        stage: "skill",
+        outcome: "hit",
+        label: "仲裁",
+        detail: winner
+          ? `「${winner.trigger}」（${winner.skill.id}）最長勝出；${losers.join("、")} 略過不執行`
+          : "無勝出者",
+      });
     }
   }
 

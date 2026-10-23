@@ -2,6 +2,7 @@
 import { config } from "../../config.js";
 import { tr } from "../../i18n.js";
 import { listSkills } from "../../skills/index.js";
+import { findTriggerConflicts } from "../../messaging/dispatch.js";
 import { resolveText } from "../../skills/types.js";
 import { page } from "../shell.js";
 
@@ -27,6 +28,28 @@ export function renderSkillsHtml() {
         })),
         ruleKey: skill.ruleKey ?? "rules",
     }));
+    // 觸發詞衝突偵測：只看已啟用技能的有效觸發詞（自訂覆寫優先）＋別名
+    const conflictsBySkill: Record<string, Array<{ word: string; kind: string; others: string[] }>> = {};
+    {
+      const input = listSkills()
+        .filter((def) => def.triggerMode !== "any")
+        .map((def) => {
+          const entry = config.skills.find((s) => s.id === def.id);
+          return {
+            id: def.id,
+            enabled: entry?.enabled ?? false,
+            words: [(entry?.trigger || def.defaultTrigger).trim(), ...(def.triggerAliases ?? [])],
+          };
+        });
+      for (const c of findTriggerConflicts(input)) {
+        for (const owner of c.owners) {
+          const list = conflictsBySkill[owner] ?? [];
+          list.push({ word: c.word, kind: c.kind, others: c.owners.filter((o) => o !== owner) });
+          conflictsBySkill[owner] = list;
+        }
+      }
+    }
+    const skillConflicts = conflictsBySkill;
     const sidebar = `
 <div class="side-section">${tr(config.language, "nav_skills")}</div>
 <div class="fn-list" id="skills-subnav">
@@ -74,6 +97,7 @@ export function renderSkillsHtml() {
 `;
     const script = `
   var SKILL_DEFS = ${JSON.stringify(skillDefs).replace(/</g, "\\u003c")};
+  var SKILL_CONFLICTS = ${JSON.stringify(skillConflicts).replace(/</g, "\\u003c")};
 
   // Tab switching
   document.querySelectorAll("#skills-subnav .fn-card").forEach(function (btn) {
@@ -446,6 +470,20 @@ export function renderSkillsHtml() {
     healthBox.style.cssText = "margin-top:4px;font-size:12px";
     healthBox.setAttribute("data-skill-id", def.id);
     title.appendChild(healthBox);
+    var conflicts = (window.SKILL_CONFLICTS || {})[def.id] || [];
+    if (conflicts.length > 0) {
+      var warnBox = document.createElement("div");
+      warnBox.className = "msg";
+      warnBox.style.cssText = "margin-top:6px;font-size:12px;color:#f0a35e";
+      warnBox.textContent = T("trigger_conflict") + "：" + conflicts.map(function (c) {
+        var names = c.others.map(function (id) {
+          var d = skillDef(id);
+          return d ? d.name : id;
+        });
+        return "「" + c.word + "」↔ " + names.join("、");
+      }).join("；") + "。" + T("trigger_conflict_hint");
+      title.appendChild(warnBox);
+    }
     var enableWrap = document.createElement("label");
     enableWrap.style.cssText = "display:flex;align-items:center;gap:8px;white-space:nowrap";
     var enabled = document.createElement("input");

@@ -227,6 +227,122 @@ export function matchSkillEntry(
   return { skill, def, outcome: "hit", trigger: matched, args };
 }
 
+/** 前綴命中的候選（供最長匹配仲裁；any 模式走另一條路不參與）。 */
+export interface TriggerHit {
+  skill: SkillConfig;
+  def: SkillDefinition;
+  trigger: string;
+  args: string;
+  /** layer2 用法查詢（命中但只顯示用法）。 */
+  usage: boolean;
+}
+
+export interface TriggerScan {
+  /** mode:any 的命中（照舊全部執行，不仲裁）。 */
+  anyHits: TriggerHit[];
+  /** 前綴命中的候選（含 layer2-usage；待仲裁只取其一）。 */
+  prefixHits: TriggerHit[];
+  /** 白名單擋下的技能設定（dispatch 記 warn；模擬器顯示 blocked）。 */
+  blocked: SkillConfig[];
+}
+
+/**
+ * 收集一則訊息的所有觸發命中（純函式；真實管線與模擬器共用）。
+ * 注意：只收集，不執行；執行順序與裁決由呼叫端決定。
+ */
+export function scanTriggerHits(
+  skills: SkillConfig[],
+  msg: { text: string; chat: string; fromMid: string },
+  prefix: AssistantPrefix,
+  assistantEnabled: boolean,
+): TriggerScan {
+  const anyHits: TriggerHit[] = [];
+  const prefixHits: TriggerHit[] = [];
+  const blocked: SkillConfig[] = [];
+  for (const skill of skills) {
+    const def = getSkill(skill.id);
+    const decision = matchSkillEntry(skill, def, msg, prefix, assistantEnabled);
+    if (decision.outcome === "skip-disabled" || decision.outcome === "skip-no-def") continue;
+    if (decision.outcome === "blocked-users") {
+      blocked.push(skill);
+      continue;
+    }
+    if (decision.outcome === "miss") continue;
+    if (!def) continue;
+    const hit: TriggerHit = {
+      skill,
+      def,
+      trigger: decision.trigger ?? "",
+      args: decision.args ?? "",
+      usage: decision.outcome === "layer2-usage",
+    };
+    if (effectiveMode(skill, def) === "any") anyHits.push(hit);
+    else prefixHits.push(hit);
+  }
+  return { anyHits, prefixHits, blocked };
+}
+
+/**
+ * 最長匹配仲裁：觸發詞最長者勝出；同長度取設定順序第一個。
+ * 解掉「倒數計時被倒數攔走」這類跨技能前綴遮蔽；同詞重複（換算×2）只執行其一。
+ */
+export function selectTriggerHit(prefixHits: TriggerHit[]): TriggerHit | null {
+  let best: TriggerHit | null = null;
+  for (const hit of prefixHits) {
+    if (!best || hit.trigger.length > best.trigger.length) best = hit;
+  }
+  return best;
+}
+
+export interface TriggerConflict {
+  word: string;
+  kind: "exact" | "prefix";
+  owners: string[];
+}
+
+/**
+ * 觸發詞衝突偵測（純函式；供 /skills 設定頁警示）。
+ * 只看已啟用的技能：完全相同 → exact；互為前綴 → prefix；同一技能內部不算。
+ */
+export function findTriggerConflicts(
+  skills: Array<{ id: string; enabled: boolean; words: string[] }>,
+): TriggerConflict[] {
+  const active = skills.filter((s) => s.enabled);
+  const byWord = new Map<string, Set<string>>();
+  for (const s of active) {
+    for (const raw of s.words) {
+      const w = raw.trim();
+      if (!w) continue;
+      const set = byWord.get(w) ?? new Set<string>();
+      set.add(s.id);
+      byWord.set(w, set);
+    }
+  }
+  const out: TriggerConflict[] = [];
+  const words = [...byWord.keys()];
+  // 完全相同：同一詞被多個技能宣告
+  for (const w of words) {
+    const owners = [...(byWord.get(w) ?? [])].sort();
+    if (owners.length >= 2) out.push({ word: w, kind: "exact", owners });
+  }
+  // 互為前綴：不同詞，一個是另一個的開頭
+  const seen = new Set<string>();
+  for (let i = 0; i < words.length; i++) {
+    for (let j = i + 1; j < words.length; j++) {
+      const a = words[i];
+      const b = words[j];
+      if (!(a.startsWith(b) || b.startsWith(a))) continue;
+      const owners = [...new Set([...(byWord.get(a) ?? []), ...(byWord.get(b) ?? [])])].sort();
+      if (owners.length < 2) continue;
+      const key = [a, b].sort().join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ word: a.length >= b.length ? a : b, kind: "prefix", owners });
+    }
+  }
+  return out.sort((x, y) => x.word.localeCompare(y.word, "zh-Hant"));
+}
+
 /** 轉發規則比對（對齊 runForwardRules）；回傳命中與否與推導出的轉發內容。 */
 export function matchForwardRule(
   rule: ForwardRule,
@@ -725,36 +841,42 @@ async function runSkills(
     }
   }
 
-  // 前綴迴圈是 fan-out（命中不 return）；handled 記住有沒有真的處理過，供 LLM 後備判斷。
+  // 前綴觸發：先收集全部命中再仲裁（any 模式照舊全執行；前綴命中只取其一）。
+  // 最長觸發詞勝出（「倒數計時」贏「倒數」）；同長度取設定順序第一個並記 warn。
   let handled = false;
-  for (const skill of config.skills) {
-    const def = getSkill(skill.id);
-    const decision = matchSkillEntry(
-      skill,
-      def,
-      { text, chat, fromMid },
-      { assistant, rest, hasPrefix },
-      config.assistant.enabled,
-    );
-    if (decision.outcome === "skip-disabled" || decision.outcome === "skip-no-def") continue;
-    if (decision.outcome === "blocked-users") {
-      logger.warn("技能呼叫被白名單擋下", { skill: skill.id, fromMid, chat });
-      continue;
-    }
-    if (decision.outcome === "miss") continue;
-
-    // Layer 2：<觸發詞> ? → 顯示該技能用法
-    if (decision.outcome === "layer2-usage") {
-      const primaryTrigger = (skill.trigger || def!.defaultTrigger).trim();
-      logger.info("顯示技能用法", { skill: skill.id, chat });
-      await deps.replyTo(chat, skillUsageText(def!, primaryTrigger, config.language));
-      handled = true;
-      continue;
-    }
-
-    const args = decision.args ?? "";
-    await runMatchedSkill(skill, def!, { text, args, chat, fromName, fromMid, images }, deps);
+  const scan = scanTriggerHits(
+    config.skills,
+    { text, chat, fromMid },
+    { assistant, rest, hasPrefix },
+    config.assistant.enabled,
+  );
+  for (const blocked of scan.blocked) {
+    logger.warn("技能呼叫被白名單擋下", { skill: blocked.id, fromMid, chat });
+  }
+  for (const hit of scan.anyHits) {
+    await runMatchedSkill(hit.skill, hit.def, { text, args: hit.args, chat, fromName, fromMid, images }, deps);
     handled = true;
+  }
+  const winner = selectTriggerHit(scan.prefixHits);
+  if (winner) {
+    if (winner.usage) {
+      // Layer 2：<觸發詞> ? → 顯示該技能用法
+      const primaryTrigger = (winner.skill.trigger || winner.def.defaultTrigger).trim();
+      logger.info("顯示技能用法", { skill: winner.skill.id, chat });
+      await deps.replyTo(chat, skillUsageText(winner.def, primaryTrigger, config.language));
+    } else {
+      await runMatchedSkill(
+        winner.skill,
+        winner.def,
+        { text, args: winner.args, chat, fromName, fromMid, images },
+        deps,
+      );
+    }
+    handled = true;
+    if (scan.prefixHits.length > 1) {
+      const losers = scan.prefixHits.filter((h) => h !== winner).map((h) => h.skill.id);
+      logger.warn("觸發詞重複，僅執行最長匹配", { winner: winner.skill.id, trigger: winner.trigger, losers });
+    }
   }
 
   // LLM 意圖分類後備（前面都沒命中才問；沒配 LLM 時自動關閉；失敗/無關靜默略過）。

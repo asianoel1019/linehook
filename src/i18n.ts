@@ -381,6 +381,8 @@ export const DICT: Record<string, Entry> = {
   hint_allow_users: { zh: "留空 = 所有人；每行一個使用者 ID 或對話 ID（陌生人傳訊即被擋下，ai / summarize 等花錢的技能建議填）", en: "Empty = everyone; one user ID or chat ID per line", ja: "空欄 = 全員。1 行に 1 つのユーザー ID またはチャット ID" },
   lbl_expand: { zh: "展開 / 收起設定", en: "Expand / collapse", ja: "設定を展開 / 折りたたむ" },
   skill_trigger_any: { zh: "此技能會檢查每一則收到的訊息（不需觸發詞）", en: "This skill checks every incoming message (no trigger word)", ja: "このスキルは受信メッセージごとに確認します（トリガー不要）" },
+  trigger_conflict: { zh: "觸發詞重複", en: "Trigger conflict", ja: "トリガー重複" },
+  trigger_conflict_hint: { zh: "與以下技能撞詞，同時啟用只會執行觸發詞最長者；建議改名或停用其中一個", en: "Overlaps with the skills below; only the longest trigger runs. Rename or disable one.", ja: "以下のスキルと重複しています。同時有効化すると最長のトリガーのみ実行されます。改名か無効化を推奨。" },
   hint_skills: { zh: "技能為可插拔的子專案；啟用後可用「<助理名稱>請幫忙 <觸發詞> …」呼叫。目前可下載：火車時刻表。", en: "Skills are pluggable sub-projects. After enabling, call with \"<assistant> please <trigger> …\". Downloadable: train timetable.", ja: "スキルはプラグイン可能なサブプロジェクトです。有効後「<名前> で <トリガー> …」で呼び出せます。ダウンロード可能：列車時刻表。" },
   card_skills: { zh: "技能", en: "Skills", ja: "スキル" },
   no_skills: { zh: "尚未載入任何技能（請確認 src/skills 下的資料夾存在）", en: "No skills loaded (check folders under src/skills)", ja: "スキルが読み込まれていません（src/skills のフォルダを確認）" },

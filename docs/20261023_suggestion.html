@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IM Webhook · 第三階段建議（2026-10-23）</title>
+<meta name="description" content="IM Webhook 第三階段：技能擴張到 53 個後浮現的三個真 bug（觸發詞撞車、跨技能前綴遮蔽、週期任務無總入口）與 P0–P4 改善路線。">
+<style>
+  :root {
+    --paper-1:#f7f5f0; --paper-2:#fffef8; --paper-3:#f0ecdf;
+    --ink-1:#2a2a28; --ink-2:#0d0c0a; --ink-soft:#6b6557; --ink-faint:#938c7c;
+    --border-1:#d7d1c2; --border-2:#6b6557;
+    --shadow:rgba(60,50,30,.14);
+    --p0:#a3401f; --p0-bg:rgba(163,64,31,.10);
+    --p1:#8a6412; --p1-bg:rgba(138,100,18,.11);
+    --p2:#4f6236; --p2-bg:rgba(79,98,54,.11);
+    --p3:#5c6470; --p3-bg:rgba(92,100,112,.11);
+    --ok:#3f6b4a;
+    --new:#2e6b8a; --new-bg:rgba(46,107,138,.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper-1:#1a1917; --paper-2:#22201d; --paper-3:#141210;
+      --ink-1:#e8e4da; --ink-2:#f5f2ea; --ink-soft:#9a9182; --ink-faint:#7d7568;
+      --border-1:#3a3630; --border-2:#5a5449; --shadow:rgba(0,0,0,.5);
+      --p0:#e08a63; --p0-bg:rgba(224,138,99,.14);
+      --p1:#d8b45c; --p1-bg:rgba(216,180,92,.14);
+      --p2:#9dbc7e; --p2-bg:rgba(157,188,126,.13);
+      --p3:#9aa4b2; --p3-bg:rgba(154,164,178,.13);
+      --ok:#7dbb90;
+      --new:#7ab8d4; --new-bg:rgba(122,184,212,.14);
+    }
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth; scroll-padding-top:24px}
+  body{margin:0;color:var(--ink-1);line-height:1.85;font-family:"Georgia","Noto Serif TC","Songti TC",serif;
+    background:radial-gradient(1200px 620px at 8% -10%,var(--paper-2),transparent 62%),
+      radial-gradient(900px 520px at 100% 0%,var(--paper-3),transparent 58%),
+      linear-gradient(180deg,var(--paper-1),var(--paper-3));
+    background-attachment:fixed;min-height:100vh;-webkit-font-smoothing:antialiased}
+  a{color:inherit}
+  code{font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;font-size:.86em;
+    background:var(--paper-3);border:1px solid var(--border-1);border-radius:3px;padding:1px 5px;word-break:break-word}
+  .wrap{max-width:1240px;margin:0 auto;padding:0 24px}
+  .rule{height:1px;background:linear-gradient(90deg,var(--border-1),transparent)}
+  header{padding:76px 0 30px}
+  .eyebrow{font-size:11.5px;letter-spacing:.42em;color:var(--ink-faint);text-transform:uppercase}
+  h1{font-size:clamp(28px,5vw,50px);font-weight:400;letter-spacing:.05em;margin:16px 0 8px;color:var(--ink-2);line-height:1.35}
+  .lead{max-width:800px;color:var(--ink-soft);font-size:15.5px;margin:0 0 6px}
+  .stamp{font-size:12.5px;color:var(--ink-faint);letter-spacing:.08em;margin-top:18px}
+  .stats{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));margin:34px 0 6px}
+  .stat{background:linear-gradient(160deg,var(--paper-2),var(--paper-1));border:1px solid var(--border-1);
+    border-radius:3px 18px 3px 18px;padding:16px 16px 13px}
+  .stat b{display:block;font-size:25px;font-weight:400;color:var(--ink-2);line-height:1.25}
+  .stat span{font-size:10.5px;letter-spacing:.14em;color:var(--ink-faint);text-transform:uppercase}
+  .stat i{display:block;font-style:normal;font-size:12px;color:var(--ink-soft);margin-top:3px}
+  .toolbar{position:sticky;top:0;z-index:40;background:var(--paper-1);border-bottom:1px solid var(--border-1);
+    margin:40px 0 0;padding:12px 0}
+  .toolbar-in{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center}
+  .chip{font:inherit;font-size:12px;letter-spacing:.09em;color:var(--ink-soft);background:transparent;
+    border:1px solid var(--border-1);border-radius:999px;padding:5px 15px;cursor:pointer;
+    transition:background-color .3s,color .3s,border-color .3s}
+  .chip:hover{border-color:var(--border-2);color:var(--ink-2)}
+  .chip.on{background:var(--ink-2);border-color:var(--ink-2);color:var(--paper-2)}
+  .chip.p0.on{background:var(--p0);border-color:var(--p0);color:var(--paper-2)}
+  .chip.p1.on{background:var(--p1);border-color:var(--p1);color:var(--paper-2)}
+  .chip.p2.on{background:var(--p2);border-color:var(--p2);color:var(--paper-2)}
+  .chip.p3.on{background:var(--p3);border-color:var(--p3);color:var(--paper-2)}
+  .sep{width:1px;height:20px;background:var(--border-1);margin:0 4px}
+  .search{font:inherit;font-size:13px;background:var(--paper-2);color:var(--ink-1);border:1px solid var(--border-1);
+    border-radius:999px;padding:6px 16px;min-width:180px;flex:1 1 180px;max-width:320px}
+  .search:focus{outline:none;border-color:var(--border-2)}
+  .count{font-size:12px;color:var(--ink-faint);letter-spacing:.1em;margin-left:auto}
+  .cols{display:grid;grid-template-columns:1fr;gap:0 46px;padding-top:44px}
+  @media (min-width:1080px){.cols{grid-template-columns:236px 1fr}}
+  nav.toc{position:sticky;top:70px;align-self:start;max-height:calc(100vh - 92px);overflow:auto;padding:4px 0 24px;font-size:12.5px;line-height:1.5}
+  @media (max-width:1079px){nav.toc{position:static;max-height:none;columns:2;column-gap:26px;padding-bottom:10px}}
+  @media (max-width:560px){nav.toc{columns:1}}
+  nav.toc h4{font-size:10px;letter-spacing:.24em;color:var(--ink-faint);text-transform:uppercase;margin:0 0 10px;font-weight:400}
+  nav.toc ol{list-style:none;margin:0;padding:0}
+  nav.toc li{margin:0 0 3px;break-inside:avoid}
+  nav.toc a{display:block;padding:4px 10px 4px 12px;border-left:2px solid transparent;text-decoration:none;
+    color:var(--ink-soft);transition:color .25s,border-color .25s}
+  nav.toc a:hover{color:var(--ink-2);border-left-color:var(--border-2)}
+  nav.toc .n{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--ink-faint);margin-right:6px}
+  main{min-width:0;padding-bottom:70px}
+  section{margin-bottom:52px;scroll-margin-top:76px}
+  h2.sec{font-size:14px;letter-spacing:.3em;text-transform:uppercase;color:var(--border-2);font-weight:400;
+    margin:0 0 6px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h2.sec .bn{font-size:11px;letter-spacing:.12em;color:var(--ink-faint);text-transform:none}
+  h3.sub{font-size:17px;font-weight:500;color:var(--ink-2);letter-spacing:.04em;margin:32px 0 12px;
+    padding-bottom:8px;border-bottom:1px solid var(--border-1)}
+  p{margin:0 0 14px}
+  .muted{color:var(--ink-soft);font-size:14px}
+  .tbl-wrap{overflow-x:auto;margin:0 0 20px;border:1px solid var(--border-1);border-radius:3px 14px 3px 14px;background:var(--paper-2)}
+  table{width:100%;border-collapse:collapse;font-size:13.2px;min-width:520px}
+  th,td{text-align:left;padding:9px 14px;border-bottom:1px solid var(--border-1);vertical-align:top}
+  th{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);font-weight:400;background:var(--paper-3);white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:var(--paper-3)}
+  .grid{display:grid;gap:18px;grid-template-columns:1fr;margin-bottom:8px}
+  @media (min-width:760px){.grid{grid-template-columns:repeat(auto-fill,minmax(400px,1fr))}}
+  .card{position:relative;padding:20px 22px 18px;background:linear-gradient(160deg,var(--paper-2),var(--paper-1));
+    border:1px solid var(--border-1);border-radius:3px 20px 3px 20px;
+    box-shadow:0 2px 3px var(--shadow),0 14px 30px -22px var(--shadow);
+    transition:transform .4s ease,box-shadow .4s ease}
+  .card:nth-child(3n){border-radius:20px 3px 20px 3px}
+  .card:hover{transform:translateY(-3px);box-shadow:0 5px 8px var(--shadow),0 24px 42px -24px var(--shadow)}
+  .card.hidden{display:none}
+  .head{display:flex;gap:9px;align-items:flex-start;margin-bottom:9px;flex-wrap:wrap}
+  .id{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--ink-faint);padding-top:3px}
+  .card h4{font-size:15.5px;font-weight:500;color:var(--ink-2);letter-spacing:.03em;margin:0;flex:1 1 200px;line-height:1.5}
+  .p{display:inline-block;font-size:10.5px;letter-spacing:.13em;padding:2px 9px;border-radius:2px 9px 2px 9px;
+    border:1px solid currentColor;white-space:nowrap;flex:0 0 auto}
+  .p.P0{color:var(--p0);background:var(--p0-bg)}
+  .p.P1{color:var(--p1);background:var(--p1-bg)}
+  .p.P2{color:var(--p2);background:var(--p2-bg)}
+  .p.P3{color:var(--p3);background:var(--p3-bg)}
+  .p.E{color:var(--ink-faint);background:var(--paper-3)}
+  .p.N{color:var(--new);background:var(--new-bg)}
+  .card p.body{font-size:13.4px;color:var(--ink-1);margin:0 0 10px}
+  .ev{font-size:12.2px;color:var(--ink-soft);background:var(--paper-3);border:1px dashed var(--border-1);
+    border-radius:2px 10px 2px 10px;padding:9px 12px;margin:0 0 10px;line-height:1.7}
+  .ev b{font-weight:400;color:var(--ink-faint);letter-spacing:.1em;font-size:10px;text-transform:uppercase;display:block;margin-bottom:3px}
+  .card ul{margin:0;padding-left:19px;font-size:13.2px}
+  .card ul li{margin-bottom:5px}
+  .card ul li::marker{color:var(--border-2)}
+  .gain{margin-top:11px;padding-top:9px;border-top:1px solid var(--border-1);font-size:12.4px;color:var(--ok)}
+  .phase{border:1px solid var(--border-1);border-radius:3px 20px 3px 20px;background:var(--paper-2);
+    padding:22px 24px;margin-bottom:18px;box-shadow:0 2px 3px var(--shadow)}
+  .phase:nth-child(even){border-radius:20px 3px 20px 3px}
+  .phase .lbl{font-size:10.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--ink-faint)}
+  .phase h4{font-size:18px;font-weight:500;color:var(--ink-2);margin:6px 0 4px;letter-spacing:.04em}
+  .phase .when{font-size:12.5px;color:var(--ink-faint);letter-spacing:.08em;margin-bottom:12px}
+  .phase ul{margin:0;padding-left:20px;font-size:13.4px}
+  .phase ul li{margin-bottom:6px}
+  .phase ul li::marker{color:var(--border-2)}
+  .note{border-left:3px solid var(--border-2);background:var(--paper-3);padding:14px 18px;margin:0 0 20px;font-size:13.4px;border-radius:0 12px 12px 0}
+  .note b{font-weight:500;color:var(--ink-2)}
+  .note.risk{border-left-color:var(--p0)}
+  .note.good{border-left-color:var(--ok)}
+  .note.new{border-left-color:var(--new)}
+  .foot{margin-top:60px;padding:40px 0 70px;border-top:1px solid var(--border-1);color:var(--ink-faint);font-size:12px;letter-spacing:.12em;text-align:center}
+  .totop{position:fixed;right:20px;bottom:20px;z-index:50;width:42px;height:42px;border-radius:50%;
+    border:1px solid var(--border-2);background:var(--paper-2);color:var(--ink-2);cursor:pointer;font-size:16px;
+    line-height:1;display:none;box-shadow:0 6px 18px -8px var(--shadow)}
+  .totop.show{display:block}
+  @media print{body{background:#fff}.toolbar,nav.toc,.totop{display:none!important}
+    .cols{display:block;padding-top:0}.card,.phase{break-inside:avoid;box-shadow:none}.card.hidden{display:block!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">IM Webhook · Feature Roadmap · Phase 3</div>
+  <h1>技能變多之後：先修三個真 bug，再談新功能</h1>
+  <p class="lead">
+    技能數從 38 成長到 <strong>53</strong>，其中 <strong>13 個</strong>會註冊週期任務（bus、countdown、flight-status、holiday、morning、poll、price-alert、remind、rss、todo、typhoon、web-bookmark、website）。
+    這次不是再加功能，而是重新稽核「技能長大之後系統會出什麼事」——
+    找到 <strong>3 個會直接影響使用者的真 bug</strong>，以及 <strong>5 個方向</strong>讓技能從「很多」變成「好管理」。
+  </p>
+  <div class="stamp">
+    掃描日期 2026-10-23 ・ 基準：53 個內建技能 / 584 項測試全過 / lint 0 errors / 覆蓋率 43.3% ・ 前作 <code>docs/archive/20261006_suggestion.html</code>（40 項）
+  </div>
+  <div class="stats">
+    <div class="stat"><b>53</b><span>內建技能</span><i>較上次 +15（含 deals、flight-status）</i></div>
+    <div class="stat"><b>13</b><span>有週期任務的技能</span><i>每個各自管理狀態與取消指令</i></div>
+    <div class="stat"><b>2</b><span>觸發詞撞車</span><i>換算／摘要 → 一則訊息兩個回覆</i></div>
+    <div class="stat"><b>1</b><span>跨技能遮蔽</span><i>倒數計時 被 倒數 先攔走</i></div>
+    <div class="stat"><b>0</b><span>排程總入口</span><i>只能逐個技能去停</i></div>
+    <div class="stat"><b>3</b><span>真 bug</span><i>本次建議優先修正</i></div>
+    <div class="stat"><b>5</b><span>改善方向</span><i>P0 修 bug → P4 技能組合</i></div>
+    <div class="stat"><b>584</b><span>測試全過</span><i>本次僅提出建議，未改程式</i></div>
+  </div>
+</header>
+
+<div class="rule"></div>
+
+<div class="toolbar">
+  <div class="toolbar-in">
+    <button type="button" class="chip on" data-p="all">全部</button>
+    <button type="button" class="chip p0" data-p="P0">P0 修 bug</button>
+    <button type="button" class="chip p1" data-p="P1">P1 統一排程</button>
+    <button type="button" class="chip p2" data-p="P2">P2 健康分析</button>
+    <button type="button" class="chip p3" data-p="P3">P3 版本更新</button>
+    <span class="sep"></span>
+    <input type="search" class="search" id="q" placeholder="搜尋方向、症狀或關鍵字…" aria-label="搜尋建議">
+    <span class="count" id="count">13 項</span>
+  </div>
+</div>
+
+<div class="cols">
+
+<nav class="toc">
+  <h4>目錄</h4>
+  <ol>
+    <li><a href="#summary"><span class="n">00</span>現況盤點</a></li>
+    <li><a href="#bugs"><span class="n">B</span>三個真 bug</a></li>
+    <li><a href="#A"><span class="n">A</span>P0 修 bug</a></li>
+    <li><a href="#B2"><span class="n">C</span>P1 統一排程中心</a></li>
+    <li><a href="#C"><span class="n">D</span>P2 健康與分析</a></li>
+    <li><a href="#D"><span class="n">E</span>P3 版本與更新</a></li>
+    <li><a href="#E"><span class="n">F</span>P4 技能組合</a></li>
+    <li><a href="#roadmap"><span class="n">R</span>建議執行順序</a></li>
+    <li><a href="#risk"><span class="n">K</span>風險與不做清單</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<section id="summary">
+  <h2 class="sec">現況盤點 <span class="bn">What's Actually There</span></h2>
+  <p class="muted">這一輪不從「想加什麼功能」出發，而是先回答：技能多到 53 個之後，現在的系統架構還撐得住嗎？</p>
+
+  <h3 class="sub">1.1 技能生態現況</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>面向</th><th>現況</th><th>觀察</th></tr></thead>
+      <tbody>
+        <tr><td>技能總數</td><td><strong>53</strong>（10 個分類）</td><td>數量已到「需要工具協管」的階段</td></tr>
+        <tr><td>有週期任務</td><td><strong>13</strong>（watch + onTask）</td><td>每個技能各自存 state、各自的取消指令</td></tr>
+        <tr><td>每則訊息都檢查</td><td>1（auto-reply，any 模式）</td><td>any 模式只有一個，觸發衝突風險低</td></tr>
+        <tr><td>助手模式（觸發詞）</td><td>51</td><td>觸發詞比對是<b>第一前綴命中即執行</b>，無長度優先</td></tr>
+        <tr><td>技能熱安裝</td><td>zip 安裝 + <code>@lw/*</code> 別名自包含</td><td>外部技能已可自包含分享（2026-10-12）</td></tr>
+        <tr><td>技能品質資料</td><td><code>metrics</code> 有 <code>skill_exec_total{skill,result}</code></td><td>有資料、<b>沒有介面</b>；<code>/skills/health</code> 只檢查有定義 health() 的技能</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub">1.2 這次稽核的方法</h3>
+  <div class="note">
+    掃描每個技能的 <code>defaultTrigger</code> 與 <code>triggerAliases</code>，比對「完全相同」與「互為前綴」兩種衝突型態，
+    再對照 <code>messaging/dispatch.ts</code> 的比對順序（<code>for (const skill of config.skills)</code> → 每個技能獨立比對 → 都命中就都執行）。
+    這不是推測，是既有程式碼的行為。
+  </div>
+</section>
+
+<section id="bugs">
+  <h2 class="sec">三個真 bug <span class="bn">Found, Not Hypothesized</span></h2>
+
+  <h3 class="sub">Bug ① 觸發詞撞車 → 一則訊息兩個回覆</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>觸發詞</th><th>宣佈者</th><th>使用者輸入</th><th>實際結果</th></tr></thead>
+      <tbody>
+        <tr><td><code>換算</code></td><td>exchange-rate（defaultTrigger）<br>unit（defaultTrigger）</td><td>「阿寶請幫忙 換算 1 km」</td><td><strong>兩條回覆</strong>：一條查匯率、一條轉單位</td></tr>
+        <tr><td><code>摘要</code></td><td>rss（triggerAliases）<br>summarize（defaultTrigger）</td><td>「阿寶請幫忙 摘要 https://…」</td><td><strong>兩條回覆</strong>：一條讀 RSS、一條摘要網頁</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note risk">
+    <b>成因</b>：<code>dispatch.ts</code> 對每個技能<b>各自</b>比對觸發詞，命中就執行；技能之間彼此不認識。
+    兩個技能宣告同一個詞 → 同時命中 → 同時回覆。這在 38 個技能時只是小瑕疵，在 53 個技能、且使用者已經習慣用「換算」「摘要」這類通用詞時，會變成明顯故障。
+  </div>
+
+  <h3 class="sub">Bug ② 跨技能別名前綴遮蔽</h3>
+  <div class="note risk">
+    <code>countdown</code> 的別名是 <code>倒數計時</code>，但 <code>remind</code> 的別名 <code>倒數</code> 更短、且在設定順序中較前。
+    使用者打「阿寶請幫忙 <strong>倒數計時</strong> 2026-12-31 跨年」→ 先被 <code>remind</code> 攔走（參數變成「計時 2026-12-31 跨年」）→ 回一段用法提示，
+    <code>countdown</code> 永遠收不到。<b>順序換一下就會好，但那是運氣，不是設計。</b>
+  </div>
+
+  <h3 class="sub">Bug ③ 週期任務沒有總入口</h3>
+  <div class="note">
+    13 個技能各自註冊週期任務，狀態存在各自的 watch state，取消也要用各自的指令（<code>公車 取消</code>、<code>rss 退訂</code>…）。
+    Console 的「排程中的訊息」只顯示一次性訊息排程，<b>不包含技能任務</b>。
+    使用者想「晚上不要吵我」只能一個一個技能去關。
+  </div>
+</section>
+
+<section id="A">
+  <h2 class="sec">方向 A：修掉三個 bug <span class="bn">P0</span></h2>
+  <div class="grid">
+
+    <article class="card" data-p="P0">
+      <div class="head"><span class="p">P0</span><h3>最長匹配優先</h3></div>
+      <div class="id">dispatch 觸發詞比對</div>
+      <div class="body">
+        比對時收集所有技能的命中，<b>以最長的觸發詞優先</b>；同長度時依設定順序。
+        如此「倒數計時」會贏過「倒數」，Bug ② 根除；同技能內的長別名也自然優先。
+      </div>
+      <div class="ev">依現況：dispatch 對每技能獨立比對，先到先得。</div>
+      <div class="gain">修好跨技能遮蔽；語意更合理（使用者打了更完整的詞，就該由它接手）。</div>
+    </article>
+
+    <article class="card" data-p="P0">
+      <div class="head"><span class="p">P0</span><h3>啟用時衝突偵測</h3></div>
+      <div class="id">/skills 設定頁</div>
+      <div class="body">
+        啟用技能時比對所有已啟用技能的觸發詞與別名，發現重疊就在卡片上標示
+        「<code>換算</code> 與 unit 重複」並提供改名建議。<b>不自動改</b>——自動改觸發詞會讓使用者措手不及。
+      </div>
+      <div class="ev">Bug ① 的兩組重疊即由此浮出來（已在本次稽核中掃出）。</div>
+      <div class="gain">把「雙重回覆」從使用者撞到才知，變成管理員一開就看到。</div>
+    </article>
+
+    <article class="card" data-p="P0">
+      <div class="head"><span class="p">P0</span><h3>同長度重複的裁決規則</h3></div>
+      <div class="id">dispatch 規則</div>
+      <div class="body">
+        最長匹配只解決「長短」，<b>同長度</b>（換算 vs unit、摘要 vs summarize）仍會兩個都命中。
+        裁決方式二選一：<b>(a) 只執行設定順序第一個</b>（其餘記錄 log warning）；
+        <b>(b) 全部執行但合併回覆</b>。建議 (a)：語意單純，且能配合 P0 的衝突偵測一起處理。
+      </div>
+      <div class="ev">兩組真實衝突已列於 Bug ① 表格。</div>
+      <div class="gain">雙重回覆消失，且行為可預期、可測試。</div>
+    </article>
+
+    <article class="card" data-p="P0">
+      <div class="head"><span class="p">P0</span><h3>迴歸測試護欄</h3></div>
+      <div class="id">tests/</div>
+      <div class="body">
+        照前例：抽出純函式 → 真實管線與<b>規則模擬器共用</b> → 補矩陣測試（相同詞／前綴關係／長別名優先／any 模式不受影響）。
+        模擬器本來就在做同一套比對，順手就能當第二個驗證點。
+      </div>
+      <div class="ev">2026-10-12 的規則模擬器已建立「單一事實來源」的先例。</div>
+      <div class="gain">改比對邏輯不會靜默壞掉既有行為。</div>
+    </article>
+
+  </div>
+</section>
+
+<section id="B2">
+  <h2 class="sec">方向 C：統一排程／推播中心 <span class="bn">P1</span></h2>
+  <div class="grid">
+
+    <article class="card" data-p="P1">
+      <div class="head"><span class="p">P1</span><h3>所有技能任務一覽</h3></div>
+      <div class="id">新頁面 /schedules</div>
+      <div class="body">
+        列出所有技能的週期任務：技能、對話、頻率、下次執行、上次結果、是否靜音。
+        資料都在 scheduler（同一套 cron + 持久化），不需要動各技能。
+      </div>
+      <div class="ev">13 個技能都走 <code>ctx.watch()</code> → 同一個 scheduler。</div>
+      <div class="gain">從「要停掉得逐個技能下指令」變成一個頁面看完。</div>
+    </article>
+
+    <article class="card" data-p="P1">
+      <div class="head"><span class="p">P1</span><h3>統一靜音時段</h3></div>
+      <div class="id">全域設定</div>
+      <div class="body">
+        設一組「勿擾時段」（例如 23:00–07:00），區間內所有技能的推播<b>延後到結束後</b>（而非直接丟棄，避免資訊遺失）。
+      </div>
+      <div class="ev">到價通知、公車到站、颱風警報、每日摘要……目前時段各自為政。</div>
+      <div class="gain">半夜被轟醒這個最常見的抱怨，一次設定全部解決。</div>
+    </article>
+
+    <article class="card" data-p="P1">
+      <div class="head"><span class="p">P1</span><h3>單一任務停用／重排</h3></div>
+      <div class="id">/schedules</div>
+      <div class="body">
+        直接停用某一條推播（不必打「公車 取消」），或改頻率。底部再給「全部靜音」的大開關。
+      </div>
+      <div class="ev">目前取消路徑分散在各技能的指令裡（公車／rss／holiday／price-alert…）。</div>
+      <div class="gain">推播是這個專案的核心價值，統一控制權是必要的。</div>
+    </article>
+
+  </div>
+</section>
+
+<section id="C">
+  <h2 class="sec">方向 D：技能健康、使用分析與試跑 <span class="bn">P2</span></h2>
+  <div class="grid">
+
+    <article class="card" data-p="P2">
+      <div class="head"><span class="p">P2</span><h3>統一健康模型</h3></div>
+      <div class="id">/skills/health 擴充</div>
+      <div class="body">
+        現在只有少數技能定義 <code>health()</code>（可查外部資料源），大多數沒有。
+        改成<b>統一模型</b>：最近一次執行成敗、連續失敗次數、連續失敗的錯誤訊息、資料源最後成功時間。
+      </div>
+      <div class="ev"><code>metrics</code> 已有 <code>skill_exec_total{skill,result}</code>；skill 失敗也會進死信（<code>kind: skill:&lt;id&gt;</code>）。</div>
+      <div class="gain">「哪個技能最近壞掉」一眼可見，而不是翻 log 或死信。</div>
+    </article>
+
+    <article class="card" data-p="P2">
+      <div class="head"><span class="p">P2</span><h3>使用分析</h3></div>
+      <div class="id">/skills 卡片</div>
+      <div class="body">
+        每張技能卡顯示：近 7 日呼叫次數、失敗率、最後使用時間。並可依「從沒被用過」排序，讓清單自己浮出冗餘技能。
+      </div>
+      <div class="ev">counter 已在記錄，只差呈現。</div>
+      <div class="gain">技能清單自己會告訴你哪些該留、哪些是死碼。</div>
+    </article>
+
+    <article class="card" data-p="P2">
+      <div class="head"><span class="p">P2</span><h3>技能試跑</h3></div>
+      <div class="id">/skills 卡片 → 試跑</div>
+      <div class="body">
+        在技能卡上直接打一則訊息，<b>只看輸出不實際發送</b>（沿用規則模擬器的比對結果 + 技能本身的輸出預覽）。
+      </div>
+      <div class="ev">規則模擬器已能回答「會不會被觸發、為什麼」；缺的是「觸發後會回什麼」。</div>
+      <div class="gain">調參（關鍵字、時間區段、格式）不必真的在群組裡測。</div>
+    </article>
+
+  </div>
+</section>
+
+<section id="D">
+  <h2 class="sec">方向 E：技能版本、更新與回滾 <span class="bn">P3</span></h2>
+  <div class="grid">
+
+    <article class="card" data-p="P3">
+      <div class="head"><span class="p">P3</span><h3>技能版本記錄</h3></div>
+      <div class="id">安裝流程</div>
+      <div class="body">
+        安裝前備份現有版本（<code>data/skills/&lt;id&gt;.bak</code>），<code>skill.json</code> 帶 <code>version</code> 與 <code>api</code>，
+        升級失敗可一鍵回滾。目前 <code>installZip</code> 是<b>直接覆蓋</b>，沒有版本概念。
+      </div>
+      <div class="ev">已有 <code>api</code> 版本欄位可延伸；<code>install.ts</code> 已能擋下「需要更新主機」的技能。</div>
+      <div class="gain">技能升級有安全感；壞了能回到上一版。</div>
+    </article>
+
+    <article class="card" data-p="P3">
+      <div class="head"><span class="p">P3</span><h3>技能庫自動比對更新</h3></div>
+      <div class="id">library/ + /skills/install</div>
+      <div class="body">
+        技能庫現在是靜態產物，技能改了要人工重新下載。可讓 <code>/skills</code> 頁比對技能庫的 manifest 版本，標示「可更新」，並支援直接升級。
+      </div>
+      <div class="ev">library 由 <code>scripts/build-library.mjs</code> 產生，zip 已帶 <code>version</code>／<code>api</code>。</div>
+      <div class="gain">技能生態從「手動搬檔」變成可持續分發。</div>
+    </article>
+
+  </div>
+</section>
+
+<section id="E">
+  <h2 class="sec">方向 F：技能之間可以組合 <span class="bn">P4</span></h2>
+  <div class="grid">
+
+    <article class="card" data-p="P3">
+      <div class="head"><span class="p">P4</span><h3>技能依賴與複合查詢</h3></div>
+      <div class="id">技能框架</div>
+      <div class="body">
+        現在只有 AI 技能能呼叫工具（天氣／股價／匯率 3 個），一般技能彼此不能呼叫。
+        開放「技能依賴」後可組出複合技能：<b>出門包</b>＝天氣＋公車到站＋匯率；<b>投資組合檢視</b>＝stock＋price-alert。
+      </div>
+      <div class="ev">同一份資料源常被多個技能各自抓（天氣被 weather／morning／typhoon／ai 各抓一次）。</div>
+      <div class="gain">技能從「各自的小工具」變成「可組合的能力」，也順手解決重複抓資料的浪費。</div>
+    </article>
+
+  </div>
+</section>
+
+<section id="roadmap">
+  <h2 class="sec">建議執行順序 <span class="bn">Recommended Order</span></h2>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>順位</th><th>項目</th><th>理由</th><th>規模</th></tr></thead>
+      <tbody>
+        <tr><td><strong>1</strong></td><td><b>P0 修 bug</b>（最長匹配＋衝突偵測＋裁決＋測試）</td><td>兩者都會直接影響日常使用（「換算」回兩次、「倒數計時」觸發不了）；修法乾淨、可用既有模擬器當第二驗證點</td><td>小</td></tr>
+        <tr><td><strong>2</strong></td><td><b>P1 統一排程中心</b></td><td>13 個技能共用同一套 scheduler，資料都已齊；是技能變多後最缺的一塊拼圖</td><td>中</td></tr>
+        <tr><td><strong>3</strong></td><td><b>P2 健康與分析</b>（統一健康模型 → 使用分析 → 試跑）</td><td>資料已存在，只差呈現；試跑能直接加速前面所有技能的調參</td><td>中</td></tr>
+        <tr><td>4</td><td><b>P3 版本與更新</b></td><td>技能生態要能持續分發才有意義；已有 api 版本欄位可延伸</td><td>中</td></tr>
+        <tr><td>5</td><td><b>P4 技能組合</b></td><td>架構改動最大（技能間呼叫與資料源共用），等前面把管理面做穩再談</td><td>大</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note new">
+    <b>若只做一件事</b>：做 P0 的「最長匹配優先 + 啟用時衝突偵測」。
+    它同時修掉兩個真 bug，而且<b>不新增任何介面</b>——純比對邏輯的修正，風險最低、收益最直接。
+  </div>
+</section>
+
+<section id="risk">
+  <h2 class="sec">風險與不做清單 <span class="bn">Risks &amp; Non-Goals</span></h2>
+  <div class="note risk">
+    <b>動 dispatch 比對邏輯的風險</b>：會影響所有技能的觸發行為（53 個）。
+    緩解：比對函式維持純函式、真實管線與規則模擬器共用、補矩陣測試；
+    並在改動後<b>用模擬器比對 53 個技能既有觸發結果</b>（改前 vs 改後 diff）作為額外保險。
+  </div>
+  <div class="note">
+    <b>這一輪明確不做</b>：2FA／多管理員（等你真的需要多人共用再做）、技能沙箱（本專案定位是單人自用）、
+    衛星雲圖（CWA 路徑全 404）、QR 解碼、WhatsApp／Teams／Discord 的 AI 視覺（vision 目前只接 LINE＋Telegram）。
+  </div>
+  <div class="note good">
+    <b>已完成的基礎（可安心疊加）</b>：技能以 <code>@lw/*</code> 別名自包含（可外部分享）、Coverage gate（43.3%／門檻 35%）、
+    lint 0 errors、584 項測試、稽核紀錄＋CSV、每日營運摘要、平台連線測試、統一排程的底層（scheduler + cron + 持久化）。
+  </div>
+</section>
+
+</main>
+</div>
+
+<footer>
+  <div class="foot">
+    <span>LineHook / IM Webhook</span>
+    <span>第三階段建議 ・ 2026-10-23</span>
+    <span>僅提出方向，未修改程式碼</span>
+  </div>
+</footer>
+</div>
+
+<button id="totop" type="button" class="totop" aria-label="回到頂端">↑</button>
+
+<script>
+(function(){
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.card'));
+  var chips = Array.prototype.slice.call(document.querySelectorAll('.chip'));
+  var q = document.getElementById('q');
+  var count = document.getElementById('count');
+  var TOTAL = cards.length;
+  var filter = 'all';
+  function apply(){
+    var term = (q.value || '').trim().toLowerCase();
+    var shown = 0;
+    cards.forEach(function(c){
+      var okP = (filter === 'all') || (c.getAttribute('data-p') === filter);
+      var okQ = !term || c.textContent.toLowerCase().indexOf(term) !== -1;
+      var show = okP && okQ;
+      c.classList.toggle('hidden', !show);
+      if (show) shown++;
+    });
+    count.textContent = shown + ' / ' + TOTAL + ' 項';
+  }
+  chips.forEach(function(ch){
+    ch.addEventListener('click', function(){
+      chips.forEach(function(o){ o.classList.remove('on'); });
+      ch.classList.add('on');
+      filter = ch.getAttribute('data-p');
+      apply();
+    });
+  });
+  q.addEventListener('input', apply);
+  var top = document.getElementById('totop');
+  top.addEventListener('click', function(){ window.scrollTo({top:0, behavior:'smooth'}); });
+  window.addEventListener('scroll', function(){ top.classList.toggle('show', window.scrollY > 700); }, {passive:true});
+  apply();
+})();
+</script>
+</body>
+</html>
