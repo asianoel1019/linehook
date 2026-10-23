@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
@@ -41,6 +42,120 @@ export interface InstalledSkill {
 
 function skillsRoot(): string {
   return resolve(config.skillsPath);
+}
+
+/**
+ * P3 備份根：與 skillsPath 同層（`data/skill-backups/<id>.bak/`），刻意不放 skillsPath 內——
+ * loader 會載入該目錄下所有子目錄，放裡面會被誤載入成技能。
+ */
+function backupsRoot(): string {
+  return resolve(skillsRoot(), "..", "skill-backups");
+}
+
+function backupDir(id: string): string {
+  return join(backupsRoot(), `${safeName(id)}.bak`);
+}
+
+function readDirVersion(dir: string): string {
+  try {
+    const m = JSON.parse(readFileSync(join(dir, "skill.json"), "utf8")) as { version?: unknown };
+    return typeof m.version === "string" ? m.version : "";
+  } catch {
+    return "";
+  }
+}
+
+/** 語義化版本比較（數字段逐段比；缺段視為 0；非數字段按字串比）。回 -1/0/1。 */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split(".");
+  const pb = b.split(".");
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? "0";
+    const y = pb[i] ?? "0";
+    const nx = /^\d+$/.test(x) ? Number(x) : NaN;
+    const ny = /^\d+$/.test(y) ? Number(y) : NaN;
+    if (!Number.isNaN(nx) && !Number.isNaN(ny)) {
+      if (nx !== ny) return nx < ny ? -1 : 1;
+    } else if (x !== y) {
+      return x < y ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+/**
+ * 安裝前備份現有版本（P3）。只有目錄內已有像樣的安裝（進入點或 skill.json）才備；
+ * 回傳是否備份成功。同一技能只留一份備份（新備份覆蓋舊的）。
+ */
+export function backupSkill(id: string): boolean {
+  const safe = safeName(id);
+  if (!safe) return false;
+  const src = join(skillsRoot(), safe);
+  const plausible = ["index.js", "index.mjs", "index.cjs", "skill.json"].some((f) => existsSync(join(src, f)));
+  if (!plausible) return false;
+  try {
+    const dest = backupDir(safe);
+    rmSync(dest, { recursive: true, force: true });
+    mkdirSync(backupsRoot(), { recursive: true });
+    cpSync(src, dest, { recursive: true });
+    logger.info("已備份技能舊版", { id: safe });
+    return true;
+  } catch (error) {
+    logger.warn("備份技能舊版失敗", { id: safe, error: String(error) });
+    return false;
+  }
+}
+
+/** 是否有可回滾的備份。 */
+export function hasSkillBackup(id: string): boolean {
+  const safe = safeName(id);
+  if (!safe) return false;
+  return existsSync(backupDir(safe));
+}
+
+/** 安裝失敗時把舊版搬回來（盡力而為；備份會被消耗掉——它變回現版了）。 */
+function restoreBackup(safe: string): void {
+  const bak = backupDir(safe);
+  const cur = join(skillsRoot(), safe);
+  try {
+    if (!existsSync(bak)) return;
+    rmSync(cur, { recursive: true, force: true });
+    renameSync(bak, cur);
+    logger.info("安裝失敗，已還原舊版", { id: safe });
+  } catch (error) {
+    logger.warn("還原舊版失敗", { id: safe, error: String(error) });
+  }
+}
+
+/**
+ * 一鍵回滾（P3）：備份與現版交換，可反覆橫跳。無備份回 null。
+ * 現版不存在（移除後反悔）則直接把備份搬回來。
+ */
+export async function rollbackSkill(id: string): Promise<{ id: string; version: string } | null> {
+  const safe = safeName(id);
+  if (!safe) return null;
+  const root = skillsRoot();
+  const cur = join(root, safe);
+  const bak = backupDir(safe);
+  if (!existsSync(bak)) return null;
+  try {
+    if (existsSync(cur)) {
+      const tmp = join(root, `${safe}.tmp-swap`);
+      rmSync(tmp, { recursive: true, force: true });
+      renameSync(cur, tmp);
+      renameSync(bak, cur);
+      renameSync(tmp, bak);
+    } else {
+      mkdirSync(root, { recursive: true });
+      renameSync(bak, cur);
+    }
+  } catch (error) {
+    logger.warn("回滾技能失敗", { id: safe, error: String(error) });
+    return null;
+  }
+  await reloadSkills();
+  logger.info("已回滾技能", { id: safe });
+  return { id: safe, version: readDirVersion(cur) };
 }
 
 export function safeName(name: string): string {
@@ -96,8 +211,11 @@ export function listInstalled(): InstalledSkill[] {
  *  - zip 內含單一資料夾（folder/index.js 或 folder/skill.json）
  *  - zip 根目錄即技能檔（index.js / skill.json）
  * 解壓到 data/skills/<id>/，並重新載入技能。
+ * P3：覆蓋前先備份現有版本（同層 skill-backups/）；缺進入點等失敗時自動還原舊版。
  */
-export async function installZip(buffer: Buffer): Promise<{ id: string; files: number }> {
+export async function installZip(
+  buffer: Buffer,
+): Promise<{ id: string; files: number; version: string; previousVersion: string; backedUp: boolean }> {
   const { unzipSync } = await loadFflate();
   let files: Record<string, Uint8Array>;
   try {
@@ -122,11 +240,13 @@ export async function installZip(buffer: Buffer): Promise<{ id: string; files: n
 
   // 讀 manifest 取 id
   let id = "";
+  let version = "";
   const manifestKey = names.find((n) => n.endsWith("skill.json"));
   if (manifestKey) {
     try {
-      const m = JSON.parse(Buffer.from(files[manifestKey]).toString("utf8")) as { id?: string; api?: unknown };
+      const m = JSON.parse(Buffer.from(files[manifestKey]).toString("utf8")) as { id?: string; api?: unknown; version?: unknown };
       if (m.id) id = safeName(m.id);
+      if (typeof m.version === "string") version = m.version;
       // 技能 API 版本：技能以 @lw/* 別名匯入宿主模組，主機版本較舊就明確拒絕，
       // 而不是裝了一個載入時才默默消失的技能。
       if (typeof m.api === "number" && m.api > SKILL_API_VERSION) {
@@ -148,40 +268,57 @@ export async function installZip(buffer: Buffer): Promise<{ id: string; files: n
 
   const root = skillsRoot();
   const destDir = join(root, id);
-  mkdirSync(destDir, { recursive: true });
+  // P3 兩段式寫入：先解到系統暫存驗證（進入點齊全才动現版），避免壞包與舊檔混成四不像。
+  // 暫存放 os.tmpdir 而非 skillsPath，避免 crash 殘留被 loader 誤載入。
+  const stageDir = join(tmpdir(), `skill-install-${process.pid}-${Date.now()}`);
+  mkdirSync(stageDir, { recursive: true });
+  try {
+    let count = 0;
+    for (const name of names) {
+      const rel = singleRoot ? name.split("/").slice(1).join("/") : name;
+      if (!rel) continue;
+      const clean = rel.split("/").map(safeName).filter(Boolean).join("/");
+      if (!clean) continue;
+      const target = resolve(stageDir, clean);
+      if (target !== stageDir && !target.startsWith(stageDir + sep)) continue; // 防目錄穿越
+      mkdirSync(join(target, ".."), { recursive: true });
+      writeFileSync(target, Buffer.from(files[name]));
+      count++;
+    }
 
-  let count = 0;
-  for (const name of names) {
-    const rel = singleRoot ? name.split("/").slice(1).join("/") : name;
-    if (!rel) continue;
-    const clean = rel.split("/").map(safeName).filter(Boolean).join("/");
-    if (!clean) continue;
-    const target = resolve(destDir, clean);
-    if (!target.startsWith(destDir)) continue; // 防目錄穿越
-    mkdirSync(join(target, ".."), { recursive: true });
-    writeFileSync(target, Buffer.from(files[name]));
-    count++;
-  }
+    if (
+      !existsSync(join(stageDir, "index.js")) &&
+      !existsSync(join(stageDir, "index.mjs")) &&
+      !existsSync(join(stageDir, "index.cjs"))
+    ) {
+      throw new Error("技能缺少 index.js（或 index.mjs）進入點");
+    }
 
-  if (
-    !existsSync(join(destDir, "index.js")) &&
-    !existsSync(join(destDir, "index.mjs")) &&
-    !existsSync(join(destDir, "index.cjs"))
-  ) {
-    rmSync(destDir, { recursive: true, force: true });
-    throw new Error("技能缺少 index.js（或 index.mjs）進入點");
-  }
+    // 驗證通過才動現版：備份 → 清掉 → 搬入；搬入失敗還原備份。
+    const previousVersion = readDirVersion(destDir);
+    const backedUp = backupSkill(id);
+    try {
+      rmSync(destDir, { recursive: true, force: true });
+      mkdirSync(root, { recursive: true });
+      cpSync(stageDir, destDir, { recursive: true });
+    } catch (error) {
+      if (backedUp) restoreBackup(id);
+      throw error;
+    }
 
-  await reloadSkills();
-  const loaded = listSkills().some((s) => s.id === id);
-  if (!loaded) {
-    logger.warn("技能已解壓但載入失敗（請檢查 index.js）", { id });
+    await reloadSkills();
+    const loaded = listSkills().some((s) => s.id === id);
+    if (!loaded) {
+      logger.warn("技能已解壓但載入失敗（請檢查 index.js）", { id });
+    }
+    logger.info("已安裝技能", { id, files: count });
+    return { id, files: count, version, previousVersion, backedUp };
+  } finally {
+    rmSync(stageDir, { recursive: true, force: true });
   }
-  logger.info("已安裝技能", { id, files: count });
-  return { id, files: count };
 }
 
-/** 移除外部技能。 */
+/** 移除外部技能（連同回滾備份一起清掉，省得古董版某天詐屍）。 */
 export async function uninstallSkill(id: string): Promise<boolean> {
   const safe = safeName(id);
   if (!safe) return false;
@@ -201,7 +338,10 @@ export async function uninstallSkill(id: string): Promise<boolean> {
     removed = true;
     logger.info("已隱藏內建技能", { id: safe });
   }
-  if (removed) await reloadSkills();
+  if (removed) {
+    rmSync(backupDir(safe), { recursive: true, force: true });
+    await reloadSkills();
+  }
   return removed;
 }
 

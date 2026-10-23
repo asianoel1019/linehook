@@ -204,6 +204,21 @@ for (const s of skills) {
   built.push(s);
 }
 
+// P3：機器可讀 manifest，供 /skills/updates.json 比對「可更新」（版本＋api）。
+writeFileSync(
+  join(outDir, "index.json"),
+  JSON.stringify(
+    {
+      generated: new Date().toISOString(),
+      count: built.length,
+      skills: built.map((s) => ({ id: s.id, name: s.name, version: s.version, api: 1 })), // 與 zipSkill 內的 api 一致（＝ SKILL_API_VERSION）
+    },
+    null,
+    2,
+  ),
+  "utf8",
+);
+
 const STYLE = `
   :root {
     --paper-1:#f7f5f0; --paper-2:#fffef8; --paper-3:#f0ecdf;

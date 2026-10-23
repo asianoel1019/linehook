@@ -219,28 +219,81 @@ export function renderSkillsHtml() {
     });
   }
 
+  function upgradeSkill(id) {
+    fetch("/skills/upgrade", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: id })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (x) { return { ok: r.ok, data: x }; });
+    }).then(function (r) {
+      if (r.ok) { loadInstalled(); loadSkills(); }
+      else { alert(T("upgrade_failed") + (r.data.error || "")); }
+    });
+  }
+
+  function rollbackSkill(id) {
+    if (!window.confirm(T("confirm_rollback").replace("{id}", id))) return;
+    fetch("/skills/rollback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: id })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (x) { return { ok: r.ok, data: x }; });
+    }).then(function (r) {
+      if (r.ok) { loadInstalled(); loadSkills(); }
+      else { alert(T("rollback_failed") + (r.data.error || "")); }
+    });
+  }
+
   function loadInstalled() {
-    fetch("/skills/installed.json", { cache: "no-store" })
+    var pInstalled = fetch("/skills/installed.json", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; });
+    var pUpdates = fetch("/skills/updates.json", { cache: "no-store" })
       .then(function (res) { return res.ok ? res.json() : null; })
-      .then(function (d) {
+      .catch(function () { return null; });
+    Promise.all([pInstalled, pUpdates])
+      .then(function (arr) {
+        var d = arr[0];
         if (!d) return;
+        var updatesById = {};
+        ((arr[1] && arr[1].updates) || []).forEach(function (u) { updatesById[u.id] = u; });
         var items = [];
         (d.installed || []).forEach(function (s) {
           var def = skillDef(s.id) || {};
           var hay = searchHay([s.name, s.id, def.name, def.category, def.description]);
+          var upd = updatesById[s.id];
+          var label = s.name + (s.version ? " v" + s.version : "") + "（" + s.id + "）";
+          if (upd && upd.canUpgrade) label += " → v" + upd.latestVersion;
+          var row = manageRow(
+            label,
+            upd && upd.canUpgrade ? T("badge_update") : T("lbl_external"),
+            T("btn_uninstall"),
+            function () {
+              if (!window.confirm(T("confirm_remove_external").replace("{id}", s.id))) return;
+              removeSkill(s.id);
+            },
+            hay
+          );
+          // P3：可更新就地升級、有備份就地回滾（都走同一列，不用跳頁）。
+          if (upd && upd.canUpgrade && upd.apiOk) {
+            var upBtn = document.createElement("button");
+            upBtn.type = "button";
+            upBtn.textContent = T("btn_upgrade");
+            upBtn.addEventListener("click", function () { upgradeSkill(s.id); });
+            row.appendChild(upBtn);
+          }
+          if (s.hasBackup) {
+            var rbBtn = document.createElement("button");
+            rbBtn.type = "button";
+            rbBtn.textContent = T("btn_rollback");
+            rbBtn.addEventListener("click", function () { rollbackSkill(s.id); });
+            row.appendChild(rbBtn);
+          }
           items.push({
             categoryZh: def.categoryZh || "",
             category: def.category || "",
-            el: manageRow(
-              s.name + (s.version ? " v" + s.version : "") + "（" + s.id + "）",
-              T("lbl_external"),
-              T("btn_uninstall"),
-              function () {
-                if (!window.confirm(T("confirm_remove_external").replace("{id}", s.id))) return;
-                removeSkill(s.id);
-              },
-              hay
-            )
+            el: row
           });
         });
         (d.builtin || []).forEach(function (s) {

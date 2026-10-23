@@ -10,7 +10,8 @@ import { currentSettings, saveSettings } from "../settings.js";
 import { getStats } from "../stats.js";
 import { getTokenUsage } from "../token-stats.js";
 import { listSkills, isBuiltinSkill, getSkill, restoreSkill, readHiddenSkills, reloadSkills } from "../skills/index.js";
-import { installZip, listInstalled, uninstallSkill } from "../skills/install.js";
+import { installZip, listInstalled, uninstallSkill, compareVersions, hasSkillBackup, rollbackSkill, safeName, SKILL_API_VERSION } from "../skills/install.js";
+import { readLibraryIndex, readLibraryZip } from "../skills/library.js";
 import { validateSkillConfig } from "../skills/validate.js";
 import { readBackupBundle, restoreBackupBundle } from "../backup.js";
 import { audit } from "../audit.js";
@@ -972,12 +973,83 @@ export function createServer(line: IMessagingService): express.Express {
     const installed = listInstalled();
     const externalIds = new Set(installed.map((s) => s.id));
     res.json({
-      installed,
+      installed: installed.map((s) => ({ ...s, hasBackup: hasSkillBackup(s.id) })),
       builtin: listSkills()
         .filter((s) => isBuiltinSkill(s.id) && !externalIds.has(s.id))
         .map((s) => ({ id: s.id, name: s.name })),
       hidden: readHiddenSkills(),
     });
+  });
+  // P3 技能庫比對：已安裝版本 vs 庫 manifest，標示可更新（庫沒建過就回空，不炸）。
+  app.get("/skills/updates.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
+    const manifest = readLibraryIndex();
+    const byId = new Map(manifest.map((m) => [m.id, m]));
+    const updates = listInstalled()
+      .filter((s) => byId.has(s.id))
+      .map((s) => {
+        const m = byId.get(s.id)!;
+        return {
+          id: s.id,
+          name: s.name,
+          installedVersion: s.version,
+          latestVersion: m.version,
+          canUpgrade: !!m.version && !!s.version && compareVersions(s.version, m.version) < 0,
+          apiOk: m.api <= SKILL_API_VERSION,
+        };
+      });
+    res.json({ updates, library: { built: manifest.length > 0, count: manifest.length } });
+  });
+  // P3 一鍵回滾：回到安裝前的版本（與備份交換，可反覆橫跳）。
+  app.post("/skills/rollback", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, async (req, res) => {
+    const body = asRecord(req.body) ?? {};
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) {
+      res.status(400).json({ ok: false, error: "id 必填" });
+      return;
+    }
+    const rolled = await rollbackSkill(id);
+    if (!rolled) {
+      res.status(404).json({ ok: false, error: "沒有可回滾的備份" });
+      return;
+    }
+    audit(req, "skills.rollback", `${rolled.id} -> v${rolled.version || "?"}`);
+    res.json({ ok: true, ...rolled });
+  });
+  // P3 直接升級：從技能庫 zip 安裝（沿用 installZip 的備份＋api 檢查）。
+  app.post("/skills/upgrade", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, async (req, res) => {
+    const body = asRecord(req.body) ?? {};
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) {
+      res.status(400).json({ ok: false, error: "id 必填" });
+      return;
+    }
+    const entry = readLibraryIndex().find((m) => m.id === safeName(id));
+    if (!entry) {
+      res.status(404).json({ ok: false, error: "技能庫沒有這個技能" });
+      return;
+    }
+    if (entry.api > SKILL_API_VERSION) {
+      res.status(400).json({
+        ok: false,
+        error: `技能庫版本需要更新的主機（api ${entry.api} > 本機 ${SKILL_API_VERSION}），請先更新 IM Webhook`,
+      });
+      return;
+    }
+    const zip = readLibraryZip(entry.id);
+    if (!zip) {
+      res.status(404).json({ ok: false, error: "技能庫缺少 zip 檔（請重建技能庫）" });
+      return;
+    }
+    try {
+      const result = await installZip(zip);
+      audit(req, "skills.upgrade", `${result.id} v${result.previousVersion || "?"} -> v${result.version || "?"}`);
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      res.status(400).json({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
   app.post("/skills/restore", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, async (req, res) => {
     const body = asRecord(req.body) ?? {};

@@ -135,9 +135,9 @@
   #skillList { display: grid; grid-template-columns: 1fr; gap: 14px; align-items: start; }
   /* 安裝/移除分頁的分類框：背景比外層 glass 淡，避免巢狀過重 */
   #installed-list .skill-group.glass { background: rgba(0,0,0,0.15); }
-  /* 安裝/移除列：一列式 grid（名稱欄可縮＋省略，按鈕欄固定），結構上不可能換行 */
-  #installed-list .manage-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 6px 0; border-top: 1px solid rgba(34,211,238,.12); }
-  #installed-list .manage-name { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; white-space: nowrap; }
+  /* 安裝/移除列：flex 一列（名稱欄可縮＋省略，按鈕群靠右可換行，P3 一列最多三鈕） */
+  #installed-list .manage-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid rgba(34,211,238,.12); }
+  #installed-list .manage-name { display: flex; align-items: center; gap: 8px; flex: 1 1 220px; min-width: 0; overflow: hidden; white-space: nowrap; }
   #installed-list .manage-name > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #installed-list .manage-row .badge { flex: 0 0 auto; }
   #installed-list .manage-row button { white-space: nowrap; }
