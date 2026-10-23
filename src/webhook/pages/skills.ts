@@ -4,6 +4,7 @@ import { tr } from "../../i18n.js";
 import { listSkills } from "../../skills/index.js";
 import { findTriggerConflicts } from "../../messaging/dispatch.js";
 import { resolveText } from "../../skills/types.js";
+import { schedulesTabBody, schedulesTabScript } from "./schedules.js";
 import { page } from "../shell.js";
 
 export function renderSkillsHtml() {
@@ -56,6 +57,7 @@ export function renderSkillsHtml() {
   <button type="button" class="fn-card active" data-tab="list" data-i18n="tab_skill_list">技能列</button>
   <button type="button" class="fn-card" data-tab="install" data-i18n="tab_skill_install">安裝/移除</button>
   <button type="button" class="fn-card" data-tab="ai" data-i18n="tab_skill_ai">AI 設定</button>
+  <button type="button" class="fn-card" data-tab="schedules" data-i18n="nav_schedules">排程中心</button>
 </div>`;
     const body = `
 <div id="tab-list" class="skills-tab">
@@ -94,6 +96,10 @@ export function renderSkillsHtml() {
   <div class="actions"><button type="button" id="ai-save" data-i18n="save_settings">儲存 AI 設定</button><span id="ai-msg" class="msg"></span></div>
 </div>
 </div>
+
+<div id="tab-schedules" class="skills-tab" hidden>
+${schedulesTabBody()}
+</div>
 `;
     const script = `
   var SKILL_DEFS = ${JSON.stringify(skillDefs).replace(/</g, "\\u003c")};
@@ -108,6 +114,9 @@ export function renderSkillsHtml() {
       document.querySelectorAll(".skills-tab").forEach(function (el) { el.hidden = true; });
       var target = document.getElementById("tab-" + tab);
       if (target) target.hidden = false;
+      try { history.replaceState(null, "", "#" + tab); } catch (e) {}
+      // 排程頁籤每次切入都重抓（30 秒輪詢照跑，這裡保證切入即新鮮）。
+      if (tab === "schedules" && typeof schLoad === "function") schLoad();
     });
   });
 
@@ -1006,6 +1015,16 @@ export function renderSkillsHtml() {
   loadSkills();
   loadInstalled();
   loadAiSettings();
-`;
+
+  // 深連結：/skills#schedules 直達排程頁籤（舊 /schedules 書籤由 server 轉址過來）。
+  (function () {
+    var h = "";
+    try { h = (location.hash || "").replace("#", ""); } catch (e) {}
+    if (h === "schedules") {
+      var btn = document.querySelector('#skills-subnav .fn-card[data-tab="schedules"]');
+      if (btn) btn.click();
+    }
+  })();
+${schedulesTabScript()}`;
     return page(tr(config.language, "title_skills"), "skills", body, script, { sidebar });
 }

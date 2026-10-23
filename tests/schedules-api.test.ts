@@ -4,8 +4,6 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeFileSync, rmSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { config } from "../src/config.js";
 import { registerService } from "../src/messaging/services.js";
 import { createServer } from "../src/webhook/server.js";
@@ -107,26 +105,20 @@ describe("/schedules 一覽與控制", () => {
     assert.equal(skill.freq, "每天 08:00");
   });
 
-  it("GET /schedules：頁面可開", async () => {
-    const res = await fetch(`${base}/schedules`, { headers: auth });
-    assert.equal(res.status, 200);
-    const html = await res.text();
-    assert.ok(html.includes("排程一覽"));
+  it("GET /schedules：已併入技能頁籤，轉址到 /skills#schedules", async () => {
+    const res = await fetch(`${base}/schedules`, { headers: auth, redirect: "manual" });
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get("location"), "/skills#schedules");
   });
 
-  it("頁面內嵌 JS 語法有效", async () => {
-    const res = await fetch(`${base}/schedules`, { headers: auth });
+  it("GET /skills：含排程頁籤（body＋script 移植）", async () => {
+    const res = await fetch(`${base}/skills`, { headers: auth });
+    assert.equal(res.status, 200);
     const html = await res.text();
-    const m = html.match(/<script>([\s\S]*?)<\/script>/);
-    assert.ok(m, "應有內嵌 script");
-    const tmp = join(tmpdir(), `sched-inline-${process.pid}.js`);
-    writeFileSync(tmp, m[1], "utf8");
-    try {
-      const r = spawnSync(process.execPath, ["--check", tmp]);
-      assert.equal(r.status, 0, String(r.stderr).slice(0, 300));
-    } finally {
-      rmSync(tmp, { force: true });
-    }
+    assert.ok(html.includes('data-tab="schedules"'));
+    assert.ok(html.includes('id="tab-schedules"'));
+    assert.ok(html.includes("schLoad"));
+    assert.ok(html.includes("/schedules.json"));
   });
 
   it("POST /schedules/mute：開關靜音", async () => {

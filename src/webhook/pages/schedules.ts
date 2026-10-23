@@ -1,10 +1,8 @@
-/* P1 統一排程中心：跨平台排程一覽＋單一靜音/改頻率/刪除＋勿擾時段＋全部靜音。 */
-import { config } from "../../config.js";
-import { tr } from "../../i18n.js";
-import { page } from "../shell.js";
-
-export function renderSchedulesHtml() {
-  const body = `
+/* P1 統一排程中心：跨平台排程一覽＋單一靜音/改頻率/刪除＋勿擾時段＋全部靜音。
+ * 排程本質是技能的延伸（watch 任務＋技能發起的一次性推播），以「技能」頁第 4 頁籤呈現；
+ * 資料與控制 API（/schedules.json 等）維持不變，頁籤 JS 打同一批端點。 */
+export function schedulesTabBody(): string {
+  return `
 <div class="glass" style="margin-bottom:16px">
   <h2 style="margin-top:0" data-i18n="sched_quiet_title">勿擾與靜音</h2>
   <div class="field"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input id="sch-quiet-on" type="checkbox" style="width:auto"><span data-i18n="sched_quiet">勿擾時段（延後執行，不丟失）</span></label></div>
@@ -20,7 +18,10 @@ export function renderSchedulesHtml() {
   <div id="sch-list"></div>
 </div>
 `;
-  const script = `
+}
+
+export function schedulesTabScript(): string {
+  return `
   function schMsg(t) { document.getElementById("sch-msg").textContent = t || ""; }
   function schPost(path, body) {
     return fetch(path, {
@@ -143,7 +144,6 @@ export function renderSchedulesHtml() {
   schLoad();
   setInterval(schLoad, 30000);
 `;
-  return page(tr(config.language, "nav_schedules"), "schedules", body, script, {});
 }
 
-export default renderSchedulesHtml;
+export default schedulesTabBody;

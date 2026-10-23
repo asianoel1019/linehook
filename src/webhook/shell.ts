@@ -32,7 +32,6 @@ export function page(
     const nav = [
         ["/dashboard", tr(lang, "nav_dashboard"), "dashboard"],
         ["/console", tr(lang, "nav_console"), "console"],
-        ["/schedules", tr(lang, "nav_schedules"), "schedules"],
         ["/skills", tr(lang, "nav_skills"), "skills"],
         ["/settings", tr(lang, "nav_settings"), "settings"],
         ["/messages", tr(lang, "nav_messages"), "messages"],

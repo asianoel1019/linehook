@@ -76,7 +76,6 @@ import { parseDateTimeInTz } from "../time.js";
 import { renderDashboardHtml } from "./pages/dashboard.js";
 import { renderSettingsHtml } from "./pages/settings.js";
 import { renderConsoleHtml } from "./pages/console.js";
-import { renderSchedulesHtml } from "./pages/schedules.js";
 import { renderSkillsHtml } from "./pages/skills.js";
 import { renderLoginHtml } from "./pages/login.js";
 import { renderReadmeHtml, sanitizeReadmeHtml as sanitizeReadmeHtmlImpl } from "./pages/readme.js";
@@ -735,8 +734,9 @@ export function createServer(line: IMessagingService): express.Express {
     }
     return cron;
   };
+  // 排程中心已併入「技能」頁第 4 頁籤；舊書籤轉址過去（hash 由頁籤 JS 接手）。
   app.get("/schedules", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
-    res.type("html").send(renderSchedulesHtml());
+    res.redirect("/skills#schedules");
   });
   app.get("/schedules.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
     res.set("Cache-Control", "no-store");
