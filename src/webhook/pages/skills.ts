@@ -704,7 +704,7 @@ export function renderSkillsHtml() {
         ((d.scheduled || [])).forEach(function (s) { lines.push("排程：" + s); });
         ((d.watched || [])).forEach(function (w) { lines.push("監控：" + w); });
         if (d.ok === false) lines.push("失敗：" + (d.error || ""));
-        dryOut.textContent = lines.length > 0 ? lines.join("\n") : "（無輸出）";
+        dryOut.textContent = lines.length > 0 ? lines.join("\\n") : "（無輸出）";
       }).catch(function () { dryOut.textContent = "讀取失敗"; });
     });
     dryInput.addEventListener("keydown", function (e) {

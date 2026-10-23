@@ -4,7 +4,8 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { config } from "../src/config.js";
 import { registerService } from "../src/messaging/services.js";
 import { createServer } from "../src/webhook/server.js";
@@ -189,5 +190,20 @@ describe("P3 技能庫比對／升級／回滾", () => {
     assert.ok(html.includes("/skills/upgrade"));
     assert.ok(html.includes("/skills/rollback"));
     assert.ok(html.includes("/skills/updates.json"));
+  });
+
+  it("GET /skills：內嵌 JS 語法有效（模板轉義回歸，P3 修過 join 斷行）", async () => {
+    const res = await fetch(`${base}/skills`, { headers: auth });
+    const html = await res.text();
+    const m = html.match(/<script(?![^>]*src)[^>]*>([\s\S]*?)<\/script>/);
+    assert.ok(m, "應有內嵌 script");
+    const tmp = join(tmpdir(), `skills-inline-${process.pid}.js`);
+    writeFileSync(tmp, m[1], "utf8");
+    try {
+      const r = spawnSync(process.execPath, ["--check", tmp]);
+      assert.equal(r.status, 0, String(r.stderr).slice(0, 300));
+    } finally {
+      rmSync(tmp, { force: true });
+    }
   });
 });
