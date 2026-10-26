@@ -8,10 +8,10 @@ export function schedulesTabBody(): string {
 <div class="glass" style="margin-bottom:16px">
   <h2 style="margin-top:0" data-i18n="sched_quiet_title">勿擾與靜音</h2>
   <div id="sch-status" class="msg" style="font-size:13px;margin-bottom:10px"></div>
-  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input id="sch-quiet-on" type="checkbox" style="width:auto"><span data-i18n="sched_quiet">勿擾時段（延後執行，不丟失）</span></label></div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><label style="display:flex;gap:10px;align-items:center;cursor:pointer"><input id="sch-quiet-on" type="checkbox" class="switch"><span data-i18n="sched_quiet">勿擾時段（延後執行，不丟失）</span></label></div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px"><input id="sch-quiet-from" placeholder="23:00" style="width:110px;flex:0 0 auto"><span>–</span><input id="sch-quiet-to" placeholder="07:00" style="width:110px;flex:0 0 auto"><button type="button" id="sch-quiet-save" data-i18n="sched_save" style="flex:0 0 auto">儲存</button><span id="sch-quiet-msg" class="msg"></span></div>
   <div class="msg" style="font-size:12px;color:#94a3b8;margin-bottom:10px" data-i18n="sched_quiet_hint">格式 HH:mm；起晚於訖代表跨夜。一次性訊息不受影響。</div>
-  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input id="sch-mute-all" type="checkbox" style="width:auto"><span data-i18n="sched_mute_all">全部靜音（所有推播直接略過）</span></label></div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label style="display:flex;gap:10px;align-items:center;cursor:pointer"><input id="sch-mute-all" type="checkbox" class="switch"><span data-i18n="sched_mute_all">全部靜音（所有推播直接略過）</span></label></div>
 </div>
 <div class="glass">
   <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
