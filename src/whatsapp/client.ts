@@ -7,7 +7,7 @@ import { recordMessage } from "../messages.js";
 import { recordSend } from "../stats.js";
 import { writeDeadLetter } from "../deadletter.js";
 import { setState } from "../state.js";
-import { SendQueue } from "../line/queue.js";
+import { SendQueue, fileQueuePersistence, nextQueueKey } from "../line/queue.js";
 import { SendScheduler, type ScheduledJobView } from "../line/scheduler.js";
 import { parseCron, nextRun } from "../line/cron.js";
 import { watchOptionsToCron } from "../skills/watch.js";
@@ -23,6 +23,7 @@ import {
   type IMessagingService,
   type IncomingMessage,
   type LocationInput,
+  type QueuedSend,
   type SendInput,
   type StickerInput,
 } from "../messaging/types.js";
@@ -118,7 +119,7 @@ export function verifyWhatsAppSignature(rawBody: Buffer, header: string, appSecr
 
 export class WhatsAppService implements IMessagingService {
   readonly platform = "whatsapp" as const;
-  private readonly queue: SendQueue;
+  private readonly queue: SendQueue<QueuedSend>;
   private readonly scheduler: SendScheduler;
   private nameToChat = new Map<string, string>();
   private chatToName = new Map<string, string>();
@@ -126,24 +127,31 @@ export class WhatsAppService implements IMessagingService {
   private displayNumber = "";
 
   constructor() {
-    this.queue = new SendQueue(() => ({
-      maxRetries: config.send.maxRetries,
-      retryBaseMs: config.send.retryBaseMs,
-      minIntervalMs: config.send.minIntervalMs,
-      isPermanent: (error) => {
-        if (error instanceof TargetNotFoundError || error instanceof NotLoggedInError) return true;
-        const message = error instanceof Error ? error.message : String(error);
-        // 限流/逾時/連線錯誤可重試。
-        if (/429|rate|頻繁|timeout|逾時|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|socket hang up|retry after/i.test(message)) {
-          return false;
-        }
-        // 24 小時視窗外的 free-form 訊息重試也不會過，視為永久錯誤。
-        if (/24\s*(hour|小時)|re-?engagement|outside.*window|message.*window|131047/i.test(message)) {
-          return true;
-        }
-        return /40[0-4]|422|unauthorized|invalid|wrong|驗證失敗|參數錯誤|不支援|格式錯誤|找不到/i.test(message);
+    this.queue = new SendQueue<QueuedSend>(
+      () => ({
+        maxRetries: config.send.maxRetries,
+        retryBaseMs: config.send.retryBaseMs,
+        minIntervalMs: config.send.minIntervalMs,
+        isPermanent: (error) => {
+          if (error instanceof TargetNotFoundError || error instanceof NotLoggedInError) return true;
+          const message = error instanceof Error ? error.message : String(error);
+          // 限流/逾時/連線錯誤可重試。
+          if (/429|rate|頻繁|timeout|逾時|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|socket hang up|retry after/i.test(message)) {
+            return false;
+          }
+          // 24 小時視窗外的 free-form 訊息重試也不會過，視為永久錯誤。
+          if (/24\s*(hour|小時)|re-?engagement|outside.*window|message.*window|131047/i.test(message)) {
+            return true;
+          }
+          return /40[0-4]|422|unauthorized|invalid|wrong|驗證失敗|參數錯誤|不支援|格式錯誤|找不到/i.test(message);
+        },
+      }),
+      {
+        // P0-4：待發任務落檔，重啟後由 start() 續送。
+        persistence: fileQueuePersistence<QueuedSend>(join(dirname(config.schedulesPath), "queue-whatsapp.json")),
+        send: (data) => (data.kind === "text" ? this.rawSend(data.to, data.text) : this.sendOne(data.input)),
       },
-    }));
+    );
     this.scheduler = new SendScheduler(
       (inputs) => this.sendAdvanced(inputs),
       (job) => dispatchSkillTask(job, this.dispatchDeps()),
@@ -218,6 +226,7 @@ export class WhatsAppService implements IMessagingService {
     try {
       await this.refreshContacts();
       logger.info("WhatsApp 已啟用", { phoneNumberId: this.phoneId, apiVersion: config.whatsapp.apiVersion });
+      this.queue.start();
       if (!config.whatsapp.appSecret.trim()) {
         logger.warn("WhatsApp 未設定 appSecret，/wa/webhook 將不驗證 X-Hub-Signature-256（不建議）");
       }
@@ -317,7 +326,7 @@ export class WhatsAppService implements IMessagingService {
   }
 
   async enqueueText(to: string, text: string): Promise<void> {
-    await this.queue.enqueue(() => this.rawSend(to, text));
+    await this.queue.enqueue(nextQueueKey(), { kind: "text", to, text });
   }
 
   saveTaskState(id: string, state: Record<string, unknown>): boolean {
@@ -386,7 +395,7 @@ export class WhatsAppService implements IMessagingService {
     const messages: string[] = [];
     for (const input of inputs) {
       try {
-        await this.queue.enqueue(() => this.sendOne(input));
+        await this.queue.enqueue(nextQueueKey(), { kind: "one", input });
       } catch (error) {
         errors.push(error);
         messages.push(`${input.to}: ${error instanceof Error ? error.message : String(error)}`);

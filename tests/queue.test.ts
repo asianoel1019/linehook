@@ -9,66 +9,65 @@ const fast = () => ({
   isPermanent: () => false,
 });
 
+let keySeq = 0;
+const key = (): string => `k${Date.now().toString(36)}-${(keySeq += 1)}`;
+
 describe("SendQueue", () => {
   it("依 FIFO 順序執行", async () => {
     const order: number[] = [];
-    const q = new SendQueue(fast);
-    await Promise.all([
-      q.enqueue(async () => { order.push(1); }),
-      q.enqueue(async () => { order.push(2); }),
-      q.enqueue(async () => { order.push(3); }),
-    ]);
+    const q = new SendQueue<number>(fast, { send: async (d) => { order.push(d); } });
+    await Promise.all([q.enqueue(key(), 1), q.enqueue(key(), 2), q.enqueue(key(), 3)]);
     assert.deepEqual(order, [1, 2, 3]);
     q.stop();
   });
 
   it("暫時性錯誤會重試後成功", async () => {
     let attempts = 0;
-    const q = new SendQueue(fast);
-    await q.enqueue(async () => {
-      attempts++;
-      if (attempts < 3) throw new Error("timeout");
+    const q = new SendQueue<null>(fast, {
+      send: async () => {
+        attempts++;
+        if (attempts < 3) throw new Error("timeout");
+      },
     });
+    await q.enqueue(key(), null);
     assert.equal(attempts, 3);
     q.stop();
   });
 
   it("永久性錯誤立即拒絕、不重試", async () => {
     let attempts = 0;
-    const q = new SendQueue(() => ({
+    const q = new SendQueue<null>(() => ({
       ...fast(),
       isPermanent: (e) => e instanceof Error && e.message === "fatal",
-    }));
-    await assert.rejects(
-      q.enqueue(async () => {
+    }), {
+      send: async () => {
         attempts++;
         throw new Error("fatal");
-      }),
-      /fatal/,
-    );
+      },
+    });
+    await assert.rejects(q.enqueue(key(), null), /fatal/);
     assert.equal(attempts, 1);
     q.stop();
   });
 
   it("超過 maxRetries 後拒絕", async () => {
     let attempts = 0;
-    const q = new SendQueue(() => ({ ...fast(), maxRetries: 2 }));
-    await assert.rejects(
-      q.enqueue(async () => {
+    const q = new SendQueue<null>(() => ({ ...fast(), maxRetries: 2 }), {
+      send: async () => {
         attempts++;
         throw new Error("flaky");
-      }),
-      /flaky/,
-    );
+      },
+    });
+    await assert.rejects(q.enqueue(key(), null), /flaky/);
     assert.equal(attempts, 3); // 1 初次 + 2 重試
     q.stop();
   });
 
   it("minIntervalMs 節流發送間隔", async () => {
-    const q = new SendQueue(() => ({ ...fast(), minIntervalMs: 120 }));
+    const q = new SendQueue<null>(() => ({ ...fast(), minIntervalMs: 120 }), { send: async () => {} });
     const t0 = Date.now();
-    await q.enqueue(async () => {});
-    await q.enqueue(async () => {});
+    await q.enqueue(key(), null);
+    await q.enqueue(key(), null);
     assert.ok(Date.now() - t0 >= 100, `間隔過短: ${Date.now() - t0}ms`);
     q.stop();
   });
@@ -76,13 +75,17 @@ describe("SendQueue", () => {
   it("佇列滿時拒絕新的 enqueue", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
-    const q = new SendQueue(fast);
+    const q = new SendQueue<string>(fast, {
+      send: async (d) => {
+        if (d === "block") await gate;
+      },
+    });
     const pending: Promise<void>[] = [];
     // 第一個任務卡住 drain（已 shift 出陣列），後面 1000 個填滿佇列
-    pending.push(q.enqueue(() => gate));
-    for (let i = 0; i < 1000; i++) pending.push(q.enqueue(async () => {}));
+    pending.push(q.enqueue(key(), "block"));
+    for (let i = 0; i < 1000; i++) pending.push(q.enqueue(key(), "x"));
     assert.equal(q.stats().pending, 1000);
-    await assert.rejects(q.enqueue(async () => {}), /已滿/);
+    await assert.rejects(q.enqueue(key(), "x"), /已滿/);
     release();
     await Promise.all(pending);
     q.stop();
@@ -91,24 +94,32 @@ describe("SendQueue", () => {
   it("stop() 拒絕待處理任務與新的任務", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
-    const q = new SendQueue(fast);
-    const running = q.enqueue(() => gate);
-    const queued = q.enqueue(async () => {});
+    const q = new SendQueue<string>(fast, {
+      send: async (d) => {
+        if (d === "block") await gate;
+      },
+    });
+    const running = q.enqueue(key(), "block");
+    const queued = q.enqueue(key(), "x");
     // 等 drain 開始執行第一個任務
     await new Promise((r) => setTimeout(r, 20));
     q.stop();
     release();
     await running; // 執行中的任務正常完成
     await assert.rejects(queued, /已停止/);
-    await assert.rejects(q.enqueue(async () => {}), /已停止/);
+    await assert.rejects(q.enqueue(key(), "x"), /已停止/);
   });
 
   it("stats() 回報 pending 與 running", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
-    const q = new SendQueue(fast);
-    const p1 = q.enqueue(() => gate);
-    const p2 = q.enqueue(async () => {});
+    const q = new SendQueue<string>(fast, {
+      send: async (d) => {
+        if (d === "block") await gate;
+      },
+    });
+    const p1 = q.enqueue(key(), "block");
+    const p2 = q.enqueue(key(), "x");
     await new Promise((r) => setTimeout(r, 20));
     const s = q.stats();
     assert.equal(s.pending, 1);
@@ -118,6 +129,24 @@ describe("SendQueue", () => {
     const s2 = q.stats();
     assert.equal(s2.pending, 0);
     assert.equal(s2.running, false);
+    q.stop();
+  });
+
+  it("同 key 重複入佇列被擋下（冪等，含 in-flight）", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const q = new SendQueue<null>(fast, { send: async () => { await gate; } });
+    const p = q.enqueue("same", null);
+    await new Promise((r) => setTimeout(r, 20)); // 等第一個變 in-flight
+    await assert.rejects(q.enqueue("same", null), /重複/);
+    release();
+    await p;
+    q.stop();
+  });
+
+  it("缺 key 拒絕", async () => {
+    const q = new SendQueue<null>(fast, { send: async () => {} });
+    await assert.rejects(q.enqueue("", null), /冪等鍵/);
     q.stop();
   });
 });

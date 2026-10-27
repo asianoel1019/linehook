@@ -1,6 +1,6 @@
 /** Agent 迴圈：模型 ↔ 工具 多輪對話，直到模型給出純文字（或達到輪數上限）。 */
 
-import { chat, chatWithTools, textOf, type ChatMessage, type LlmConfig, type ToolCall } from "./llm.js";
+import { chat, chatWithTools, textOf, type ChatMessage, type LlmConfig, type LlmTag, type ToolCall } from "./llm.js";
 import { TOOL_SPECS, executeTool, type ToolContext } from "./tools.js";
 
 export interface AgentRunOptions {
@@ -14,7 +14,7 @@ export interface AgentRunOptions {
   toolContext?: ToolContext;
   /** 最多幾輪工具往返（預設 3，上限 5）。 */
   maxRounds?: number;
-  tag?: { skill?: string };
+  tag?: LlmTag;
 }
 
 export interface AgentRunResult {

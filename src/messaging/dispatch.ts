@@ -87,7 +87,7 @@ export function findNaturalIntent(
   return bestScore >= need ? best : null;
 }
 import { writeDeadLetter } from "../deadletter.js";
-import { recordMetric } from "../metrics.js";
+import { recordMetric, recordDuration, classifySkillError } from "../metrics.js";
 import { recordSkillRun } from "../skill-stats.js";
 import type { SkillConfig } from "../config.js";
 import type { SkillDefinition } from "../skills/types.js";
@@ -582,12 +582,16 @@ export async function dispatchSkillTask(job: ScheduledJob, deps: DispatchDeps): 
     },
   };
   logger.info("觸發技能任務", { skill: ref.skillId, task: ref.task, chat });
+  const taskStartedAt = Date.now();
   try {
     await def.onTask(taskCtx);
+    recordDuration("skill_duration_seconds", (Date.now() - taskStartedAt) / 1000, { skill: ref.skillId });
     recordLastRun(job.id, { at: Date.now(), ok: true });
     recordSkillRun(ref.skillId, true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    recordDuration("skill_duration_seconds", (Date.now() - taskStartedAt) / 1000, { skill: ref.skillId });
+    recordMetric("skill_errors_total", 1, { skill: ref.skillId, class: classifySkillError(message) });
     logger.error("技能任務執行失敗", {
       skill: ref.skillId,
       task: ref.task,
@@ -614,6 +618,7 @@ async function runMatchedSkill(
   recordMetric("skill_exec_total", 1, { skill: skill.id, result: "run" });
 
   logger.info("觸發技能", { skill: skill.id, mode: effectiveMode(skill, def), chat });
+  const runStartedAt = Date.now();
   try {
     const skillId = skill.id;
     const toWatchView = (job: ScheduledJobView): SkillWatchView => ({
@@ -669,9 +674,12 @@ async function runMatchedSkill(
       },
     };
     await def.run(ctx);
+    recordDuration("skill_duration_seconds", (Date.now() - runStartedAt) / 1000, { skill: skill.id });
     recordSkillRun(skill.id, true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    recordDuration("skill_duration_seconds", (Date.now() - runStartedAt) / 1000, { skill: skill.id });
+    recordMetric("skill_errors_total", 1, { skill: skill.id, class: classifySkillError(message) });
     logger.error("技能執行失敗", { skill: skill.id, error: message });
     recordSkillRun(skill.id, false, message);
     writeDeadLetter({

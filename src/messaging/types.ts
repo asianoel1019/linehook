@@ -80,6 +80,12 @@ export interface SendInput {
   flex?: FlexInput;
 }
 
+/**
+ * P0-4 佇列任務負載（純資料、可 JSON 序列化）：
+ * text 走各平台 rawSend（分段等語意不變），one 走 sendOne。
+ */
+export type QueuedSend = { kind: "text"; to: string; text: string } | { kind: "one"; input: SendInput };
+
 /** 找不到目標（名稱或 ID 無法解析）。 */
 export class TargetNotFoundError extends Error {
   constructor(to: string) {

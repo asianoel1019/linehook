@@ -1,5 +1,7 @@
 import { logger } from "../logger.js";
 import { recordMetric } from "../metrics.js";
+import { priceForModel } from "../llm-usage.js";
+import { checkChatBudget, recordChatUsage } from "../llm-budget.js";
 import { config } from "../config.js";
 import { execSync, spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
@@ -109,9 +111,16 @@ function numOr(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-/** 呼叫 LLM，回傳純文字；失敗丟錯。tag.skill 供用量統計歸屬。 */
-export async function chat(cfg: LlmConfig, messages: ChatMessage[], tag?: { skill?: string }): Promise<string> {
+/** LLM 呼叫標記：用量統計歸屬（skill）＋P0-2 對話級預算（chat）。 */
+export interface LlmTag {
+  skill?: string;
+  chat?: string;
+}
+
+/** 呼叫 LLM，回傳純文字；失敗丟錯。tag.skill 供用量統計歸屬，tag.chat 供 P0-2 預算閘門。 */
+export async function chat(cfg: LlmConfig, messages: ChatMessage[], tag?: LlmTag): Promise<string> {
   if (!cfg.model) throw new Error("未設定模型（model）");
+  assertChatBudget(tag);
   if (cfg.provider === "gemini-cli") return geminiCliChat(cfg, messages, tag);
   if (cfg.provider === "opencode-cli") return opencodeCliChat(cfg, messages, tag);
   if (cfg.provider === "gemini") return geminiChat(cfg, messages, tag);
@@ -123,7 +132,7 @@ async function openaiCompatChat(
   cfg: LlmConfig,
   messages: ChatMessage[],
   requireKey: boolean,
-  tag?: { skill?: string },
+  tag?: LlmTag,
 ): Promise<string> {
   if (requireKey && !cfg.apiKey) throw new Error("未設定 API key");
   const base = cfg.baseUrl || "http://localhost:11434/v1";
@@ -156,7 +165,7 @@ async function openaiCompatChat(
   if (choice?.finish_reason === "length") {
     text += "\n\n（回覆因長度上限中斷，可到技能設定調高「最大回覆 tokens」）";
   }
-  recordLlmUsage(cfg, tag?.skill, data.usage?.prompt_tokens, data.usage?.completion_tokens);
+  recordLlmUsage(cfg, tag, data.usage?.prompt_tokens, data.usage?.completion_tokens);
   return text;
 }
 
@@ -195,7 +204,7 @@ function toGeminiParts(m: ChatMessage): Array<Record<string, unknown>> {
 }
 
 /** Google Gemini generateContent。 */
-async function geminiChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { skill?: string }): Promise<string> {
+async function geminiChat(cfg: LlmConfig, messages: ChatMessage[], tag?: LlmTag): Promise<string> {
   if (!cfg.apiKey) throw new Error("未設定 Gemini API key");
   const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
   const system = messages
@@ -234,7 +243,7 @@ async function geminiChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { skill
   if (cand?.finishReason === "MAX_TOKENS") {
     text += "\n\n（回覆因長度上限中斷，可到技能設定調高「最大回覆 tokens」）";
   }
-  recordLlmUsage(cfg, tag?.skill, data.usageMetadata?.promptTokenCount, data.usageMetadata?.candidatesTokenCount);
+  recordLlmUsage(cfg, tag, data.usageMetadata?.promptTokenCount, data.usageMetadata?.candidatesTokenCount);
   return text;
 }
 
@@ -355,7 +364,7 @@ export function parseAgyResult(
   return { error: `Antigravity CLI 失敗：${detail.slice(0, 300)}${hint ? `（${hint}）` : ""}` };
 }
 
-async function geminiCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { skill?: string }): Promise<string> {
+async function geminiCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: LlmTag): Promise<string> {
   const system = messages
     .filter((m) => m.role === "system")
     .map((m) => textOf(m.content))
@@ -411,7 +420,7 @@ async function geminiCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { sk
       }
       const r = parseAgyResult(out, err, code);
       if ("text" in r) {
-        recordLlmUsage(cfg, tag?.skill, r.usage?.inputTokens, r.usage?.outputTokens);
+        recordLlmUsage(cfg, tag, r.usage?.inputTokens, r.usage?.outputTokens);
         resolve(r.text);
       } else {
         logger.error("Antigravity CLI 呼叫失敗", {
@@ -531,7 +540,7 @@ export function parseOpencodeResult(
   };
 }
 
-async function opencodeCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { skill?: string }): Promise<string> {
+async function opencodeCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: LlmTag): Promise<string> {
   const system = messages
     .filter((m) => m.role === "system")
     .map((m) => textOf(m.content))
@@ -589,7 +598,7 @@ async function opencodeCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { 
       }
       const r = parseOpencodeResult(out, err, code);
       if ("text" in r) {
-        recordLlmUsage(cfg, tag?.skill, r.usage?.inputTokens, r.usage?.outputTokens);
+        recordLlmUsage(cfg, tag, r.usage?.inputTokens, r.usage?.outputTokens);
         resolve(r.text);
       } else {
         logger.error("OpenCode CLI 呼叫失敗", {
@@ -605,12 +614,26 @@ async function opencodeCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: { 
   });
 }
 
-/** G2：記錄 LLM token 用量（供 /metrics 的 llm_tokens_total）。缺 usage 時記 0 佔位。 */
-function recordLlmUsage(cfg: LlmConfig, skill: string | undefined, prompt?: number, completion?: number): void {
+/** G2：記錄 LLM token 用量（供 /metrics 的 llm_tokens_total）；P0-2：同筆轉記對話帳本。缺 usage 時記 0 佔位。 */
+function recordLlmUsage(cfg: LlmConfig, tag: LlmTag | undefined, prompt?: number, completion?: number): void {
+  const skill = tag?.skill;
   const labels = { provider: cfg.provider, model: cfg.model, skill: skill ?? "unknown" };
   recordMetric("llm_tokens_total", Math.max(0, prompt ?? 0), { ...labels, kind: "prompt" });
   recordMetric("llm_tokens_total", Math.max(0, completion ?? 0), { ...labels, kind: "completion" });
   recordMetric("llm_calls_total", 1, { provider: cfg.provider, model: cfg.model, skill: skill ?? "unknown" });
+  if (tag?.chat) {
+    const price = priceForModel(cfg.model);
+    const p = Math.max(0, prompt ?? 0);
+    const c = Math.max(0, completion ?? 0);
+    recordChatUsage(tag.chat, p, c, price ? (p / 1_000_000) * price[0] + (c / 1_000_000) * price[1] : null);
+  }
+}
+
+/** P0-2 預算閘門：超限直接丟錯（呼叫端照常回報給使用者）。無 chat 標記時不擋。 */
+export function assertChatBudget(tag: LlmTag | undefined): void {
+  if (!tag?.chat) return;
+  const check = checkChatBudget(tag.chat);
+  if (!check.ok) throw new Error(check.reason ?? "本對話今日 LLM 用量已達上限");
 }
 
 /**
@@ -621,8 +644,9 @@ export async function chatWithTools(
   cfg: LlmConfig,
   messages: ChatMessage[],
   tools: ToolSpec[],
-  tag?: { skill?: string },
+  tag?: LlmTag,
 ): Promise<ChatWithToolsResult> {
+  assertChatBudget(tag);
   if (tools.length === 0) {
     const text = await chat(cfg, messages, tag);
     return { text };
@@ -638,7 +662,7 @@ async function openaiCompatChatWithTools(
   cfg: LlmConfig,
   messages: ChatMessage[],
   tools: ToolSpec[],
-  tag?: { skill?: string },
+  tag?: LlmTag,
 ): Promise<ChatWithToolsResult> {
   if (!cfg.apiKey && cfg.provider !== "local" && cfg.provider !== "custom") throw new Error("未設定 API key");
   const base = cfg.baseUrl || "http://localhost:11434/v1";
@@ -676,7 +700,7 @@ async function openaiCompatChatWithTools(
     usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
   const message = data.choices?.[0]?.message;
-  recordLlmUsage(cfg, tag?.skill, data.usage?.prompt_tokens, data.usage?.completion_tokens);
+  recordLlmUsage(cfg, tag, data.usage?.prompt_tokens, data.usage?.completion_tokens);
   const calls = message?.tool_calls ?? [];
   if (calls.length > 0) {
     return {
@@ -696,7 +720,7 @@ async function geminiChatWithTools(
   cfg: LlmConfig,
   messages: ChatMessage[],
   tools: ToolSpec[],
-  tag?: { skill?: string },
+  tag?: LlmTag,
 ): Promise<ChatWithToolsResult> {
   if (!cfg.apiKey) throw new Error("未設定 Gemini API key");
   const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
@@ -738,7 +762,7 @@ async function geminiChatWithTools(
     }>;
     usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
   };
-  recordLlmUsage(cfg, tag?.skill, data.usageMetadata?.promptTokenCount, data.usageMetadata?.candidatesTokenCount);
+  recordLlmUsage(cfg, tag, data.usageMetadata?.promptTokenCount, data.usageMetadata?.candidatesTokenCount);
   const parts = data.candidates?.[0]?.content?.parts ?? [];
   const fns = parts.filter((p) => p.functionCall);
   if (fns.length > 0) {

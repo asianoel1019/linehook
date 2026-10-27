@@ -20,8 +20,7 @@ export interface LlmUsageReport {
 }
 
 /** 已知單價（USD / 1M tokens：輸入 / 輸出）；未列入的模型不估算金額。 */
-const PRICES: Record<string, [number, number]> = {
-  "gpt-4o-mini": [0.15, 0.6],
+const PRICES: Record<string, [number, number]> = {  "gpt-4o-mini": [0.15, 0.6],
   "gpt-4o": [2.5, 10],
   "gpt-4.1-mini": [0.4, 1.6],
   "gpt-4.1": [2, 8],
@@ -29,7 +28,8 @@ const PRICES: Record<string, [number, number]> = {
   "gemini-1.5-flash": [0.075, 0.3],
 };
 
-function priceOf(model: string): [number, number] | null {
+/** 模型單價查詢（供 P0-2 預算帳本即時估算；未知回 null）。 */
+export function priceForModel(model: string): [number, number] | null {
   if (PRICES[model]) return PRICES[model];
   for (const key of Object.keys(PRICES)) {
     if (model.includes(key)) return PRICES[key];
@@ -49,7 +49,7 @@ export function llmUsage(): LlmUsageReport {
     const key = `${skill}|${provider}|${model}`;
     let row = grouped.get(key);
     if (!row) {
-      const price = priceOf(model);
+      const price = priceForModel(model);
       row = {
         skill,
         provider,
@@ -74,7 +74,7 @@ export function llmUsage(): LlmUsageReport {
     const tokens = row.promptTokens + row.completionTokens;
     totalTokens += tokens;
     if (row.costUsd !== null) {
-      const price = priceOf(row.model);
+      const price = priceForModel(row.model);
       if (price) {
         row.costUsd = (row.promptTokens / 1_000_000) * price[0] + (row.completionTokens / 1_000_000) * price[1];
         totalCost += row.costUsd;

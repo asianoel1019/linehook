@@ -2320,12 +2320,11 @@ export async function resolveSymbolLive(text: string): Promise<string> {
 
 export async function fetchChart(symbol: string, range: string): Promise<{ meta: YahooMeta; closes: number[] }> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
-  const res = await fetch(url, {
+  // P0-3：走 @lw/net（出站統計＋超時），語意不變。
+  const data = await netFetchJson<YahooChart>(url, {
     headers: { "User-Agent": UA },
     signal: AbortSignal.timeout(15_000),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = (await res.json()) as YahooChart;
   const result = data.chart?.result?.[0];
   if (!result || !result.meta) throw new Error(data.chart?.error?.description ?? "查無資料");
   const closes = (result.indicators?.quote?.[0]?.close ?? []).filter((c): c is number => typeof c === "number");

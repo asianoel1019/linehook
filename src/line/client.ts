@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { basename, extname } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { Client, type TalkMessage } from "@evex/linejs";
 import { BaseClient } from "@evex/linejs/base";
 import { FileStorage } from "@evex/linejs/storage";
@@ -10,7 +10,7 @@ import { recordMessage } from "../messages.js";
 import { recordSend } from "../stats.js";
 import { writeDeadLetter } from "../deadletter.js";
 import { getState, setState } from "../state.js";
-import { SendQueue } from "./queue.js";
+import { SendQueue, fileQueuePersistence, nextQueueKey } from "./queue.js";
 import { SendScheduler, type ScheduledJobView } from "./scheduler.js";
 import { parseCron, nextRun } from "./cron.js";
 import { watchOptionsToCron } from "../skills/watch.js";
@@ -19,7 +19,7 @@ import { dispatchIncoming, dispatchSkillTask, type DispatchDeps } from "../messa
 import { extractLocationFromText } from "../messaging/location.js";
 import { chunkReplyText } from "../messaging/text.js";
 import { resolveLocalMediaPath } from "../messaging/media.js";
-import type { FlexInput, IMessagingService, LocationInput, SendInput, StickerInput } from "../messaging/types.js";
+import type { FlexInput, IMessagingService, LocationInput, QueuedSend, SendInput, StickerInput } from "../messaging/types.js";
 import { NotLoggedInError, TargetNotFoundError } from "../messaging/types.js";
 import type { IncomingImage } from "../messaging/types.js";
 
@@ -127,7 +127,7 @@ export class LineService implements IMessagingService {
   readonly platform = "line" as const;
   // 會在 doInit() 重建，讓設定頁改完 Session 儲存目錄後「重新登入」即可生效（與 WhatsApp Web 的 webAuthPath 同）。
   private storage = new FileStorage(config.line.storagePath);
-  private readonly queue: SendQueue;
+  private readonly queue: SendQueue<QueuedSend>;
   private readonly scheduler: SendScheduler;
   private base: BaseClient | null = null;
   private client: Client | null = null;
@@ -141,21 +141,28 @@ export class LineService implements IMessagingService {
   private listenAbort: AbortController | null = null;
 
   constructor() {
-    this.queue = new SendQueue(() => ({
-      maxRetries: config.send.maxRetries,
-      retryBaseMs: config.send.retryBaseMs,
-      minIntervalMs: config.send.minIntervalMs,
-      isPermanent: (error) => {
-        if (error instanceof TargetNotFoundError || error instanceof NotLoggedInError) return true;
-        const message = error instanceof Error ? error.message : String(error);
-        // 明顯的暫時性錯誤（限流/逾時/連線）一定要重試。
-        if (/429|rate|頻繁|timeout|逾時|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|socket hang up/i.test(message)) {
-          return false;
-        }
-        // 參數/驗證類錯誤重試也不會成功，直接失敗避免卡住佇列。
-        return /40[0-4]|422|驗證失敗|參數錯誤|不支援|格式錯誤|找不到/i.test(message);
+    this.queue = new SendQueue<QueuedSend>(
+      () => ({
+        maxRetries: config.send.maxRetries,
+        retryBaseMs: config.send.retryBaseMs,
+        minIntervalMs: config.send.minIntervalMs,
+        isPermanent: (error) => {
+          if (error instanceof TargetNotFoundError || error instanceof NotLoggedInError) return true;
+          const message = error instanceof Error ? error.message : String(error);
+          // 明顯的暫時性錯誤（限流/逾時/連線）一定要重試。
+          if (/429|rate|頻繁|timeout|逾時|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|socket hang up/i.test(message)) {
+            return false;
+          }
+          // 參數/驗證類錯誤重試也不會成功，直接失敗避免卡住佇列。
+          return /40[0-4]|422|驗證失敗|參數錯誤|不支援|格式錯誤|找不到/i.test(message);
+        },
+      }),
+      {
+        // P0-4：待發任務落檔（data/queue-line.json），重啟後由 start() 續送。
+        persistence: fileQueuePersistence<QueuedSend>(join(dirname(config.schedulesPath), "queue-line.json")),
+        send: (data) => (data.kind === "text" ? this.rawSend(data.to, data.text) : this.sendOne(data.input)),
       },
-    }));
+    );
     this.scheduler = new SendScheduler(
       (inputs) => this.sendAdvanced(inputs),
       (job) => dispatchSkillTask(job, this.dispatchDeps()),
@@ -184,7 +191,7 @@ export class LineService implements IMessagingService {
 
   /** 純文字入佇列（轉發規則用）。 */
   async enqueueText(to: string, text: string): Promise<void> {
-    await this.queue.enqueue(() => this.rawSend(to, text));
+    await this.queue.enqueue(nextQueueKey(), { kind: "text", to, text });
   }
 
   /** 更新技能任務 state 並持久化。 */
@@ -298,6 +305,7 @@ export class LineService implements IMessagingService {
     const profile = await this.client.getMyProfile();
     await this.refreshContacts();
     this.loggedIn = true;
+    this.queue.start();
     this.myMid = profile.mid;
 
     setState({
@@ -376,7 +384,7 @@ export class LineService implements IMessagingService {
   }
 
   async send(to: string, text: string): Promise<void> {
-    await this.queue.enqueue(() => this.rawSend(to, text));
+    await this.queue.enqueue(nextQueueKey(), { kind: "text", to, text });
   }
 
   private async rawSend(to: string, text: string): Promise<void> {
@@ -400,7 +408,7 @@ export class LineService implements IMessagingService {
     const messages: string[] = [];
     for (const input of inputs) {
       try {
-        await this.queue.enqueue(() => this.sendOne(input));
+        await this.queue.enqueue(nextQueueKey(), { kind: "one", input });
       } catch (error) {
         errors.push(error);
         messages.push(`${input.to}: ${error instanceof Error ? error.message : String(error)}`);

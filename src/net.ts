@@ -1,6 +1,7 @@
 /** 共用的對外請求 helper：強制超時與回應大小上限，避免單一慢速/巨大回應卡住服務。 */
 
 import { lookup } from "node:dns/promises";
+import { recordMetric } from "./metrics.js";
 
 export class FetchLimitError extends Error {
   constructor(message: string) {
@@ -148,9 +149,25 @@ export async function assertPublicUrl(url: string): Promise<void> {
 
 export async function fetchBuffer(url: string, init?: RequestInit, options?: FetchLimits): Promise<Buffer> {
   const { maxBytes } = limitsOf(options);
-  const res = await fetchWithLimits(url, init, options);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return Buffer.from(await readCapped(res, maxBytes));
+  let res: Response;
+  try {
+    res = await fetchWithLimits(url, init, options);
+  } catch (error) {
+    recordOutbound(url, false);
+    throw error;
+  }
+  if (!res.ok) {
+    recordOutbound(url, false);
+    throw new Error(`HTTP ${res.status}`);
+  }
+  try {
+    const buf = Buffer.from(await readCapped(res, maxBytes));
+    recordOutbound(url, true);
+    return buf;
+  } catch (error) {
+    recordOutbound(url, false);
+    throw error;
+  }
 }
 
 export async function fetchText(
@@ -165,4 +182,66 @@ export async function fetchText(
 export async function fetchJson<T>(url: string, init?: RequestInit, options?: FetchLimits): Promise<T> {
   const text = await fetchText(url, init, options);
   return JSON.parse(text) as T;
+}
+
+/* ── P0-3 對外呼叫統計：host × 成功/失敗計數＋連敗降級判斷 ── */
+
+export interface OutboundStat {
+  host: string;
+  calls: number;
+  fails: number;
+  consecFails: number;
+  lastOkAt: number | null;
+  lastFailAt: number | null;
+}
+
+const outbound = new Map<string, { calls: number; fails: number; consecFails: number; lastOkAt: number | null; lastFailAt: number | null }>();
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname || "invalid";
+  } catch {
+    return "invalid";
+  }
+}
+
+/** 記一筆對外呼叫（fetchBuffer 成功/失敗路徑呼叫；直接用 fetchWithLimits 的不經過）。 */
+export function recordOutbound(url: string, ok: boolean): void {
+  const host = hostOf(url);
+  const s = outbound.get(host) ?? { calls: 0, fails: 0, consecFails: 0, lastOkAt: null, lastFailAt: null };
+  s.calls += 1;
+  if (ok) {
+    s.consecFails = 0;
+    s.lastOkAt = Date.now();
+  } else {
+    s.fails += 1;
+    s.consecFails += 1;
+    s.lastFailAt = Date.now();
+  }
+  outbound.set(host, s);
+  recordMetric("outbound_calls_total", 1, { host, result: ok ? "ok" : "fail" });
+}
+
+/** 各 host 呼叫統計（依 calls 倒序；給 /metrics 與未來健康頁用）。 */
+export function getOutboundStats(): OutboundStat[] {
+  return [...outbound.entries()]
+    .map(([host, s]) => ({ host, ...s }))
+    .sort((a, b) => b.calls - a.calls);
+}
+
+/** 測試用：清空統計。 */
+export function resetOutboundStats(): void {
+  outbound.clear();
+}
+
+/**
+ * 降級判斷：某 host 連敗達 5 次即視為降級（冷卻 5 分鐘後放行一次試探，半開）。
+ * P0 只暴露判斷（給日誌與未來健康頁）；自動跳過等行為變更留待 P1 健檢頁之後。
+ */
+export function isHostDegraded(urlOrHost: string): boolean {
+  const host = urlOrHost.includes("://") ? hostOf(urlOrHost) : urlOrHost;
+  const s = outbound.get(host);
+  if (!s || s.consecFails < 5) return false;
+  if (s.lastFailAt !== null && Date.now() - s.lastFailAt > 5 * 60_000) return false;
+  return true;
 }

@@ -1,4 +1,5 @@
 import { logger } from "@lw/logger";
+import { fetchJson as netFetchJson } from "@lw/net";
 import { nowInTz } from "@lw/time";
 import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
 import type { SkillContext, SkillDefinition } from "@lw/skills/types";
@@ -34,14 +35,18 @@ async function getToken(clientId: string, clientSecret: string): Promise<string>
     client_id: clientId,
     client_secret: clientSecret,
   });
-  const res = await fetch(TDX_AUTH, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`TDX 認證失敗（HTTP ${res.status}）`);
-  const data = (await res.json()) as { access_token: string; expires_in: number };
+  // P0-3：走 @lw/net（出站統計＋超時），訊息保持原樣。
+  let data: { access_token: string; expires_in: number };
+  try {
+    data = await netFetchJson<{ access_token: string; expires_in: number }>(TDX_AUTH, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    throw new Error(`TDX 認證失敗（${error instanceof Error ? error.message : String(error)}）`);
+  }
   tokenCache = { token: data.access_token, expires: Date.now() + data.expires_in * 1000 };
   return data.access_token;
 }
@@ -53,12 +58,15 @@ async function getStations(token: string, ttlMs: number): Promise<Station[]> {
     stationCache = cached;
     return cached;
   }
-  const res = await fetch(`${TDX_BASE}/Station?$format=JSON`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`取得高鐵車站失敗（HTTP ${res.status}）`);
-  const stations = (await res.json()) as Station[];
+  let stations: Station[];
+  try {
+    stations = await netFetchJson<Station[]>(`${TDX_BASE}/Station?$format=JSON`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    throw new Error(`取得高鐵車站失敗（${error instanceof Error ? error.message : String(error)}）`);
+  }
   stationCache = stations;
   writeCache(STATIONS_CACHE, stations);
   return stations;
@@ -105,15 +113,14 @@ function extractTime(text: string): string {
 async function queryTimetable(token: string, fromId: string, toId: string, date: Date): Promise<ODEntry[]> {
   const dateStr = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   const url = `${TDX_BASE}/DailyTimetable/OD/${fromId}/to/${toId}/${dateStr}?$format=JSON`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`查詢高鐵時刻表失敗（HTTP ${res.status}）${body ? `：${body.slice(0, 120)}` : ""}`);
+  try {
+    return await netFetchJson<ODEntry[]>(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    throw new Error(`查詢高鐵時刻表失敗（${error instanceof Error ? error.message : String(error)}）`);
   }
-  return (await res.json()) as ODEntry[];
 }
 
 function formatReply(fromName: string, toName: string, date: Date, rows: ODEntry[], cutoff: string): string {

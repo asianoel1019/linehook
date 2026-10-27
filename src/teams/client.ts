@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
@@ -7,7 +7,7 @@ import { recordMessage } from "../messages.js";
 import { recordSend } from "../stats.js";
 import { writeDeadLetter } from "../deadletter.js";
 import { setState } from "../state.js";
-import { SendQueue } from "../line/queue.js";
+import { SendQueue, fileQueuePersistence, nextQueueKey } from "../line/queue.js";
 import { SendScheduler, type ScheduledJobView } from "../line/scheduler.js";
 import { parseCron, nextRun } from "../line/cron.js";
 import { watchOptionsToCron } from "../skills/watch.js";
@@ -23,6 +23,7 @@ import {
   type IMessagingService,
   type IncomingMessage,
   type LocationInput,
+  type QueuedSend,
   type SendInput,
   type StickerInput,
 } from "../messaging/types.js";
@@ -133,7 +134,7 @@ export async function verifyTeamsJwt(authHeader: string, appId: string): Promise
 
 export class TeamsService implements IMessagingService {
   readonly platform = "teams" as const;
-  private readonly queue: SendQueue;
+  private readonly queue: SendQueue<QueuedSend>;
   private readonly scheduler: SendScheduler;
   private nameToChat = new Map<string, string>();
   private chatToName = new Map<string, string>();
@@ -145,19 +146,26 @@ export class TeamsService implements IMessagingService {
   private loginState = "未登入";
 
   constructor() {
-    this.queue = new SendQueue(() => ({
-      maxRetries: config.send.maxRetries,
-      retryBaseMs: config.send.retryBaseMs,
-      minIntervalMs: config.send.minIntervalMs,
-      isPermanent: (error) => {
-        if (error instanceof TargetNotFoundError || error instanceof NotLoggedInError) return true;
-        const message = error instanceof Error ? error.message : String(error);
-        if (/429|rate|頻繁|timeout|逾時|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|socket hang up|retry after/i.test(message)) {
-          return false;
-        }
-        return /40[0-4]|422|unauthorized|invalid|wrong|驗證失敗|參數錯誤|不支援|格式錯誤|找不到/i.test(message);
+    this.queue = new SendQueue<QueuedSend>(
+      () => ({
+        maxRetries: config.send.maxRetries,
+        retryBaseMs: config.send.retryBaseMs,
+        minIntervalMs: config.send.minIntervalMs,
+        isPermanent: (error) => {
+          if (error instanceof TargetNotFoundError || error instanceof NotLoggedInError) return true;
+          const message = error instanceof Error ? error.message : String(error);
+          if (/429|rate|頻繁|timeout|逾時|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|socket hang up|retry after/i.test(message)) {
+            return false;
+          }
+          return /40[0-4]|422|unauthorized|invalid|wrong|驗證失敗|參數錯誤|不支援|格式錯誤|找不到/i.test(message);
+        },
+      }),
+      {
+        // P0-4：待發任務落檔，重啟後由 start() 續送。
+        persistence: fileQueuePersistence<QueuedSend>(join(dirname(config.schedulesPath), "queue-teams.json")),
+        send: (data) => (data.kind === "text" ? this.rawSend(data.to, data.text) : this.sendOne(data.input)),
       },
-    }));
+    );
     this.scheduler = new SendScheduler(
       (inputs) => this.sendAdvanced(inputs),
       (job) => dispatchSkillTask(job, this.dispatchDeps()),
@@ -255,6 +263,7 @@ export class TeamsService implements IMessagingService {
       await this.getToken();
       this.loginState = "已登入";
       logger.info("Teams 已連線", { appId: this.appId, tenant: config.teams.tenantId || "(multi-tenant)" });
+      this.queue.start();
     } catch (error) {
       this.loginState = "需人工";
       logger.error("Teams 初始化失敗", { error: String(error) });
@@ -354,7 +363,7 @@ export class TeamsService implements IMessagingService {
   }
 
   async enqueueText(to: string, text: string): Promise<void> {
-    await this.queue.enqueue(() => this.rawSend(to, text));
+    await this.queue.enqueue(nextQueueKey(), { kind: "text", to, text });
   }
 
   saveTaskState(id: string, state: Record<string, unknown>): boolean {
@@ -417,7 +426,7 @@ export class TeamsService implements IMessagingService {
     const messages: string[] = [];
     for (const input of inputs) {
       try {
-        await this.queue.enqueue(() => this.sendOne(input));
+        await this.queue.enqueue(nextQueueKey(), { kind: "one", input });
       } catch (error) {
         errors.push(error);
         messages.push(`${input.to}: ${error instanceof Error ? error.message : String(error)}`);

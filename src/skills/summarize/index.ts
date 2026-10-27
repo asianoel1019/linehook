@@ -112,7 +112,7 @@ const summarizeSkill: SkillDefinition = {
       { role: "user", content: `網址：${url}\n\n<untrusted-web-content>\n${clipped}\n</untrusted-web-content>` },
     ];
     try {
-      const answer = await chat(cfg, messages, { skill: "summarize" });
+      const answer = await chat(cfg, messages, { skill: "summarize", chat: ctx.chat });
       await ctx.reply(answer);
     } catch (error) {
       logLlmError("summarize", error);

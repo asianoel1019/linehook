@@ -105,6 +105,10 @@ const schema = z.object({
   MESSAGES_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
   UPLOADS_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
   UPLOADS_MAX_MB: z.coerce.number().int().min(0).default(2048),
+  /** P0-2：單一對話每日 LLM token 上限（0＝不限；防 runaway 燒額度）。 */
+  LLM_BUDGET_TOKENS_PER_CHAT_DAY: z.coerce.number().int().min(0).default(500000),
+  /** P0-2：單一對話每日 LLM 花費上限 USD（0＝不限；無定價模型不計入）。 */
+  LLM_BUDGET_USD_PER_CHAT_DAY: z.coerce.number().min(0).default(5),
   INBOUND_QUEUE_PATH: z.string().default("./data/inbound-queue.jsonl"),
   SCHEDULES_PATH: z.string().default("./data/schedules.json"),
   STATS_PATH: z.string().default("./data/stats.jsonl"),
@@ -331,6 +335,8 @@ export interface Config {
   messagesRetentionDays: number;
   uploadsRetentionDays: number;
   uploadsMaxMb: number;
+  llmBudgetTokensPerChatDay: number;
+  llmBudgetUsdPerChatDay: number;
   inboundQueuePath: string;
   schedulesPath: string;
   statsPath: string;
@@ -463,6 +469,8 @@ export const config: Config = {
   messagesRetentionDays: env.MESSAGES_RETENTION_DAYS,
   uploadsRetentionDays: env.UPLOADS_RETENTION_DAYS,
   uploadsMaxMb: env.UPLOADS_MAX_MB,
+  llmBudgetTokensPerChatDay: env.LLM_BUDGET_TOKENS_PER_CHAT_DAY,
+  llmBudgetUsdPerChatDay: env.LLM_BUDGET_USD_PER_CHAT_DAY,
   inboundQueuePath: env.INBOUND_QUEUE_PATH,
   schedulesPath: env.SCHEDULES_PATH,
   statsPath: env.STATS_PATH,

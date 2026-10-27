@@ -46,14 +46,18 @@ async function getToken(clientId: string, clientSecret: string): Promise<string>
     client_id: clientId,
     client_secret: clientSecret,
   });
-  const res = await fetch(TDX_AUTH, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`TDX 認證失敗（HTTP ${res.status}）`);
-  const data = (await res.json()) as { access_token: string; expires_in: number };
+  // P0-3：走 @lw/net（出站統計＋超時），訊息保持原樣。
+  let data: { access_token: string; expires_in: number };
+  try {
+    data = await netFetchJson<{ access_token: string; expires_in: number }>(TDX_AUTH, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    throw new Error(`TDX 認證失敗（${error instanceof Error ? error.message : String(error)}）`);
+  }
   tokenCache = { token: data.access_token, expires: Date.now() + data.expires_in * 1000 };
   return data.access_token;
 }

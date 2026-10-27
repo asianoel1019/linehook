@@ -1,4 +1,5 @@
 import { logger } from "@lw/logger";
+import { fetchJson as netFetchJson } from "@lw/net";
 import { parseTtl, readCache, writeCache } from "@lw/skills/cache";
 import { detectCities, formatDistance, geohashNeighbors, haversineMeters } from "@lw/skills/geo";
 import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
@@ -16,14 +17,18 @@ async function getToken(clientId: string, clientSecret: string): Promise<string>
     client_id: clientId,
     client_secret: clientSecret,
   });
-  const res = await fetch(TDX_AUTH, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`TDX 認證失敗（HTTP ${res.status}）`);
-  const data = (await res.json()) as { access_token: string; expires_in: number };
+  // P0-3：走 @lw/net（出站統計＋超時），訊息保持原樣。
+  let data: { access_token: string; expires_in: number };
+  try {
+    data = await netFetchJson<{ access_token: string; expires_in: number }>(TDX_AUTH, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    throw new Error(`TDX 認證失敗（${error instanceof Error ? error.message : String(error)}）`);
+  }
   tokenCache = { token: data.access_token, expires: Date.now() + data.expires_in * 1000 };
   return data.access_token;
 }
@@ -164,12 +169,15 @@ async function fetchRoutes(city: string, token: string, ttlMs: number): Promise<
   const cacheName = `bus-routes-${city}`;
   const cached = readCache<Route[]>(cacheName, ttlMs);
   if (cached && Array.isArray(cached) && cached.length > 0) return cached;
-  const res = await fetch(`${TDX_BASE}/Route/City/${city}?$format=JSON`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`取得路線失敗（HTTP ${res.status}）`);
-  const routes = (await res.json()) as Route[];
+  let routes: Route[];
+  try {
+    routes = await netFetchJson<Route[]>(`${TDX_BASE}/Route/City/${city}?$format=JSON`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    throw new Error(`取得路線失敗（${error instanceof Error ? error.message : String(error)}）`);
+  }
   writeCache(cacheName, routes);
   return routes;
 }
@@ -261,12 +269,10 @@ async function findRoute(
 }
 
 async function fetchJson<T>(url: string, token: string): Promise<T> {
-  const res = await fetch(url, {
+  return netFetchJson<T>(url, {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(15_000),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as T;
 }
 
 /** 路線的站序（含快取；輪詢到站時重複使用，不重打 TDX）。 */

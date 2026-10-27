@@ -1,13 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { recordMessage } from "../messages.js";
 import { recordSend } from "../stats.js";
 import { writeDeadLetter } from "../deadletter.js";
 import { setState } from "../state.js";
-import { SendQueue } from "../line/queue.js";
+import { SendQueue, fileQueuePersistence, nextQueueKey } from "../line/queue.js";
 import { SendScheduler, type ScheduledJobView } from "../line/scheduler.js";
 import { parseCron, nextRun } from "../line/cron.js";
 import { watchOptionsToCron } from "../skills/watch.js";
@@ -24,6 +24,7 @@ import {
   type IMessagingService,
   type IncomingMessage,
   type LocationInput,
+  type QueuedSend,
   type SendInput,
   type StickerInput,
 } from "../messaging/types.js";
@@ -271,7 +272,7 @@ function timingSafeEqualLocal(a: Buffer, b: Buffer): boolean {
  */
 export class LineOfficialService implements IMessagingService {
   readonly platform = "line" as const;
-  private readonly queue: SendQueue;
+  private readonly queue: SendQueue<QueuedSend>;
   private readonly scheduler: SendScheduler;
   private nameToChat = new Map<string, string>();
   private chatToName = new Map<string, string>();
@@ -284,23 +285,30 @@ export class LineOfficialService implements IMessagingService {
   private state: "未登入" | "連線中" | "已登入" | "需人工" = "未登入";
 
   constructor() {
-    this.queue = new SendQueue(() => ({
-      maxRetries: config.send.maxRetries,
-      retryBaseMs: config.send.retryBaseMs,
-      minIntervalMs: config.send.minIntervalMs,
-      isPermanent: (error) => {
-        if (error instanceof TargetNotFoundError || error instanceof NotLoggedInError) return true;
-        if (error instanceof LineApiError) {
-          // 429 與 5xx 是暫時性；401/403（token）與 400（參數/目標）重試也不會好。
-          return error.status !== 429 && error.status < 500;
-        }
-        const message = error instanceof Error ? error.message : String(error);
-        if (/429|rate|頻繁|timeout|逾時|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|socket hang up/i.test(message)) {
-          return false;
-        }
-        return /40[0-4]|422|invalid|unauthorized|not found|找不到/i.test(message);
+    this.queue = new SendQueue<QueuedSend>(
+      () => ({
+        maxRetries: config.send.maxRetries,
+        retryBaseMs: config.send.retryBaseMs,
+        minIntervalMs: config.send.minIntervalMs,
+        isPermanent: (error) => {
+          if (error instanceof TargetNotFoundError || error instanceof NotLoggedInError) return true;
+          if (error instanceof LineApiError) {
+            // 429 與 5xx 是暫時性；401/403（token）與 400（參數/目標）重試也不會好。
+            return error.status !== 429 && error.status < 500;
+          }
+          const message = error instanceof Error ? error.message : String(error);
+          if (/429|rate|頻繁|timeout|逾時|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|socket hang up/i.test(message)) {
+            return false;
+          }
+          return /40[0-4]|422|invalid|unauthorized|not found|找不到/i.test(message);
+        },
+      }),
+      {
+        // P0-4：待發任務落檔，重啟後由 start() 續送。
+        persistence: fileQueuePersistence<QueuedSend>(join(dirname(config.schedulesPath), "queue-line-official.json")),
+        send: (data) => (data.kind === "text" ? this.rawSend(data.to, data.text) : this.sendOne(data.input)),
       },
-    }));
+    );
     this.scheduler = new SendScheduler(
       (inputs) => this.sendAdvanced(inputs),
       (job) => dispatchSkillTask(job, this.dispatchDeps()),
@@ -403,6 +411,7 @@ export class LineOfficialService implements IMessagingService {
       logger.info("LINE 官方 Bot 已連線", { bot: this.botDisplayName, userId: this.botUserId });
       await this.refreshContacts();
       await this.ensureWebhook();
+      this.queue.start();
     } catch (error) {
       this.state = "需人工";
       logger.error("LINE 官方初始化失敗", { error: error instanceof Error ? error.message : String(error) });
@@ -547,7 +556,7 @@ export class LineOfficialService implements IMessagingService {
   // ---------- 發送 ----------
 
   async enqueueText(to: string, text: string): Promise<void> {
-    await this.queue.enqueue(() => this.rawSend(to, text));
+    await this.queue.enqueue(nextQueueKey(), { kind: "text", to, text });
   }
 
   private async rawSend(chat: string, text: string): Promise<void> {
@@ -573,7 +582,7 @@ export class LineOfficialService implements IMessagingService {
     const messages: string[] = [];
     for (const input of inputs) {
       try {
-        await this.queue.enqueue(() => this.sendOne(input));
+        await this.queue.enqueue(nextQueueKey(), { kind: "one", input });
       } catch (error) {
         errors.push(error);
         messages.push(`${input.to}: ${error instanceof Error ? error.message : String(error)}`);

@@ -8,6 +8,7 @@ import {
   type ChatMessage,
 } from "@lw/skills/llm";
 import { runAgent } from "@lw/skills/agent";
+import { getChatUsageToday } from "@lw/llm-budget";
 import { config } from "@lw/config";
 import { logger } from "@lw/logger";
 import type { SkillContext, SkillDefinition } from "@lw/skills/types";
@@ -218,6 +219,20 @@ const aiSkill: SkillDefinition = {
       return;
     }
 
+    // P0-2：用量查詢（本對話今日 tokens／金額／次數＋上限）。
+    if (/^(用量|用量查詢|usage|查用量)/i.test(ctx.args.trim())) {
+      const u = getChatUsageToday(ctx.chat);
+      const tokCap = config.llmBudgetTokensPerChatDay;
+      const usdCap = config.llmBudgetUsdPerChatDay;
+      const cost = u.costUsd === null ? "（模型無定價，只計 tokens）" : `≈ $${u.costUsd.toFixed(4)}`;
+      await ctx.reply(
+        `本對話今日用量：${u.totalTokens} tokens（輸入 ${u.promptTokens}／輸出 ${u.completionTokens}）${cost}，共 ${u.calls} 次` +
+          (tokCap > 0 ? `；上限 ${tokCap} tokens` : "") +
+          (usdCap > 0 ? `／$${usdCap}` : ""),
+      );
+      return;
+    }
+
     const question = (ctx.args || ctx.text || "").trim();
     const images = ctx.images ?? [];
     if (!question && images.length === 0) {
@@ -258,7 +273,7 @@ const aiSkill: SkillDefinition = {
           history,
           tools: toolsOn,
           toolContext: { cwaKey: cwaKeyOf() },
-          tag: { skill: "ai" },
+          tag: { skill: "ai", chat: ctx.chat },
         });
       } finally {
         clearInterval(progressTimer);
