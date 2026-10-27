@@ -257,6 +257,8 @@ const aiSkill: SkillDefinition = {
 
     const history: ChatMessage[] = memoryOn ? getHistory(ctx.chat) : [];
 
+    // 靜默消失殺手：開始／結束各一行（結束只會在成功時出現，失敗走 logLlmError）。
+    const aiStartedAt = Date.now();
     try {
       // 回覆慢時每分鐘報平安（CLI 跑 agent 常常數分鐘；60 秒內回完就當沒這回事）。
       let waitedMin = 0;
@@ -280,6 +282,7 @@ const aiSkill: SkillDefinition = {
       }
       await sendReplyImages(ctx, result.text);
       await ctx.reply(result.text);
+      logger.info("AI 回覆完成", { chat: ctx.chat, elapsedMs: Date.now() - aiStartedAt, chars: result.text.length });
       if (memoryOn) {
         pushHistory(
           ctx.chat,

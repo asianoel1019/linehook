@@ -4,7 +4,7 @@ import { priceForModel } from "../llm-usage.js";
 import { checkChatBudget, recordChatUsage } from "../llm-budget.js";
 import { config } from "../config.js";
 import { execSync, spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -540,33 +540,76 @@ export function parseOpencodeResult(
   };
 }
 
-async function opencodeCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: LlmTag): Promise<string> {
-  const system = messages
-    .filter((m) => m.role === "system")
-    .map((m) => textOf(m.content))
-    .join("\n");
-  const last = messages.filter((m) => m.role !== "system").pop();
-  const raw = textOf(last?.content ?? "");
-  const clean = raw.replace(/<\/?untrusted-(?:user|web)-content>/g, "").trim();
-  const prompt = system ? `${system}\n\n${clean}` : clean;
-  const ocBin = findOpencodePath();
-  // 每次呼叫用全新的空目錄跑，避免 agent 動到部署目錄。
-  // 注意：不用 CLI 的 --dir 旗標（舊版沒有，會直接報錯），改用 spawn 的 cwd，同樣效果且版本無關。
-  const sandbox = mkdtempSync(join(tmpdir(), "imhook-oc-"));
-  // --model 只接受 provider/model 形式；裸 id（如 muse-spark-1.3）不傳，沿用 CLI 預設模型。
-  const args = ["run", "--format", "json", ...(cfg.model.includes("/") ? ["--model", cfg.model] : []), prompt];
-  const timeoutMs = Math.max(cfg.timeoutMs, 300_000); // agent 含工具往返，至少等 5 分鐘
+/** 沙盒延後清理（見 opencodeCliChat 內的說明）。 */
+function scheduleSandboxCleanup(dir: string): void {
+  const timer = setTimeout(() => {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch (error) {
+      logger.warn("清理 CLI 沙盒失敗", { dir, error: String(error) });
+    }
+  }, 30 * 60_000);
+  if (typeof timer.unref === "function") timer.unref();
+}
 
+/** 看門狗 spawn：保證一定結案。spawn 的 timeout 只發 SIGTERM（會被無視），
+ * 且子行程咬住 pipe 時 'close' 可能永遠不來；這裡逾時升級 SIGKILL＋銷毀 stdio，
+ * 再不來就自己結案。回 { code, signal, out, err }；signal 非空代表被終止。 */
+export function runWatchedProcess(
+  bin: string,
+  args: string[],
+  opts: { cwd: string; env: Record<string, string | undefined>; timeoutMs: number; label: string },
+): Promise<{ code: number | null; signal: string | null; out: string; err: string }> {
   return new Promise((resolve, reject) => {
     let done = false;
-    const startedAt = Date.now();
-    logger.info("OpenCode CLI 啟動", { bin: ocBin, dir: sandbox, timeoutMs, promptChars: prompt.length });
-    const proc = spawn(ocBin, args, {
-      timeout: timeoutMs,
-      cwd: sandbox,
-      env: { ...process.env, HOME: process.env.HOME || homedir() },
+    const settle = (fn: () => void): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(watchdog);
+      fn();
+    };
+    const proc = spawn(bin, args, {
+      timeout: opts.timeoutMs,
+      cwd: opts.cwd,
+      env: opts.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
+
+    const watchdog = setTimeout(() => {
+      if (done) return;
+      logger.warn(`${opts.label}逾時，升級終止`, { timeoutMs: opts.timeoutMs });
+      try {
+        proc.kill("SIGTERM");
+      } catch {
+        // ignore
+      }
+      const force = setTimeout(() => {
+        if (done) return;
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          // ignore
+        }
+        try {
+          proc.stdout?.destroy();
+        } catch {
+          // ignore
+        }
+        try {
+          proc.stderr?.destroy();
+        } catch {
+          // ignore
+        }
+      }, 3000);
+      if (typeof force.unref === "function") force.unref();
+      const finale = setTimeout(() => {
+        settle(() =>
+          reject(new Error(`${opts.label}無回應（逾時且行程無法確認結束，已放棄等待）`)),
+        );
+      }, opts.timeoutMs + 10_000);
+      if (typeof finale.unref === "function") finale.unref();
+    }, opts.timeoutMs);
+    if (typeof watchdog.unref === "function") watchdog.unref();
 
     let out = "";
     let err = "";
@@ -578,40 +621,70 @@ async function opencodeCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: Ll
     });
 
     proc.on("error", (e) => {
-      if (done) return;
-      done = true;
-      const hint = /ENOENT/i.test(e.message) ? "請先在主機安裝 OpenCode CLI 並完成登入（opencode auth login）" : "";
-      logger.error("OpenCode CLI spawn 失敗", { error: e.message });
-      reject(new Error(`OpenCode CLI 無法啟動：${e.message}${hint ? `（${hint}）` : ""}`));
+      settle(() => reject(e));
     });
 
     proc.on("close", (code, signal) => {
-      if (done) return;
-      done = true;
-      if (signal) {
-        reject(
-          new Error(
-            `OpenCode CLI 逾時或被終止（${signal}，上限約 ${Math.round(timeoutMs / 1000)} 秒）；agent 任務複雜時請調高技能的逾時設定`,
-          ),
-        );
-        return;
-      }
-      const r = parseOpencodeResult(out, err, code);
-      if ("text" in r) {
-        recordLlmUsage(cfg, tag, r.usage?.inputTokens, r.usage?.outputTokens);
-        resolve(r.text);
-      } else {
-        logger.error("OpenCode CLI 呼叫失敗", {
-          bin: ocBin,
-          code,
-          elapsedMs: Date.now() - startedAt,
-          stdout: out.trim().slice(0, 300),
-          stderr: err.trim().slice(0, 300),
-        });
-        reject(new Error(r.error));
-      }
+      settle(() => resolve({ code, signal: signal ?? null, out, err }));
     });
   });
+}
+
+async function opencodeCliChat(cfg: LlmConfig, messages: ChatMessage[], tag?: LlmTag): Promise<string> {  const system = messages
+    .filter((m) => m.role === "system")
+    .map((m) => textOf(m.content))
+    .join("\n");
+  const last = messages.filter((m) => m.role !== "system").pop();
+  const raw = textOf(last?.content ?? "");
+  const clean = raw.replace(/<\/?untrusted-(?:user|web)-content>/g, "").trim();
+  const prompt = system ? `${system}\n\n${clean}` : clean;
+  const ocBin = findOpencodePath();
+  // 每次呼叫用全新的空目錄跑，避免 agent 動到部署目錄。
+  // 注意：不用 CLI 的 --dir 旗標（舊版沒有，會直接報錯），改用 spawn 的 cwd，同樣效果且版本無關。
+  const sandbox = mkdtempSync(join(tmpdir(), "imhook-oc-"));
+  // 沙盒延後清理：回覆圖片流會在 chat() 回傳後才讀沙盒裡的檔，所以不能結案即刪；
+  // 30 分鐘後刪（unref，不卡退出）。呼叫端不需接 lifecycle。
+  scheduleSandboxCleanup(sandbox);
+  // --model 只接受 provider/model 形式；裸 id（如 muse-spark-1.3）不傳，沿用 CLI 預設模型。
+  const args = ["run", "--format", "json", ...(cfg.model.includes("/") ? ["--model", cfg.model] : []), prompt];
+  const timeoutMs = Math.max(cfg.timeoutMs, 300_000); // agent 含工具往返，至少等 5 分鐘
+
+  const startedAt = Date.now();
+  logger.info("OpenCode CLI 啟動", { bin: ocBin, dir: sandbox, timeoutMs, promptChars: prompt.length });
+  let result: { code: number | null; signal: string | null; out: string; err: string };
+  try {
+    result = await runWatchedProcess(ocBin, args, {
+      cwd: sandbox,
+      env: { ...process.env, HOME: process.env.HOME || homedir() },
+      timeoutMs,
+      label: "OpenCode CLI",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("無回應")) throw error instanceof Error ? error : new Error(message);
+    const hint = /ENOENT/i.test(message) ? "（請先在主機安裝 OpenCode CLI 並完成登入（opencode auth login））" : "";
+    if (/ENOENT/i.test(message)) logger.error("OpenCode CLI spawn 失敗", { error: message });
+    throw new Error(`OpenCode CLI 無法啟動：${message}${hint}`);
+  }
+  const { code, signal, out, err } = result;
+  if (signal) {
+    throw new Error(
+      `OpenCode CLI 逾時或被終止（${signal}，上限約 ${Math.round(timeoutMs / 1000)} 秒）；agent 任務複雜時請調高技能的逾時設定`,
+    );
+  }
+  const r = parseOpencodeResult(out, err, code);
+  if ("text" in r) {
+    recordLlmUsage(cfg, tag, r.usage?.inputTokens, r.usage?.outputTokens);
+    return r.text;
+  }
+  logger.error("OpenCode CLI 呼叫失敗", {
+    bin: ocBin,
+    code,
+    elapsedMs: Date.now() - startedAt,
+    stdout: out.trim().slice(0, 300),
+    stderr: err.trim().slice(0, 300),
+  });
+  throw new Error(r.error);
 }
 
 /** G2：記錄 LLM token 用量（供 /metrics 的 llm_tokens_total）；P0-2：同筆轉記對話帳本。缺 usage 時記 0 佔位。 */

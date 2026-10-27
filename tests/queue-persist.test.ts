@@ -75,9 +75,8 @@ describe("P0-4 佇列落檔與續送", () => {
     assert.equal(q2.stats().pending, 2);
     assert.deepEqual(sent, []);
     q2.start();
-    await waitFor(() => sent.length === 2);
+    await waitFor(() => q2.stats().pending === 0);
     assert.deepEqual(sent, ["flying", "waiting"]);
-    assert.equal(q2.stats().pending, 0);
     q2.stop();
   });
 

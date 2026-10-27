@@ -52,6 +52,22 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** 單則發送逾時（evex promise 偶爾不 settle，不能讓回覆卡到天荒地老）。 */
+const REPLY_SEND_TIMEOUT_MS = 30_000;
+
+/** 比賽：本體先回就用本體的，逾時先到就丟錯（本體之後才回也無害）。 */
+export function withSendTimeout<T>(task: Promise<T>, ms: number, label: string): Promise<T> {
+  // 掛一個已處理的分支，避免本體晚到時變成 unhandled rejection 噪音。
+  task.catch(() => {});
+  return Promise.race([
+    task,
+    new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => reject(new Error(label)), ms);
+      if (typeof timer.unref === "function") timer.unref();
+    }),
+  ]);
+}
+
 // splitText 住在 messaging/text.ts（各傳輸層共用）；此處 re-export 保持相容。
 export { splitText } from "../messaging/text.js";
 
@@ -716,12 +732,18 @@ export class LineService implements IMessagingService {
 
   private async replyTo(chat: string, text: string): Promise<void> {
     const client = this.client;
-    if (!client) return;
+    // 曾經是靜默 return（未登入的空窗回覆直接人間蒸發，還記成功）；現在丟錯讓上層看見。
+    if (!client) throw new NotLoggedInError("LINE");
     const parts = chunkReplyText(text, config.replyMaxChars);
     for (let i = 0; i < parts.length; i++) {
       const isLast = i === parts.length - 1;
+      const part = parts[i] as string;
       try {
-        await client.base.talk.sendMessage({ to: chat, text: parts[i], e2ee: true });
+        await withSendTimeout(
+          client.base.talk.sendMessage({ to: chat, text: part, e2ee: true }),
+          REPLY_SEND_TIMEOUT_MS,
+          `LINE 回覆逾時（第 ${i + 1}/${parts.length} 段）`,
+        );
         recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: true, platform: "line" });
       } catch (error) {
         recordSend({ time: new Date().toISOString(), to: chat, type: "text", ok: false, platform: "line" });
