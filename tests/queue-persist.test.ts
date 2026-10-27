@@ -13,6 +13,16 @@ const fast = () => ({
   isPermanent: () => false,
 });
 
+/** 輪詢等條件成立（取代固定 sleep，負載高時不 flake）。 */
+async function waitFor(cond: () => boolean, timeoutMs = 5000): Promise<void> {
+  const start = Date.now();
+  for (;;) {
+    if (cond()) return;
+    if (Date.now() - start > timeoutMs) throw new Error("等待逾時");
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
 after(() => {
   // 各測試用獨立檔；無全域狀態需清（persistence 由呼叫端傳入）。
 });
@@ -65,7 +75,7 @@ describe("P0-4 佇列落檔與續送", () => {
     assert.equal(q2.stats().pending, 2);
     assert.deepEqual(sent, []);
     q2.start();
-    await new Promise((r) => setTimeout(r, 100));
+    await waitFor(() => sent.length === 2);
     assert.deepEqual(sent, ["flying", "waiting"]);
     assert.equal(q2.stats().pending, 0);
     q2.stop();
@@ -83,8 +93,9 @@ describe("P0-4 佇列落檔與續送", () => {
       },
     });
     q.start();
-    await new Promise((r) => setTimeout(r, 150));
+    await waitFor(() => tries >= 1);
     // attempts 已用完（2/2）：只試一次就丟，不重置重試預算
+    await new Promise((r) => setTimeout(r, 50));
     assert.equal(tries, 1);
     q.stop();
   });
@@ -123,7 +134,8 @@ describe("P0-4 佇列落檔與續送", () => {
     q.start();
     q.start();
     q.start();
-    await new Promise((r) => setTimeout(r, 100));
+    await waitFor(() => n === 1);
+    await new Promise((r) => setTimeout(r, 50));
     assert.equal(n, 1);
     q.stop();
   });

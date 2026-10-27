@@ -54,6 +54,8 @@ import {
 } from "../middleware/hmac.js";
 import { getMessages, reloadMessages, searchMessages, purgeMessages } from "../messages.js";
 import { readDeadLetters, purgeDeadLetters } from "../deadletter.js";
+import { runCheckup } from "../checkup.js";
+import { redactText } from "../redact.js";
 import { readAuditEntries, purgeAudit } from "../audit.js";
 import { probePlatform } from "../monitor/platform-probe.js";
 import { getDigest } from "../monitor/digest.js";
@@ -580,6 +582,11 @@ export function createServer(line: IMessagingService): express.Express {
     );
     res.status(allOk ? 200 : 503).json({ status: allOk ? "ok" : "bad", services: detail });
   });
+  // P1-1 設定健檢：部署是否正確的一頁清單（現況＋怎麼修）；給人看的，機器探針用 /health。
+  app.get("/health/check.json", statusAccess, requireSessionOrApi("read"), async (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json(await runCheckup());
+  });
   app.get("/dashboard", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
     res.type("html").send(renderDashboardHtml());
   });
@@ -943,7 +950,7 @@ export function createServer(line: IMessagingService): express.Express {
       } catch (error) {
         res.json({
           ok: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: redactText(error instanceof Error ? error.message : String(error)),
           replies,
           media,
           scheduled,

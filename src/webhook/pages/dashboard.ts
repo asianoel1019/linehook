@@ -14,6 +14,14 @@ export function renderDashboardHtml() {
 </div>
 <div id="verify"></div>
 <div id="platform-blocks"></div>
+<div class="glass" id="checkup-card">
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <h2 style="margin:0" data-i18n="checkup_title">設定健檢</h2>
+    <button type="button" id="checkup-reload" data-i18n="btn_recheck">重新檢查</button>
+    <span id="checkup-msg" class="msg"></span>
+  </div>
+  <div id="checkup-list" style="margin-top:10px"></div>
+</div>
 <div class="glass" id="llm-card" style="display:none">
   <h2 style="margin-top:0" data-i18n="llm_usage_title">LLM 用量（費用估算）</h2>
   <table><thead><tr><th data-i18n="llm_th_skill">技能</th><th data-i18n="llm_th_model">模型</th><th data-i18n="llm_th_tokens">Tokens</th><th data-i18n="llm_th_calls">次數</th><th data-i18n="llm_th_cost">估算費用</th></tr></thead><tbody id="llm-rows"></tbody></table>
@@ -271,8 +279,58 @@ export function renderDashboardHtml() {
     renderLlm();
   }
 
+  // P1-1 設定健檢（60 秒一輪＋手動；跑平台連線較重，不跟 5 秒主迴圈）。
+  function renderCheckup(d) {
+    var host = $("checkup-list");
+    if (!host) return;
+    var items = (d && d.items) || [];
+    if (items.length === 0) {
+      host.textContent = "";
+      return;
+    }
+    host.replaceChildren.apply(host, items.map(function (it) {
+      var row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid rgba(34,211,238,.12);flex-wrap:wrap";
+      var mark = document.createElement("span");
+      mark.style.cssText = "font-weight:700;flex:0 0 auto";
+      mark.style.color = it.ok ? "#6ee7b7" : "#fca5a5";
+      mark.textContent = it.ok ? "✅" : "❌";
+      var name = document.createElement("b");
+      name.style.cssText = "flex:0 0 auto";
+      name.textContent = it.name || it.id;
+      var detail = document.createElement("span");
+      detail.className = "msg";
+      detail.style.cssText = "flex:1 1 220px";
+      detail.textContent = it.detail || "";
+      row.append(mark, name, detail);
+      if (it.fix) {
+        var fix = document.createElement("div");
+        fix.className = "msg";
+        fix.style.cssText = "flex-basis:100%;font-size:12px;color:#94a3b8";
+        fix.textContent = "→ " + it.fix;
+        row.appendChild(fix);
+      }
+      return row;
+    }));
+  }
+
+  function refreshCheckup() {
+    var msg = $("checkup-msg");
+    fetch("/health/check.json", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (d) {
+        if (!d) { if (msg) msg.textContent = "讀取失敗"; return; }
+        if (msg) msg.textContent = "";
+        renderCheckup(d);
+      })
+      .catch(function () { if (msg) msg.textContent = "讀取失敗"; });
+  }
+
   refresh();
+  $("checkup-reload").addEventListener("click", refreshCheckup);
+  refreshCheckup();
   setInterval(refresh, 5000);
+  setInterval(refreshCheckup, 60000);
 `;
     return page(tr(config.language, "title_dashboard"), "dashboard", body, script);
 }

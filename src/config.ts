@@ -109,6 +109,12 @@ const schema = z.object({
   LLM_BUDGET_TOKENS_PER_CHAT_DAY: z.coerce.number().int().min(0).default(500000),
   /** P0-2：單一對話每日 LLM 花費上限 USD（0＝不限；無定價模型不計入）。 */
   LLM_BUDGET_USD_PER_CHAT_DAY: z.coerce.number().min(0).default(5),
+  /** P1-2：出站白名單（逗號分隔網域；空白＝不限制。強制模式才封鎖）。 */
+  OUTBOUND_ALLOWLIST: z.string().default(""),
+  /** P1-2：出站封鎖清單（逗號分隔網域；一律封鎖，含觀察模式）。 */
+  OUTBOUND_BLOCKLIST: z.string().default(""),
+  /** P1-2：白名單是否強制（false＝觀察模式：只記錄不擋，預設）。 */
+  OUTBOUND_ENFORCE: boolDefault(false),
   INBOUND_QUEUE_PATH: z.string().default("./data/inbound-queue.jsonl"),
   SCHEDULES_PATH: z.string().default("./data/schedules.json"),
   STATS_PATH: z.string().default("./data/stats.jsonl"),
@@ -337,6 +343,9 @@ export interface Config {
   uploadsMaxMb: number;
   llmBudgetTokensPerChatDay: number;
   llmBudgetUsdPerChatDay: number;
+  outboundAllowlist: string[];
+  outboundBlocklist: string[];
+  outboundEnforce: boolean;
   inboundQueuePath: string;
   schedulesPath: string;
   statsPath: string;
@@ -471,6 +480,9 @@ export const config: Config = {
   uploadsMaxMb: env.UPLOADS_MAX_MB,
   llmBudgetTokensPerChatDay: env.LLM_BUDGET_TOKENS_PER_CHAT_DAY,
   llmBudgetUsdPerChatDay: env.LLM_BUDGET_USD_PER_CHAT_DAY,
+  outboundAllowlist: parseList(env.OUTBOUND_ALLOWLIST).map((s) => s.toLowerCase()),
+  outboundBlocklist: parseList(env.OUTBOUND_BLOCKLIST).map((s) => s.toLowerCase()),
+  outboundEnforce: env.OUTBOUND_ENFORCE,
   inboundQueuePath: env.INBOUND_QUEUE_PATH,
   schedulesPath: env.SCHEDULES_PATH,
   statsPath: env.STATS_PATH,

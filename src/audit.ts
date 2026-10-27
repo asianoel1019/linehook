@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import type { Request } from "express";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
+import { redactText } from "./redact.js";
 import { rotateIfNeeded } from "./rotate.js";
 import { currentUser } from "./middleware/session.js";
 
@@ -73,7 +74,7 @@ export function audit(req: Request, action: string, detail?: string): void {
       ip: req.ip ?? "",
       user: currentUser(),
       action,
-      ...(detail ? { detail } : {}),
+      ...(detail ? { detail: redactText(detail) } : {}),
     };
     appendFileSync(path, `${JSON.stringify(entry)}\n`);
     rotateIfNeeded(path, MAX_BYTES, MAX_FILES);

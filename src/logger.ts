@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { config } from "./config.js";
 import { rotateIfNeeded, rotateDailyIfNeeded } from "./rotate.js";
 import { nowIso } from "./time.js";
+import { redactText } from "./redact.js";
 import type { LogEntry, LogLevel } from "./types.js";
 
 const buffer: LogEntry[] = [];
@@ -17,11 +18,12 @@ function levelEnabled(level: LogLevel): boolean {
 
 function write(level: LogLevel, message: string, meta?: Record<string, unknown>): void {
   if (!levelEnabled(level)) return;
+  // P1-3：內存＋落檔都存遮蔽版（Dashboard／console 看得到的地方不留憑證）。
   const entry: LogEntry = {
     time: nowIso(),
     level,
-    message,
-    ...(meta ? { meta } : {}),
+    message: redactText(message),
+    ...(meta ? { meta: JSON.parse(redactText(JSON.stringify(meta))) as Record<string, unknown> } : {}),
   };
 
   buffer.push(entry);

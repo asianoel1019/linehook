@@ -1,5 +1,6 @@
 import { getStore } from "./store/index.js";
 import { logger } from "./logger.js";
+import { redactText } from "./redact.js";
 
 export interface DeadLetter {
   time: string;
@@ -17,7 +18,13 @@ const LIMIT = 500;
 /** 寫入死信：永久性失敗的發送（佇列／排程／技能回覆），不再靜默消失。 */
 export function writeDeadLetter(entry: Omit<DeadLetter, "time">): void {
   try {
-    const record: DeadLetter = { time: new Date().toISOString(), ...entry };
+    // P1-3：人看的欄位遮蔽；payload 留原樣（重送要用，存檔信任度同 settings.json）。
+    const record: DeadLetter = {
+      time: new Date().toISOString(),
+      ...entry,
+      summary: redactText(entry.summary),
+      error: redactText(entry.error),
+    };
     getStore().append("deadletter", { ...record, to: [...record.to] });
     logger.warn("已寫入死信", { platform: record.platform, kind: record.kind, to: record.to });
   } catch (error) {

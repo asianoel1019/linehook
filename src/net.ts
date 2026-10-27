@@ -1,6 +1,7 @@
 /** 共用的對外請求 helper：強制超時與回應大小上限，避免單一慢速/巨大回應卡住服務。 */
 
 import { lookup } from "node:dns/promises";
+import { config } from "./config.js";
 import { recordMetric } from "./metrics.js";
 
 export class FetchLimitError extends Error {
@@ -84,6 +85,13 @@ export async function fetchWithLimits(
 ): Promise<Response> {
   const { timeoutMs } = limitsOf(options);
   if (options?.blockPrivate) await assertPublicUrl(url);
+  // P1-2 出站網域管制（白名單／封鎖清單；預設觀察模式不擋）。
+  const verdict = checkOutbound(url);
+  if (verdict.action === "block") {
+    recordOutboundBlocked(url, verdict.reason);
+    throw new BlockedHostError(`出站網域管制：${verdict.host}（${verdict.reason}）`);
+  }
+  if (verdict.action === "observe") noteOutboundDryRun(url, verdict.reason);
   const signal = init?.signal ?? AbortSignal.timeout(timeoutMs);
   return fetch(url, { ...init, signal });
 }
@@ -244,4 +252,85 @@ export function isHostDegraded(urlOrHost: string): boolean {
   if (!s || s.consecFails < 5) return false;
   if (s.lastFailAt !== null && Date.now() - s.lastFailAt > 5 * 60_000) return false;
   return true;
+}
+
+/* ── P1-2 出站網域管制：封鎖清單一律擋；白名單預設只觀察（dry-run），強制才擋 ── */
+
+export type OutboundAction = "allow" | "observe" | "block";
+
+export interface OutboundVerdict {
+  action: OutboundAction;
+  host: string;
+  reason: string;
+}
+
+/** 網域比對：完全相等或子網域（a.example.com 命中 example.com）。 */
+function domainHit(host: string, entry: string): boolean {
+  const e = entry.trim().toLowerCase();
+  if (!e) return false;
+  return host === e || host.endsWith(`.${e}`);
+}
+
+/** 判定某 URL 的出站命運（純函式，可單測；不打網）。 */
+export function checkOutbound(url: string): OutboundVerdict {
+  const host = hostOf(url).toLowerCase();
+  if (config.outboundBlocklist.some((e) => domainHit(host, e))) {
+    return { action: "block", host, reason: "命中封鎖清單" };
+  }
+  const allow = config.outboundAllowlist;
+  if (allow.length === 0) return { action: "allow", host, reason: "" };
+  if (allow.some((e) => domainHit(host, e))) return { action: "allow", host, reason: "" };
+  if (config.outboundEnforce) return { action: "block", host, reason: "不在白名單（強制模式）" };
+  return { action: "observe", host, reason: "不在白名單（觀察模式，只記錄不擋）" };
+}
+
+export interface BlockedHost {
+  host: string;
+  count: number;
+  lastReason: string;
+  lastAt: number;
+}
+
+const blockedHosts = new Map<string, { count: number; lastReason: string; lastAt: number }>();
+const lastWarnAt = new Map<string, number>();
+const WARN_THROTTLE_MS = 10 * 60_000;
+
+function warnThrottled(key: string, message: string, meta: Record<string, unknown>): void {
+  const now = Date.now();
+  if (now - (lastWarnAt.get(key) ?? 0) < WARN_THROTTLE_MS) return;
+  lastWarnAt.set(key, now);
+  // 動態 import 避開 logger→net→logger 的循環（logger 會讀 config，不依賴 net）。
+  void import("./logger.js").then(({ logger }) => logger.warn(message, meta));
+}
+
+/** 封鎖記帳（metric＋checkup 可見＋節流 log；稽核需要 req，在此層不寫，改由頁面呈現）。 */
+export function recordOutboundBlocked(url: string, reason: string): void {
+  const host = hostOf(url).toLowerCase();
+  const b = blockedHosts.get(host) ?? { count: 0, lastReason: "", lastAt: 0 };
+  b.count += 1;
+  b.lastReason = reason;
+  b.lastAt = Date.now();
+  blockedHosts.set(host, b);
+  recordMetric("outbound_blocked_total", 1, { host });
+  warnThrottled(`blocked:${host}`, "出站請求被網域管制擋下", { host, reason });
+}
+
+/** 觀察模式記帳（metric＋節流 log，不擋不斷）。 */
+export function noteOutboundDryRun(url: string, reason: string): void {
+  const host = hostOf(url).toLowerCase();
+  recordMetric("outbound_dryrun_total", 1, { host });
+  warnThrottled(`dryrun:${host}`, "出站請求不在白名單（觀察模式，未阻擋）", { host, reason });
+}
+
+/** 被擋下的 host 一覽（依最近時間倒序；給健檢頁用）。 */
+export function getOutboundBlocked(): BlockedHost[] {
+  return [...blockedHosts.entries()]
+    .map(([host, b]) => ({ host, ...b }))
+    .sort((a, b) => b.lastAt - a.lastAt);
+}
+
+/** 測試用：清空封鎖記帳（含節流狀態）。 */
+export function resetOutboundBlocked(): void {
+  blockedHosts.clear();
+  lastWarnAt.clear();
 }

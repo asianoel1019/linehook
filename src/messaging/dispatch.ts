@@ -88,6 +88,7 @@ export function findNaturalIntent(
 }
 import { writeDeadLetter } from "../deadletter.js";
 import { recordMetric, recordDuration, classifySkillError } from "../metrics.js";
+import { redactText } from "../redact.js";
 import { recordSkillRun } from "../skill-stats.js";
 import type { SkillConfig } from "../config.js";
 import type { SkillDefinition } from "../skills/types.js";
@@ -691,7 +692,7 @@ async function runMatchedSkill(
     });
     // 錯誤回覆本身也要保護：回覆失敗不可擊倒後續技能與轉發規則。
     try {
-      await deps.replyTo(chat, `技能「${def.name}」執行失敗：${message}`);
+      await deps.replyTo(chat, `技能「${def.name}」執行失敗：${redactText(message)}`);
     } catch (replyError) {
       logger.error("技能錯誤回覆失敗", {
         skill: skill.id,
