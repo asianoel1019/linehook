@@ -19,6 +19,12 @@ const allowlist = [
     expires: "2027-04-02",
     reason: "同上（thrift 鏈）",
   },
+  {
+    id: "ghsa-mrhx-c7xc-m3w5",
+    reviewedAt: "2026-10-27",
+    expires: "2027-04-27",
+    reason: "zod 3→4 為 breaking change（.default({}) 型別語意變，typecheck 即炸）；設定解析只吃自家檔案，暫緩等排期遷移",
+  },
 ];
 
 let out = "";
