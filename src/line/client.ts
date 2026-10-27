@@ -55,8 +55,16 @@ function delay(ms: number): Promise<void> {
 /** 單則發送逾時（evex promise 偶爾不 settle，不能讓回覆卡到天荒地老）。 */
 const REPLY_SEND_TIMEOUT_MS = 30_000;
 
+/** 回覆消毒：清控制字（保留 \t\n\r）與 ANSI 轉義；這些在聊天室顯示不了，還可能搞壞發送。 */
+export function sanitizeReplyText(text: string): string {
+  return String(text ?? "")
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+}
+
 /** 比賽：本體先回就用本體的，逾時先到就丟錯（本體之後才回也無害）。 */
 export function withSendTimeout<T>(task: Promise<T>, ms: number, label: string): Promise<T> {
+
   // 掛一個已處理的分支，避免本體晚到時變成 unhandled rejection 噪音。
   task.catch(() => {});
   return Promise.race([
@@ -734,7 +742,10 @@ export class LineService implements IMessagingService {
     const client = this.client;
     // 曾經是靜默 return（未登入的空窗回覆直接人間蒸發，還記成功）；現在丟錯讓上層看見。
     if (!client) throw new NotLoggedInError("LINE");
-    const parts = chunkReplyText(text, config.replyMaxChars);
+    // CLI 之類的上游偶爾夾帶控制字／ANSI（聊天室顯示不了，極端情況整則送達異常）：先清掉。
+    const clean = sanitizeReplyText(text);
+    const parts = chunkReplyText(clean, config.replyMaxChars);
+    if (parts.length === 0) throw new Error("回覆內容為空（清理控制字後無可用文字）");
     for (let i = 0; i < parts.length; i++) {
       const isLast = i === parts.length - 1;
       const part = parts[i] as string;

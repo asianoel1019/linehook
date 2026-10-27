@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { splitText } from "../src/line/client.js";
+import { sanitizeReplyText, splitText } from "../src/line/client.js";
 
 describe("splitText", () => {
   it("短文字不切割", () => {
@@ -36,5 +36,14 @@ describe("splitText", () => {
       const last = p.charCodeAt(p.length - 1);
       assert.ok(!(last >= 0xd800 && last <= 0xdbff), "段尾不可是 high surrogate");
     }
+  });
+});
+
+describe("sanitizeReplyText", () => {
+  it("清控制字與 ANSI，保留換行與中文", () => {
+    assert.equal(sanitizeReplyText("hi\x00\x07\x1b[32mok\x1b[0m\n台北"), "hiok\n台北");
+    assert.equal(sanitizeReplyText("a\tb\rc"), "a\tb\rc");
+    assert.equal(sanitizeReplyText("正常文字"), "正常文字");
+    assert.equal(sanitizeReplyText(""), "");
   });
 });

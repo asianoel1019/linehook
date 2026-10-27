@@ -84,8 +84,8 @@ export function isGroupChat(platform: string, chat: string): boolean {
 
 /** 啟動／關閉語句（正規化後比對：小寫＋去空白）。 */
 export type AiModeCommand = "start" | "stop";
-const START_STEMS = ["啟動ai", "進入ai", "開始ai", "打開ai", "開啟ai"];
-const STOP_STEMS = ["關閉ai", "結束ai", "退出ai", "離開ai", "停止ai", "關閉對話", "結束對話", "退出對話"];
+const START_STEMS = ["啟動ai", "進入ai", "開始ai", "打開ai", "開啟ai", "aimode", "ai模式"];
+const STOP_STEMS = ["關閉ai", "結束ai", "退出ai", "離開ai", "停止ai", "關閉對話", "結束對話", "退出對話", "aimode關", "ai模式關"];
 
 function normalizeCommandText(s: string): string {
   return String(s ?? "")
@@ -97,7 +97,8 @@ function normalizeCommandText(s: string): string {
 export function detectAiModeCommand(text: string): AiModeCommand | null {
   const n = normalizeCommandText(text);
   if (!n) return null;
-  if (START_STEMS.some((p) => n.startsWith(p))) return "start";
+  // 關閉優先：「aimode關」同時是「aimode」的前綴，啟動先判會誤判。
   if (STOP_STEMS.some((p) => n.startsWith(p))) return "stop";
+  if (START_STEMS.some((p) => n.startsWith(p))) return "start";
   return null;
 }

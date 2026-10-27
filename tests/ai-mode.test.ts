@@ -113,6 +113,9 @@ describe("detectAiModeCommand", () => {
     assert.equal(detectAiModeCommand("開始ai對話"), "start");
     assert.equal(detectAiModeCommand("打開AI模式"), "start");
     assert.equal(detectAiModeCommand("開啟AI"), "start");
+    assert.equal(detectAiModeCommand("ai mode"), "start");
+    assert.equal(detectAiModeCommand("AI Mode"), "start");
+    assert.equal(detectAiModeCommand("ai模式"), "start");
   });
 
   it("關閉語句", () => {
@@ -121,6 +124,8 @@ describe("detectAiModeCommand", () => {
     assert.equal(detectAiModeCommand("結束對話"), "stop");
     assert.equal(detectAiModeCommand("退出AI模式"), "stop");
     assert.equal(detectAiModeCommand("關閉ai"), "stop");
+    assert.equal(detectAiModeCommand("aimode關"), "stop");
+    assert.equal(detectAiModeCommand("ai模式關"), "stop");
   });
 
   it("非指令回 null", () => {
