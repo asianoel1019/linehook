@@ -118,6 +118,18 @@ export interface SkillHealth {
   detail?: string;
 }
 
+/** P2 技能權限宣告（skill.json 的 permissions 欄位）。 */
+export interface SkillPermissions {
+  /** 會連外到的網域（主機名；空＝不宣告）。 */
+  network?: string[];
+  /** 會寫檔的範圍："none"（不寫）／"temp"（暫存目錄）／"data"（含 data/ 與設定）。 */
+  files?: "none" | "temp" | "data";
+  /** 會讀取其他技能的狀態。 */
+  readOtherSkills?: boolean;
+  /** 會呼叫其他技能（跨技能組合；P4 的基礎）。 */
+  callOtherSkills?: boolean;
+}
+
 export interface SkillDefinition {
   id: string;
   name: string;
@@ -159,6 +171,8 @@ export interface SkillDefinition {
   health?: () => Promise<SkillHealth[]>;
   /** 選填：可處理使用者傳送的位置訊息（附近查詢類，如 YouBike 找附近站點）。 */
   handlesLocation?: boolean;
+  /** P2：權限宣告（會連外／寫檔／讀其他技能）；安裝時顯示、稽核時可追。 */
+  permissions?: SkillPermissions;
   /** 執行技能；args 為觸發詞之後的原始文字（"any" 模式為整則訊息）。 */
   run: (ctx: SkillContext) => Promise<void>;
   /**

@@ -89,6 +89,8 @@ function readMeta(dir, id) {
         triggerAliases: m.triggerAliases || [],
         needsKey: Boolean(m.needsKey) || /secret\s*:\s*true/.test(readIndexSource(dir)),
         version: m.version || "1.0.0",
+        // P2：權限宣告（skill.json）；內建技能多由程式碼宣告，這裡只讀 manifest。
+        permissions: m.permissions && typeof m.permissions === "object" ? m.permissions : undefined,
       };
     } catch {}
   }
@@ -105,6 +107,7 @@ function readMeta(dir, id) {
     triggerAliases: extractArray(hay, "triggerAliases"),
     needsKey,
     version: "1.0.0",
+    permissions: undefined,
   };
 }
 
@@ -117,25 +120,23 @@ function readIndexSource(dir) {
 
 function zipSkill(dir, id, meta) {
   const files = {};
-  files["skill.json"] = Buffer.from(
-    JSON.stringify(
-      {
-        id,
-        name: meta.name,
-        description: meta.description,
-        ...(meta.usage ? { usage: meta.usage } : {}),
-        ...(meta.category ? { category: meta.category } : {}),
-        ...(meta.defaultTrigger ? { defaultTrigger: meta.defaultTrigger } : {}),
-        ...(meta.triggerAliases && meta.triggerAliases.length ? { triggerAliases: meta.triggerAliases } : {}),
-        // 技能 API 版本：zip 只帶 index.js，其餘靠 @lw/* 別名向宿主要
-        api: 1,
-        version: meta.version,
-      },
-      null,
-      2,
-    ),
-    "utf8",
-  );
+  const manifest = {
+    id,
+    name: meta.name,
+    description: meta.description,
+    ...(meta.usage ? { usage: meta.usage } : {}),
+    ...(meta.category ? { category: meta.category } : {}),
+    ...(meta.defaultTrigger ? { defaultTrigger: meta.defaultTrigger } : {}),
+    ...(meta.triggerAliases && meta.triggerAliases.length ? { triggerAliases: meta.triggerAliases } : {}),
+    // 技能 API 版本：zip 只帶 index.js，其餘靠 @lw/* 別名向宿主要
+    api: 1,
+    version: meta.version,
+  };
+  // P2：權限宣告隨 zip 一起走（安裝時顯示、稽核可追、網域報告可比對）。
+  if (meta.permissions && Object.keys(meta.permissions).length > 0) {
+    manifest.permissions = meta.permissions;
+  }
+  files["skill.json"] = Buffer.from(JSON.stringify(manifest, null, 2), "utf8");
   // 優先打包已編譯的 dist/skills/<id>/index.js（Docker 內安裝後可直接跑，
   // 不需 TS 執行環境）；本機沒 build 過才退回 src 的 index.ts。
   let entry = "";

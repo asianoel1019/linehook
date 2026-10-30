@@ -103,4 +103,29 @@ describe("P1-1 設定健檢", () => {
       rmSync(tmp, { force: true });
     }
   });
+
+  it("GET /skills/domains.json：技能網域報告（宣告 vs 實際）", async () => {
+    const res = await fetch(`${base}/skills/domains.json`, { headers: auth });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      skills: Array<{ id: string; declared: string[]; actual: string[]; undeclared: string[]; ok: boolean }>;
+      hosts: Array<{ host: string; skills: string[] }>;
+      enforce: boolean;
+    };
+    assert.ok(Array.isArray(body.skills));
+    assert.ok(Array.isArray(body.hosts));
+    assert.equal(typeof body.enforce, "boolean");
+    for (const row of body.skills) {
+      assert.ok(Array.isArray(row.declared));
+      assert.ok(Array.isArray(row.actual));
+      assert.equal(row.ok, row.undeclared.length === 0);
+    }
+  });
+
+  it("GET /traces.json：鏈路追蹤清單", async () => {
+    const res = await fetch(`${base}/traces.json?limit=5`, { headers: auth });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { traces: unknown[] };
+    assert.ok(Array.isArray(body.traces));
+  });
 });

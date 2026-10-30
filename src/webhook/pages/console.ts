@@ -113,6 +113,22 @@ export function renderConsoleHtml() {
 </div>
 </div>
 
+<div class="fn-panel" data-fn="traces">
+<h2 style="margin-top:0">鏈路追蹤（這則訊息後來怎樣了）</h2>
+<div class="glass">
+  <div class="hint">每則收訊一條：收到 → 判中哪些技能 → 轉發到哪 → 哪個失敗。追蹤 id 可回頭比對 log。</div>
+  <details open>
+    <summary>清單（<span id="trace-count">0</span>）</summary>
+    <div id="trace-list"></div>
+  </details>
+</div>
+<div class="glass" style="margin-top:12px">
+  <h2 style="margin-top:0">技能網域報告（宣告 vs 實際）</h2>
+  <div class="hint">切「強制白名單」前的依據：哪些技能連了哪些網域、有沒有連到沒宣告的。</div>
+  <div id="domain-list"></div>
+</div>
+</div>
+
 <div class="fn-panel" data-fn="simulate">
 <h2 style="margin-top:0">規則模擬（這則訊息會發生什麼事）</h2>
 <div class="glass">
@@ -271,6 +287,84 @@ export function renderConsoleHtml() {
     renderScheduled(data.scheduled);
     renderDeadletter();
     renderAudit();
+    renderTraces();
+  }
+
+  // P2 鏈路追蹤 + 網域報告。
+  function renderTraces() {
+    fetch("/traces.json?limit=30", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        var host = $("trace-list");
+        if (!host || !data) return;
+        var list = data.traces || [];
+        $("trace-count").textContent = String(list.length);
+        if (list.length === 0) {
+          host.textContent = "尚無追蹤紀錄（收到訊息後就會出現）。";
+          return;
+        }
+        host.replaceChildren.apply(host, list.map(function (t) {
+          var box = document.createElement("div");
+          box.className = "glass";
+          box.style.cssText = "margin-bottom:8px;padding:8px 10px";
+          var head = document.createElement("div");
+          head.style.cssText = "font-size:12px;color:#9db4c8;display:flex;gap:8px;flex-wrap:wrap";
+          head.textContent = t.time + "｜" + t.platform + "｜" + t.traceId + "｜" + (t.text || "");
+          box.appendChild(head);
+          var evs = document.createElement("div");
+          evs.style.cssText = "margin-top:6px;font-size:13px";
+          (t.events || []).forEach(function (e) {
+            var line = document.createElement("div");
+            line.style.cssText = "padding:2px 0 2px 12px;border-left:2px solid " + (e.ok === false ? "#fca5a5" : e.ok === true ? "#6ee7b7" : "rgba(34,211,238,.5)");
+            line.textContent = "• " + e.kind + (e.skill ? "［" + e.skill + "］" : "") + " " + (e.detail || "");
+            evs.appendChild(line);
+          });
+          if (!t.events || t.events.length === 0) {
+            var none = document.createElement("div");
+            none.className = "msg";
+            none.textContent = "（沒有技能／轉發事件）";
+            evs.appendChild(none);
+          }
+          box.appendChild(evs);
+          return box;
+        }));
+      })
+      .catch(function () {});
+
+    fetch("/skills/domains.json", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        var host = $("domain-list");
+        if (!host || !data) return;
+        var rows = data.skills || [];
+        if (rows.length === 0) {
+          host.textContent = "尚無技能對外呼叫紀錄。";
+          return;
+        }
+        var table = document.createElement("table");
+        table.innerHTML = "<thead><tr><th>技能</th><th>宣告</th><th>實際</th><th>未宣告</th></tr></thead>";
+        var tbody = document.createElement("tbody");
+        rows.forEach(function (r) {
+          var tr = document.createElement("tr");
+          var c1 = document.createElement("td");
+          c1.textContent = r.id;
+          var c2 = document.createElement("td");
+          c2.textContent = (r.declared || []).join(", ") || "—";
+          var c3 = document.createElement("td");
+          c3.textContent = (r.actual || []).join(", ") || "—";
+          var c4 = document.createElement("td");
+          c4.textContent = (r.undeclared || []).join(", ") || "—";
+          if ((r.undeclared || []).length > 0) c4.style.color = "#f0a35e";
+          tr.append(c1, c2, c3, c4);
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        var wrap = document.createElement("div");
+        wrap.style.overflowX = "auto";
+        wrap.appendChild(table);
+        host.replaceChildren(wrap);
+      })
+      .catch(function () {});
   }
 
   function renderDeadletter() {
@@ -791,8 +885,9 @@ export function renderConsoleHtml() {
   <button type="button" class="fn-card" data-fn="targets-list">${tr(config.language, "card_targets")}</button>
   <button type="button" class="fn-card" data-fn="scheduled">${tr(config.language, "card_scheduled")}</button>
   <button type="button" class="fn-card" data-fn="deadletter">死信</button>
-<button type="button" class="fn-card" data-fn="audit">稽核紀錄</button>
-<button type="button" class="fn-card" data-fn="simulate">規則模擬</button>
+  <button type="button" class="fn-card" data-fn="audit">稽核紀錄</button>
+  <button type="button" class="fn-card" data-fn="traces">鏈路追蹤</button>
+  <button type="button" class="fn-card" data-fn="simulate">規則模擬</button>
 </div>
 <div class="side-section" data-im="line">${tr(config.language, "section_actions")}</div>
 <div class="fn-list" data-im="line">

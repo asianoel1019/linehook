@@ -90,6 +90,8 @@ import { writeDeadLetter } from "../deadletter.js";
 import { recordMetric, recordDuration, classifySkillError } from "../metrics.js";
 import { redactText } from "../redact.js";
 import { recordSkillRun } from "../skill-stats.js";
+import { runWithExecContext } from "../exec-context.js";
+import { startTrace, withTrace, finishTrace, traceEvent } from "../trace.js";
 import type { SkillConfig } from "../config.js";
 import type { SkillDefinition } from "../skills/types.js";
 import type { ForwardRule } from "../config.js";
@@ -449,9 +451,17 @@ export async function dispatchIncoming(msg: IncomingMessage, deps: DispatchDeps)
       return;
     }
     recordMetric("im_inbound_total", 1, { platform: deps.platform, dedup: "false" });
-    await runCommand(msg.text, msg.chat, msg.fromId, deps);
-    await runSkills(msg.text, msg.chat, msg.fromName, msg.fromId, deps, msg.images, msg.location);
-    await runForwardRules(msg.text, msg.chat, msg.fromName, msg.chatName, deps);
+    // P2 追蹤：一則收訊一條 trace，技能／轉發／失敗都掛在同一條上。
+    const traceId = startTrace(deps.platform, msg.chat, msg.fromId, msg.text);
+    await withTrace(traceId, async () => {
+      try {
+        await runCommand(msg.text, msg.chat, msg.fromId, deps);
+        await runSkills(msg.text, msg.chat, msg.fromName, msg.fromId, deps, msg.images, msg.location);
+        await runForwardRules(msg.text, msg.chat, msg.fromName, msg.chatName, deps);
+      } finally {
+        finishTrace();
+      }
+    });
   } catch (error) {
     logger.error("處理收到的訊息失敗", { error: String(error) });
   }
@@ -585,7 +595,9 @@ export async function dispatchSkillTask(job: ScheduledJob, deps: DispatchDeps): 
   logger.info("觸發技能任務", { skill: ref.skillId, task: ref.task, chat });
   const taskStartedAt = Date.now();
   try {
-    await def.onTask(taskCtx);
+    await runWithExecContext({ skillId: ref.skillId }, async () => {
+      await def.onTask?.(taskCtx);
+    });
     recordDuration("skill_duration_seconds", (Date.now() - taskStartedAt) / 1000, { skill: ref.skillId });
     recordLastRun(job.id, { at: Date.now(), ok: true });
     recordSkillRun(ref.skillId, true);
@@ -619,6 +631,7 @@ async function runMatchedSkill(
   recordMetric("skill_exec_total", 1, { skill: skill.id, result: "run" });
 
   logger.info("觸發技能", { skill: skill.id, mode: effectiveMode(skill, def), chat });
+  traceEvent("skill", { skill: skill.id, detail: `觸發（${effectiveMode(skill, def)}）` });
   const runStartedAt = Date.now();
   try {
     const skillId = skill.id;
@@ -674,15 +687,18 @@ async function runMatchedSkill(
         return job ? deps.readTaskState(job.id) : undefined;
       },
     };
-    await def.run(ctx);
+    // P2：技能執行帶 skill 維度的執行上下文（出站統計／trace 事件都靠它歸屬）。
+    await runWithExecContext({ skillId: skill.id }, () => def.run(ctx));
     recordDuration("skill_duration_seconds", (Date.now() - runStartedAt) / 1000, { skill: skill.id });
     recordSkillRun(skill.id, true);
+    traceEvent("skill", { skill: skill.id, ok: true, detail: `完成（${Date.now() - runStartedAt}ms）` });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     recordDuration("skill_duration_seconds", (Date.now() - runStartedAt) / 1000, { skill: skill.id });
     recordMetric("skill_errors_total", 1, { skill: skill.id, class: classifySkillError(message) });
     logger.error("技能執行失敗", { skill: skill.id, error: message });
     recordSkillRun(skill.id, false, message);
+    traceEvent("skill", { skill: skill.id, ok: false, detail: `失敗：${message}` });
     writeDeadLetter({
       platform: deps.platform,
       kind: `skill:${skill.id}`,
@@ -1023,8 +1039,10 @@ async function runForwardRules(
     try {
       await deps.enqueueText(rule.target, forwarded);
       logger.info("訊息已轉發（規則）", { from: chat, to: rule.target });
+      traceEvent("forward", { ok: true, detail: `轉發到 ${rule.target}` });
     } catch (error) {
       logger.error("轉發規則失敗", { to: rule.target, error: String(error) });
+      traceEvent("forward", { ok: false, detail: `轉發到 ${rule.target} 失敗：${String(error).slice(0, 120)}` });
     }
   }
 }

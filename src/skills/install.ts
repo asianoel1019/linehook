@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { hideSkill, isBuiltinSkill, reloadSkills, listSkills } from "./loader.js";
+import type { SkillPermissions } from "./types.js";
 
 const builtinDir = fileURLToPath(new URL(".", import.meta.url));
 
@@ -38,6 +39,8 @@ export interface InstalledSkill {
   version: string;
   description: string;
   dir: string;
+  /** P2：權限宣告（skill.json 的 permissions）。 */
+  permissions: SkillPermissions | null;
 }
 
 function skillsRoot(): string {
@@ -191,19 +194,50 @@ export function listInstalled(): InstalledSkill[] {
     let name2 = name;
     let version = "";
     let description = "";
+    let permissions: SkillPermissions | null = null;
     if (existsSync(manifestPath)) {
       try {
         const m = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
         name2 = resolveManifestText(m.name, name);
         version = String(m.version ?? "");
         description = resolveManifestText(m.description, "");
+        permissions = parsePermissions(m.permissions);
       } catch {
         // ignore
       }
     }
-    out.push({ id: name, name: name2, version, description, dir });
+    out.push({ id: name, name: name2, version, description, dir, permissions });
   }
   return out;
+}
+
+/** 解析 manifest 的權限宣告（permissions）；壞格式回 null（不安裝失敗，但會被標記）。 */
+export function parsePermissions(raw: unknown): SkillPermissions | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const out: SkillPermissions = {};
+  if (Array.isArray(r.network)) {
+    const list = r.network
+      .filter((d): d is string => typeof d === "string")
+      .map((d) => d.trim().toLowerCase())
+      .filter(Boolean);
+    if (list.length > 0) out.network = [...new Set(list)];
+  }
+  if (r.files === "none" || r.files === "temp" || r.files === "data") out.files = r.files;
+  if (r.readOtherSkills === true) out.readOtherSkills = true;
+  if (r.callOtherSkills === true) out.callOtherSkills = true;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/** 權限宣告的人話摘要（顯示用）。 */
+export function describePermissions(p?: SkillPermissions | null): string {
+  if (!p) return "未宣告";
+  const parts: string[] = [];
+  if (p.network && p.network.length > 0) parts.push(`連外：${p.network.join(", ")}`);
+  if (p.files && p.files !== "none") parts.push(`寫檔：${p.files === "data" ? "資料目錄" : "暫存目錄"}`);
+  if (p.readOtherSkills) parts.push("讀其他技能");
+  if (p.callOtherSkills) parts.push("呼叫其他技能");
+  return parts.length > 0 ? parts.join("；") : "未宣告";
 }
 
 /**
@@ -212,10 +246,18 @@ export function listInstalled(): InstalledSkill[] {
  *  - zip 根目錄即技能檔（index.js / skill.json）
  * 解壓到 data/skills/<id>/，並重新載入技能。
  * P3：覆蓋前先備份現有版本（同層 skill-backups/）；缺進入點等失敗時自動還原舊版。
+ * P2：解析並回傳權限宣告（安裝時顯示、稽核可追）。
  */
 export async function installZip(
   buffer: Buffer,
-): Promise<{ id: string; files: number; version: string; previousVersion: string; backedUp: boolean }> {
+): Promise<{
+  id: string;
+  files: number;
+  version: string;
+  previousVersion: string;
+  backedUp: boolean;
+  permissions: SkillPermissions | null;
+}> {
   const { unzipSync } = await loadFflate();
   let files: Record<string, Uint8Array>;
   try {
@@ -241,12 +283,19 @@ export async function installZip(
   // 讀 manifest 取 id
   let id = "";
   let version = "";
+  let permissions: SkillPermissions | null = null;
   const manifestKey = names.find((n) => n.endsWith("skill.json"));
   if (manifestKey) {
     try {
-      const m = JSON.parse(Buffer.from(files[manifestKey]).toString("utf8")) as { id?: string; api?: unknown; version?: unknown };
+      const m = JSON.parse(Buffer.from(files[manifestKey]).toString("utf8")) as {
+        id?: string;
+        api?: unknown;
+        version?: unknown;
+        permissions?: unknown;
+      };
       if (m.id) id = safeName(m.id);
       if (typeof m.version === "string") version = m.version;
+      permissions = parsePermissions(m.permissions);
       // 技能 API 版本：技能以 @lw/* 別名匯入宿主模組，主機版本較舊就明確拒絕，
       // 而不是裝了一個載入時才默默消失的技能。
       if (typeof m.api === "number" && m.api > SKILL_API_VERSION) {
@@ -312,7 +361,7 @@ export async function installZip(
       logger.warn("技能已解壓但載入失敗（請檢查 index.js）", { id });
     }
     logger.info("已安裝技能", { id, files: count });
-    return { id, files: count, version, previousVersion, backedUp };
+    return { id, files: count, version, previousVersion, backedUp, permissions };
   } finally {
     rmSync(stageDir, { recursive: true, force: true });
   }

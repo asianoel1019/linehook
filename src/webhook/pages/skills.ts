@@ -274,6 +274,16 @@ ${schedulesTabBody()}
           var upd = updatesById[s.id];
           var label = s.name + (s.version ? " v" + s.version : "") + "（" + s.id + "）";
           if (upd && upd.canUpgrade) label += " → v" + upd.latestVersion;
+          // P2：權限宣告直接顯示在名稱後（外部技能要做的事，一眼看得出）。
+          if (s.permissions) {
+            var perm = s.permissions;
+            var permText = [];
+            if (perm.network && perm.network.length > 0) permText.push("連外 " + perm.network.join(","));
+            if (perm.files && perm.files !== "none") permText.push("寫檔 " + (perm.files === "data" ? "資料" : "暫存"));
+            if (perm.readOtherSkills) permText.push("讀其他技能");
+            if (perm.callOtherSkills) permText.push("呼叫其他技能");
+            if (permText.length > 0) label += "（" + permText.join("；") + "）";
+          }
           var row = manageRow(
             label,
             upd && upd.canUpgrade ? T("badge_update") : T("lbl_external"),

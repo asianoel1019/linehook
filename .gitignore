@@ -14,3 +14,6 @@ scripts/*
 # 例外：CI 的 secret scanning 放在 .github/scripts/（專案根的 scripts/ 仍忽略）
 !.github/scripts/
 *.log
+# P2 追蹤檔（執行期資料，落在 settings.json 同層）
+traces.jsonl
+traces.jsonl.*

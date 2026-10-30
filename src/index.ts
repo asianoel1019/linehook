@@ -9,6 +9,7 @@ import { initMessages } from "./messages.js";
 import { initStats } from "./stats.js";
 import { initTokenStats } from "./token-stats.js";
 import { loadSkills } from "./skills/index.js";
+import { startHotReload, stopHotReload } from "./skills/hot-reload.js";
 import { sweepCache } from "./skills/cache.js";
 import { pruneMessages } from "./messages.js";
 import { pruneUploads } from "./uploads.js";
@@ -80,6 +81,8 @@ async function main(): Promise<void> {
     );
   }
   await loadSkills();
+  // P2：技能熱重載（改技能不必重啟服務）。
+  startHotReload();
   sweepCache();
   setInterval(() => sweepCache(), 24 * 60 * 60 * 1000).unref?.();
   // I1/I2：依保留政策修剪訊息與上傳檔。
@@ -211,6 +214,7 @@ async function main(): Promise<void> {
     logger.info("收到關閉訊號，正在關閉", { signal });
 
     monitor.stop();
+    stopHotReload();
     line.stopListening();
     line.stopQueue();
     telegram?.stopQueue();

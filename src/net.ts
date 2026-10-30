@@ -3,6 +3,7 @@
 import { lookup } from "node:dns/promises";
 import { config } from "./config.js";
 import { recordMetric } from "./metrics.js";
+import { currentExecContext } from "./exec-context.js";
 
 export class FetchLimitError extends Error {
   constructor(message: string) {
@@ -205,6 +206,9 @@ export interface OutboundStat {
 
 const outbound = new Map<string, { calls: number; fails: number; consecFails: number; lastOkAt: number | null; lastFailAt: number | null }>();
 
+/** 出站呼叫的技能歸屬（host → 技能集合；P2 網域報告用）。 */
+const outboundSkills = new Map<string, Set<string>>();
+
 function hostOf(url: string): string {
   try {
     return new URL(url).hostname || "invalid";
@@ -227,7 +231,29 @@ export function recordOutbound(url: string, ok: boolean): void {
     s.lastFailAt = Date.now();
   }
   outbound.set(host, s);
-  recordMetric("outbound_calls_total", 1, { host, result: ok ? "ok" : "fail" });
+  // P2：技能維度（AsyncLocalStorage 帶出目前技能；沒有就記 "core"＝平台自身呼叫）。
+  const skill = currentExecContext().skillId ?? "core";
+  const set = outboundSkills.get(host) ?? new Set<string>();
+  set.add(skill);
+  outboundSkills.set(host, set);
+  recordMetric("outbound_calls_total", 1, { host, result: ok ? "ok" : "fail", skill });
+}
+
+/** 某 host 被哪些技能連過（依呼叫次數排序的技能清單）。 */
+export function getOutboundSkills(host: string): string[] {
+  return [...(outboundSkills.get(host) ?? [])].sort();
+}
+
+/** 技能 → 連過的網域（P2 網域報告：宣告 vs 實際）。 */
+export function getSkillDomains(): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [host, skills] of outboundSkills) {
+    for (const skill of skills) {
+      (out[skill] ??= []).push(host);
+    }
+  }
+  for (const list of Object.values(out)) list.sort();
+  return out;
 }
 
 /** 各 host 呼叫統計（依 calls 倒序；給 /metrics 與未來健康頁用）。 */
@@ -240,6 +266,7 @@ export function getOutboundStats(): OutboundStat[] {
 /** 測試用：清空統計。 */
 export function resetOutboundStats(): void {
   outbound.clear();
+  outboundSkills.clear();
 }
 
 /**

@@ -10,8 +10,10 @@ import { currentSettings, saveSettings } from "../settings.js";
 import { getStats } from "../stats.js";
 import { getTokenUsage } from "../token-stats.js";
 import { listSkills, isBuiltinSkill, getSkill, restoreSkill, readHiddenSkills, reloadSkills } from "../skills/index.js";
-import { installZip, listInstalled, uninstallSkill, compareVersions, hasSkillBackup, rollbackSkill, safeName, SKILL_API_VERSION } from "../skills/install.js";
+import { installZip, listInstalled, uninstallSkill, compareVersions, hasSkillBackup, rollbackSkill, safeName, SKILL_API_VERSION, describePermissions } from "../skills/install.js";
 import { readLibraryIndex, readLibraryZip } from "../skills/library.js";
+import { getSkillDomains, getOutboundSkills, getOutboundStats } from "../net.js";
+import { readTraces } from "../trace.js";
 import { validateSkillConfig } from "../skills/validate.js";
 import { readBackupBundle, restoreBackupBundle } from "../backup.js";
 import { audit } from "../audit.js";
@@ -587,6 +589,41 @@ export function createServer(line: IMessagingService): express.Express {
     res.set("Cache-Control", "no-store");
     res.json(await runCheckup());
   });
+  // P2 網域報告：每支技能實際連過哪些網域 vs 宣告了哪些（切強制白名單前的依據）。
+  app.get("/skills/domains.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    const used = getSkillDomains();
+    const declared: Record<string, string[]> = {};
+    for (const s of listInstalled()) {
+      const p = s.permissions?.network;
+      if (p && p.length > 0) declared[s.id] = p;
+    }
+    const rows = Object.keys({ ...used, ...declared })
+      .map((id) => {
+        const actual = used[id] ?? [];
+        const decl = declared[id] ?? [];
+        const undeclared = actual.filter((d) => !decl.includes(d) && d !== "core");
+        return {
+          id,
+          declared: decl,
+          actual,
+          undeclared,
+          ok: undeclared.length === 0,
+        };
+      })
+      .sort((a, b) => b.actual.length - a.actual.length);
+    res.json({
+      skills: rows,
+      hosts: getOutboundStats().map((s) => ({ ...s, skills: getOutboundSkills(s.host) })),
+      enforce: config.outboundEnforce,
+    });
+  });
+  // P2 追蹤：最近 N 則收訊的完整鏈路（收到 → 技能 → 轉發 → 失敗）。
+  app.get("/traces.json", statusAccess, requireSessionOrApi("read"), (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const limit = Number(req.query.limit ?? 50);
+    res.json({ traces: readTraces(Number.isFinite(limit) ? limit : 50) });
+  });
   app.get("/dashboard", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
     res.type("html").send(renderDashboardHtml());
   });
@@ -1093,7 +1130,11 @@ export function createServer(line: IMessagingService): express.Express {
       }
       try {
         const result = await installZip(data);
-        audit(req, "skills.install", (result as { id?: string }).id ?? "");
+        audit(
+          req,
+          "skills.install",
+          `${result.id}${result.permissions ? `｜權限：${describePermissions(result.permissions)}` : "｜未宣告權限"}`,
+        );
         res.json({ ok: true, ...result });
       } catch (error) {
         res.status(400).json({
