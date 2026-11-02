@@ -27,13 +27,34 @@ export interface HookConfig {
   disabled?: boolean;
   /** per-hook 簽章金鑰（hex 或文字；設定了才要求簽章）。 */
   secret?: string;
-  /** 最近投遞狀態（成功/失敗/時間/錯誤），給狀態查詢用。 */
+  /** 重放保護：預設開（要 X-Hook-Timestamp＋X-Hook-Nonce；關掉則只簽 body）。 */
+  replay?: boolean;
+  /** 非同步投遞：立刻回 202，背景投遞（狀態可查）。 */
+  async?: boolean;
+  /** per-hook 速率上限（每分鐘幾次；0＝不限）。 */
+  ratePerMin?: number;
+  /** 最近投遞紀錄（含非同步的 pending 狀態）。 */
+  deliveries?: DeliveryRecord[];
+  /** 最近投遞狀態（相容舊欄位）。 */
   lastDelivery?: {
     at: number;
     ok: boolean;
     error?: string;
     target?: string;
   };
+}
+
+/** 一筆投遞紀錄（同步／非同步都會留）。 */
+export interface DeliveryRecord {
+  id: string;
+  at: number;
+  status: "pending" | "delivered" | "failed" | "skipped" | "scheduled";
+  ok: boolean;
+  platform: string;
+  target: string;
+  error?: string;
+  /** 非同步完成後更新。 */
+  finishedAt?: number;
 }
 
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -61,6 +82,11 @@ function normalizeHook(raw: unknown): HookConfig | null {
   if (!to) return null;
   const list = (v: unknown): string[] | undefined =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean) : undefined;
+  const deliveries = Array.isArray(r.deliveries)
+    ? (r.deliveries as unknown[])
+        .filter((d): d is DeliveryRecord => Boolean(d) && typeof d === "object" && typeof (d as DeliveryRecord).id === "string")
+        .slice(-20)
+    : undefined;
   const last = r.lastDelivery as HookConfig["lastDelivery"];
   return {
     name,
@@ -72,6 +98,10 @@ function normalizeHook(raw: unknown): HookConfig | null {
     ...(list(r.exclude) ? { exclude: list(r.exclude) } : {}),
     ...(r.disabled === true ? { disabled: true } : {}),
     ...(typeof r.secret === "string" && r.secret ? { secret: r.secret } : {}),
+    ...(r.replay === false ? { replay: false } : {}),
+    ...(r.async === true ? { async: true } : {}),
+    ...(typeof r.ratePerMin === "number" && r.ratePerMin >= 0 ? { ratePerMin: Math.floor(r.ratePerMin) } : {}),
+    ...(deliveries ? { deliveries } : {}),
     ...(last && typeof last.at === "number" ? { lastDelivery: last } : {}),
   };
 }
@@ -155,6 +185,88 @@ export function recordHookDelivery(name: string, result: { ok: boolean; error?: 
   };
   save(hooks);
 }
+
+/* ── 投遞紀錄（非同步投遞的 pending／完成狀態） ── */
+
+const MAX_DELIVERIES = 20;
+
+/** 記一筆投遞紀錄；回傳紀錄 id。 */
+export function addDeliveryRecord(name: string, record: Omit<DeliveryRecord, "id">): string {
+  const key = (name || "").trim().toLowerCase();
+  const id = `d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const hooks = load();
+  const hook = hooks.find((h) => h.name === key);
+  if (!hook) return id;
+  hook.deliveries = [...(hook.deliveries ?? []), { ...record, id }].slice(-MAX_DELIVERIES);
+  save(hooks);
+  return id;
+}
+
+/** 更新一筆投遞紀錄（非同步完成時用）。 */
+export function updateDeliveryRecord(name: string, id: string, patch: Partial<DeliveryRecord>): void {
+  const key = (name || "").trim().toLowerCase();
+  const hooks = load();
+  const hook = hooks.find((h) => h.name === key);
+  if (!hook?.deliveries) return;
+  hook.deliveries = hook.deliveries.map((d) => (d.id === id ? { ...d, ...patch } : d));
+  save(hooks);
+}
+
+/** 某 hook 的投遞紀錄（新到舊）。 */
+export function getDeliveryRecords(name: string): DeliveryRecord[] {
+  const key = (name || "").trim().toLowerCase();
+  return [...(getHook(key)?.deliveries ?? [])].reverse();
+}
+
+/* ── per-hook 速率限制（滑動視窗，每分鐘 N 次；0＝不限） ── */
+
+const rateWindows = new Map<string, number[]>();
+
+/** 回傳是否允許投遞（超過上限回 false）。 */
+export function allowHookDelivery(name: string, perMin: number): boolean {
+  if (!perMin || perMin <= 0) return true;
+  const key = (name || "").trim().toLowerCase();
+  const now = Date.now();
+  const hits = (rateWindows.get(key) ?? []).filter((t) => now - t < 60_000);
+  if (hits.length >= perMin) {
+    rateWindows.set(key, hits);
+    return false;
+  }
+  hits.push(now);
+  rateWindows.set(key, hits);
+  return true;
+}
+
+/** 測試用：清掉限流視窗。 */
+export function resetHookRateWindows(): void {
+  rateWindows.clear();
+}
+
+/* ── per-hook 重放保護（nonce 不得重複） ── */
+
+const seenHookNonces = new Map<string, number>();
+const MAX_NONCES = 5000;
+
+/** nonce 是否用過（用過回 true＝重放）。 */
+export function isHookNonceSeen(nonce: string): boolean {
+  return seenHookNonces.has(nonce);
+}
+
+/** 記住 nonce（簽章通過後才呼叫，避免被無效簽章燒掉合法 nonce）。 */
+export function rememberHookNonce(nonce: string): void {
+  seenHookNonces.set(nonce, Date.now());
+  if (seenHookNonces.size > MAX_NONCES) {
+    const oldest = seenHookNonces.keys().next();
+    if (!oldest.done) seenHookNonces.delete(oldest.value);
+  }
+}
+
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60_000;
+  for (const [nonce, time] of seenHookNonces) {
+    if (time < cutoff) seenHookNonces.delete(nonce);
+  }
+}, 60_000).unref();
 
 /* ── 範本渲染：{{a.b.c}}、{{a.b | upper}}、{{a.b | truncate:20}} ── */
 

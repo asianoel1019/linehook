@@ -44,6 +44,9 @@ curl -X POST https://linehook.example.com/hooks \
 | `template` | 訊息範本（見第 3 節）；不填則直接送 payload 的 `text` |
 | `include` / `exclude` | 降噪關鍵字（見第 4 節） |
 | `secret` | 這個 hook 專屬的簽章金鑰（強烈建議設定） |
+| `replay` | 預設 `true`＝要 timestamp＋nonce（重放保護）；`false`＝只簽 body（不建議） |
+| `async` | `true`＝立刻回 202、背景投遞（狀態可查） |
+| `ratePerMin` | per-hook 速率上限（每分鐘幾次；預設 30，0＝不限） |
 | `disabled` | `true` = 保留設定但暫停投遞 |
 
 回應會把 `secret` 遮成 `****`（金鑰只在建立時看得到，之後也拿不回來——重設就重新建立）。
@@ -68,23 +71,46 @@ curl -X POST https://linehook.example.com/hook/ci-failed \
 
 ## 2. 簽章（每個 hook 自己的金鑰）
 
-`X-Hook-Signature` = `hex(HMAC-SHA256(原始請求 body, hook 的 secret))`。
+三個標頭：
+
+| 標頭 | 內容 |
+|---|---|
+| `X-Hook-Timestamp` | Unix 時間戳（**秒或毫秒皆可**，與本專案其他端點的 `X-Timestamp` 不同） |
+| `X-Hook-Nonce` | 每次請求唯一（UUID、隨機字串…）；**不可重用** |
+| `X-Hook-Signature` | `hex(HMAC-SHA256("{timestamp}.{nonce}.{原始 body}", secret))` |
 
 ```bash
 BODY='{"repo":"proj/api","pr":4213}'
-SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac '你的 secret' -hex | awk '{print $2}')
+TS=$(date +%s)
+NONCE=$(uuidgen)
+SIG=$(printf '%s' "$TS.$NONCE.$BODY" | openssl dgst -sha256 -hmac '你的 secret' -hex | awk '{print $2}')
+
+curl -X POST https://linehook.example.com/hook/ci-failed \
+  -H "Content-Type: application/json" \
+  -H "X-Hook-Timestamp: $TS" \
+  -H "X-Hook-Nonce: $NONCE" \
+  -H "X-Hook-Signature: $SIG" \
+  -d "$BODY"
 ```
 
 Node.js：
 
 ```js
 import crypto from "node:crypto";
-const sig = crypto.createHmac("sha256", SECRET).update(rawBody).digest("hex");
+const ts = String(Math.floor(Date.now() / 1000));
+const nonce = crypto.randomUUID();
+const sig = crypto.createHmac("sha256", SECRET).update(`${ts}.${nonce}.${rawBody}`).digest("hex");
 ```
 
-- **原始 body**：簽的是送出時的位元組流，不要先 JSON.parse 再重新序列化（空白與 key 順序會變，簽就不過了）。
-- **hex 小寫**（與 `safeEqual` 比對一致）。
-- 沒設定 `secret` 的 hook 會走**全域** webhook 驗證（`HMAC_SECRET` / `X-Webhook-Token` / API Token），建議不要混用。
+**三個規則**：
+
+1. **簽的是原始 body 位元組**：不要先 `JSON.parse` 再重新序列化（空白與 key 順序會變，簽就不過）。
+2. **hex 小寫**。
+3. **nonce 不可重用**：同一個 nonce 再送一次會被視為重放（403）。重試請換新的 nonce 並重新簽名（冪等鍵保持不變）。
+
+> 時間戳容許誤差為 `HMAC_MAX_SKEW_SEC`（預設 300 秒）。想用舊的簡單簽章（只簽 body、不要 timestamp/nonce），在 hook 設定裡加 `"replay": false`——但這樣就沒有重放保護，不建議。
+
+沒設定 `secret` 的 hook 會走**全域** webhook 驗證（`HMAC_SECRET` / `X-Webhook-Token` / API Token），建議不要混用。
 
 ---
 
@@ -129,6 +155,56 @@ CI 完成：{{repo}}（{{duration | truncate:20}}）
 
 去重視窗長度由 `IDEMPOTENCY_WINDOW_MS` 決定（預設 10 分鐘）。
 
+**重試時要換新的 nonce 並重新簽名**（冪等鍵保持不變）——沿用同一個 nonce 會被重放保護擋下（403），那是刻意的。
+
+---
+
+## 5.1 排程（延後投遞）
+
+body 帶 `runAt`（ISO 字串／epoch／`YYYY-MM-DD HH:mm`）或 `sendAt`、`delaySec`：
+
+```json
+{ "repo": "proj/api", "what": "取貨", "runAt": "2026-11-03T18:30:00+08:00" }
+```
+
+會交給平台的排程器（**落盤**，重啟不丟），回應：
+
+```json
+{ "ok": true, "hook": "ci-failed", "scheduled": true, "id": "job-…", "runAt": "…", "repeat": null }
+```
+
+也可以帶 `repeat`（cron）做週期性推播。
+
+---
+
+## 5.2 非同步投遞與狀態查詢
+
+hook 設定 `"async": true` 時，閘道**立刻回 202**、背景投遞（呼叫端不用等 IM API）：
+
+```json
+{ "ok": true, "hook": "ci-failed", "accepted": true, "deliveryId": "d-…", "platform": "line", "to": "工作群" }
+```
+
+查投遞結果：
+
+```bash
+curl https://linehook.example.com/hooks/ci-failed/deliveries -H 'Authorization: Bearer <token>'
+```
+
+```json
+{ "hook": "ci-failed",
+  "deliveries": [ { "id": "d-…", "at": 1762000000000, "status": "delivered", "ok": true,
+                    "platform": "line", "target": "工作群", "finishedAt": 1762000000500 } ] }
+```
+
+`status` 有 `pending`（背景投遞中）／`delivered`／`failed`／`skipped`（被降噪規則跳過）／`scheduled`（已排程）。每個 hook 保留最近 20 筆。
+
+---
+
+## 5.3 per-hook 速率限制
+
+預設每分鐘 30 次（`ratePerMin` 可調，0＝不限）。超過會回 **429**，訊息為「此 hook 超過速率上限（30 次／分鐘）」——壞掉的專案不會炸掉你的對話。
+
 ---
 
 ## 6. 管理 API
@@ -138,6 +214,7 @@ CI 完成：{{repo}}（{{duration | truncate:20}}）
 | `GET` | `/hooks.json` | read | 列出 hooks（金鑰遮蔽，含最近投遞狀態） |
 | `POST` | `/hooks` | admin | 新增或更新（同名覆蓋） |
 | `DELETE` | `/hooks/:name` | admin | 刪除 |
+| `GET` | `/hooks/:name/deliveries` | read | 該 hook 的投遞紀錄（含非同步 pending 狀態） |
 
 ---
 
@@ -206,8 +283,6 @@ curl -X POST https://linehook.example.com/webhook \
 
 ## 11. 延伸（規劃中）
 
-- 非同步投遞（202 立刻回＋狀態查詢端點）
-- per-hook 速率限制與熔斷
-- per-hook 時間戳＋nonce 的重放保護
-- 連續投遞失敗自動告警
 - Webhook 介面（hook 觸發技能，例如「收到某事件就查天氣並推播」）
+- 連續投遞失敗自動告警（目前只記死信與稽核）
+- 投遞失敗的自動重試（目前靠呼叫端重試或手動重送死信）

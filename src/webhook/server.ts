@@ -3,12 +3,18 @@ import { basename, resolve } from "node:path";
 import { safeEqual } from "../safe-equal.js";
 import crypto from "node:crypto";
 import {
+  addDeliveryRecord,
+  allowHookDelivery,
   deleteHook,
+  getDeliveryRecords,
   getHook,
+  isHookNonceSeen,
   listHooks,
   matchesHookFilters,
   recordHookDelivery,
+  rememberHookNonce,
   renderTemplate as renderHookTemplate,
+  updateDeliveryRecord,
   upsertHook,
   type HookConfig,
 } from "../hooks.js";
@@ -1734,6 +1740,17 @@ export function createServer(line: IMessagingService): express.Express {
       });
     }
   });
+/**
+ * 解析 hook 的時間戳（epoch 秒或毫秒皆可，回毫秒；無法解析回 null）。
+ * 兩種單位都收：呼叫端常見是秒（Unix time），但本專案其他地方的 X-Timestamp 用毫秒。
+ */
+function parseHookTimestampMs(value: string): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  // 小於 1e11 一定是秒（毫秒時間戳約 1.7e12）。
+  return n < 1e11 ? n * 1000 : n;
+}
+
   // P2 跨專案通知閘道：POST /hook/:name —— 外部專案事件 → 依 hook 設定路由/渲染/投遞。
   app.post(
     "/hook/:name",
@@ -1751,16 +1768,51 @@ export function createServer(line: IMessagingService): express.Express {
         return;
       }
       // per-hook 簽章（設定了金鑰就必須簽；沒設定則走全域 webhook 驗證）。
+      // 重放保護（預設開）：要 X-Hook-Timestamp＋X-Hook-Nonce，簽章含兩者。
       if (hook.secret) {
         const raw = (req as RawBodyRequest).rawBody ?? Buffer.from("");
         const provided = String(req.header("x-hook-signature") ?? "");
-        const expected = crypto.createHmac("sha256", hook.secret).update(raw).digest("hex");
+        const replayOn = hook.replay !== false;
+        const timestamp = String(req.header("x-hook-timestamp") ?? "");
+        const nonce = String(req.header("x-hook-nonce") ?? "");
+        let expected: string;
+        if (replayOn) {
+          const parsed = parseHookTimestampMs(timestamp);
+          if (parsed === null) {
+            res.status(403).json({ ok: false, error: "缺少或無效的 X-Hook-Timestamp" });
+            return;
+          }
+          const skewSec = Math.abs(Date.now() - parsed) / 1000;
+          if (skewSec > config.hmacMaxSkewSec) {
+            res.status(403).json({ ok: false, error: "時間戳記無效或已過期" });
+            return;
+          }
+          if (!nonce) {
+            res.status(403).json({ ok: false, error: "缺少 X-Hook-Nonce" });
+            return;
+          }
+          if (isHookNonceSeen(nonce)) {
+            logger.warn("hook 重放：nonce 重複", { hook: name, ip: req.ip });
+            recordMetric("hook_auth_failures_total", 1, { hook: name, reason: "replay" });
+            res.status(403).json({ ok: false, error: "重放的請求（nonce 重複）" });
+            return;
+          }
+          expected = crypto
+            .createHmac("sha256", hook.secret)
+            .update(`${timestamp}.${nonce}.`)
+            .update(raw)
+            .digest("hex");
+        } else {
+          expected = crypto.createHmac("sha256", hook.secret).update(raw).digest("hex");
+        }
         if (!provided || !safeEqual(provided, expected)) {
           logger.warn("hook 簽章驗證失敗", { hook: name, ip: req.ip });
-          recordMetric("hook_auth_failures_total", 1, { hook: name });
+          recordMetric("hook_auth_failures_total", 1, { hook: name, reason: "signature" });
           res.status(403).json({ ok: false, error: "簽章驗證失敗" });
           return;
         }
+        // 簽章通過才記 nonce（避免無效簽章燒掉合法 nonce）。
+        if (replayOn && nonce) rememberHookNonce(nonce);
       } else {
         verifyWebhookAuth(req, res, () => {
           // 驗證通過才往下（此處不再回應，交給後續流程）
@@ -1778,6 +1830,15 @@ export function createServer(line: IMessagingService): express.Express {
         (typeof payload.event_id === "string" ? payload.event_id.trim() : "");
       if (idemKey && !reserveIdempotency(`hook:${name}:${idemKey}`)) {
         res.json({ ok: true, duplicate: true, hook: name });
+        return;
+      }
+      // per-hook 速率限制（壞掉的專案不該炸掉你的對話）。
+      const ratePerMin = hook.ratePerMin ?? 30;
+      if (!allowHookDelivery(name, ratePerMin)) {
+        logger.warn("hook 超過速率上限", { hook: name, ratePerMin, ip: req.ip });
+        recordMetric("hook_rate_limited_total", 1, { hook: name });
+        audit(req, "hook.ratelimited", `${name}（上限 ${ratePerMin}/分）`);
+        res.status(429).json({ ok: false, error: `此 hook 超過速率上限（${ratePerMin} 次／分鐘）` });
         return;
       }
       // 降噪條件
@@ -1807,15 +1868,95 @@ export function createServer(line: IMessagingService): express.Express {
       if (typeof body.image === "string") input.image = body.image;
       if (typeof body.file === "string") input.file = body.file;
       if (typeof body.filename === "string") input.filename = body.filename;
+
+      // 排程：body 帶 runAt／sendAt（未來時間）→ 交給平台的 scheduler（會落盤、重啟不丟）。
+      const runAtRaw = body.runAt ?? body.sendAt;
+      if (runAtRaw !== undefined && runAtRaw !== null && runAtRaw !== "") {
+        const resolved = resolveRunAt({ sendAt: runAtRaw });
+        if (resolved.error || resolved.runAt === undefined) {
+          res.status(400).json({ ok: false, error: resolved.error ?? "runAt 無效" });
+          return;
+        }
+        let repeat: string | undefined;
+        if (body.repeat !== undefined) {
+          const repeatChecked = validateRepeat(body.repeat);
+          if ("error" in repeatChecked) {
+            res.status(400).json({ ok: false, error: repeatChecked.error });
+            return;
+          }
+          repeat = repeatChecked.repeat || undefined;
+        }
+        try {
+          const job = svc.schedule([input], resolved.runAt, repeat);
+          addDeliveryRecord(name, {
+            at: Date.now(),
+            status: "scheduled",
+            ok: true,
+            platform: hook.platform,
+            target: hook.to,
+          });
+          audit(req, "hook.scheduled", `${name} → ${hook.platform}/${hook.to} @ ${job.runAt}`);
+          recordMetric("hook_deliveries_total", 1, { hook: name, platform: hook.platform, result: "scheduled" });
+          res.json({ ok: true, hook: name, scheduled: true, id: job.id, runAt: job.runAt, repeat: job.repeat });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          res.status(400).json({ ok: false, error: message });
+        }
+        return;
+      }
+
+      // 非同步：立刻回 202，背景投遞（狀態可查 GET /hooks/:name/deliveries）。
+      if (hook.async === true) {
+        const deliveryId = addDeliveryRecord(name, {
+          at: Date.now(),
+          status: "pending",
+          ok: false,
+          platform: hook.platform,
+          target: hook.to,
+        });
+        void (async () => {
+          try {
+            await svc.sendAdvanced([input]);
+            updateDeliveryRecord(name, deliveryId, { status: "delivered", ok: true, finishedAt: Date.now() });
+            recordHookDelivery(name, { ok: true, target: hook.to });
+            recordMetric("hook_deliveries_total", 1, { hook: name, platform: hook.platform, result: "ok" });
+            logger.info("hook 投遞完成（非同步）", { hook: name, platform: hook.platform });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            updateDeliveryRecord(name, deliveryId, { status: "failed", ok: false, error: message, finishedAt: Date.now() });
+            recordHookDelivery(name, { ok: false, error: message, target: hook.to });
+            recordMetric("hook_deliveries_total", 1, { hook: name, platform: hook.platform, result: "fail" });
+            logger.error("hook 投遞失敗（非同步）", { hook: name, error: message });
+          }
+        })();
+        res.status(202).json({ ok: true, hook: name, accepted: true, deliveryId, platform: hook.platform, to: hook.to });
+        return;
+      }
+
       try {
         await svc.sendAdvanced([input]);
         recordHookDelivery(name, { ok: true, target: hook.to });
+        addDeliveryRecord(name, {
+          at: Date.now(),
+          status: "delivered",
+          ok: true,
+          platform: hook.platform,
+          target: hook.to,
+        });
         audit(req, "hook.deliver", `${name} → ${hook.platform}/${hook.to}`);
         recordMetric("hook_deliveries_total", 1, { hook: name, platform: hook.platform, result: "ok" });
         res.json({ ok: true, hook: name, delivered: true, platform: hook.platform, to: hook.to });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         recordHookDelivery(name, { ok: false, error: message, target: hook.to });
+        addDeliveryRecord(name, {
+          at: Date.now(),
+          status: "failed",
+          ok: false,
+          error: message,
+          platform: hook.platform,
+          target: hook.to,
+        });
         audit(req, "hook.failed", `${name}：${message}`);
         recordMetric("hook_deliveries_total", 1, { hook: name, platform: hook.platform, result: "fail" });
         res.status(502).json({ ok: false, error: message });
@@ -1828,6 +1969,16 @@ export function createServer(line: IMessagingService): express.Express {
     res.json({
       hooks: listHooks().map((h) => ({ ...h, secret: h.secret ? "****" : undefined })),
     });
+  });
+  // 某 hook 的投遞紀錄（含非同步的 pending／完成狀態）。
+  app.get("/hooks/:name/deliveries", statusAccess, requireSessionOrApi("read"), (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const name = String(req.params.name ?? "").trim().toLowerCase();
+    if (!getHook(name)) {
+      res.status(404).json({ ok: false, error: "找不到 hook" });
+      return;
+    }
+    res.json({ hook: name, deliveries: getDeliveryRecords(name) });
   });
   app.post("/hooks", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
     const body = asRecord(req.body) ?? {};
