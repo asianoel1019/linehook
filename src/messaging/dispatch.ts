@@ -474,7 +474,14 @@ async function resolveVoiceText(msg: IncomingMessage, deps: DispatchDeps): Promi
     logger.warn("語音轉文字失敗", { error: message, platform: deps.platform });
     traceEvent("voice", { ok: false, detail: `語音轉文字失敗：${message}` });
     if (!text) {
-      await deps.replyTo(msg.chat, "語音轉文字失敗（尚未設定 STT），請改用文字訊息。");
+      // 沒啟用 STT 是一種情況、其他（憑證錯／逾時／聽不懂）是另一種，訊息要能區分。
+      const notEnabled = /尚未啟用|未設定 API key/.test(message);
+      await deps.replyTo(
+        msg.chat,
+        notEnabled
+          ? "語音轉文字尚未啟用，請改用文字訊息。"
+          : "語音轉文字失敗，請改用文字訊息（稍後可再試一次）。",
+      );
     }
     return text;
   }
