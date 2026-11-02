@@ -8,9 +8,11 @@ import {
   deleteHook,
   getDeliveryRecords,
   getHook,
+  HOOK_ALERT_THRESHOLD,
   isHookNonceSeen,
   listHooks,
   matchesHookFilters,
+  noteHookOutcome,
   recordHookDelivery,
   rememberHookNonce,
   renderTemplate as renderHookTemplate,
@@ -18,6 +20,7 @@ import {
   upsertHook,
   type HookConfig,
 } from "../hooks.js";
+import { runHookSkill } from "../messaging/hook-skill.js";
 import express, { type ErrorRequestHandler, type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
 import { config } from "../config.js";
@@ -1741,6 +1744,58 @@ export function createServer(line: IMessagingService): express.Express {
     }
   });
 /**
+ * P3 hook 投遞（含重試與連續失敗告警）。
+ * 重試：指數退避（1s、2s、4s…），最多 hook.retries 次（預設 2）。
+ * 連續失敗達門檻 → 走既有的多通道告警（notify/alert.ts）通知管理者（沒有告警通道就只寫 log）。
+ */
+async function deliverWithRetry(
+  name: string,
+  hook: HookConfig,
+  run: () => Promise<void>,
+  opts: { retries: number },
+): Promise<{ ok: boolean; error?: string }> {
+  const maxAttempts = Math.max(1, opts.retries + 1);
+  let lastError = "";
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await run();
+      noteHookOutcome(name, true);
+      return { ok: true };
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      if (attempt < maxAttempts) {
+        const waitMs = Math.min(8000, 1000 * 2 ** (attempt - 1));
+        logger.warn("hook 投遞失敗，重試中", { hook: name, attempt, waitMs, error: lastError });
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
+    }
+  }
+  const fails = noteHookOutcome(name, false);
+  if (fails >= HOOK_ALERT_THRESHOLD) {
+    void alertHookFailures(name, fails, lastError);
+  }
+  return { ok: false, error: lastError };
+}
+
+/** 連續投遞失敗告警（多通道；沒有通道時 alert.ts 會自己只寫 log）。 */
+async function alertHookFailures(name: string, fails: number, error: string): Promise<void> {
+  try {
+    const { sendAlert } = await import("../notify/alert.js");
+    await sendAlert(
+      `[ImHook] hook 連續投遞失敗`,
+      `hook「${name}」已連續失敗 ${fails} 次。\n最後錯誤：${error.slice(0, 300)}\n請檢查目標對話／平台狀態。`,
+    );
+    logger.error("hook 連續失敗告警已送出", { hook: name, fails });
+  } catch (alertError) {
+    logger.error("hook 連續失敗告警失敗", {
+      hook: name,
+      fails,
+      error: alertError instanceof Error ? alertError.message : String(alertError),
+    });
+  }
+}
+
+/**
  * 解析 hook 的時間戳（epoch 秒或毫秒皆可，回毫秒；無法解析回 null）。
  * 兩種單位都收：呼叫端常見是秒（Unix time），但本專案其他地方的 X-Timestamp 用毫秒。
  */
@@ -1855,10 +1910,6 @@ function parseHookTimestampMs(value: string): number | null {
         : typeof body.text === "string"
           ? body.text
           : "";
-      if (!text.trim()) {
-        res.status(400).json({ ok: false, error: "渲染後內容為空（檢查範本或 body.text）" });
-        return;
-      }
       const svc = getService(hook.platform as Platform);
       if (!svc) {
         res.status(503).json({ ok: false, error: `平台未啟用：${hook.platform}` });
@@ -1868,6 +1919,29 @@ function parseHookTimestampMs(value: string): number | null {
       if (typeof body.image === "string") input.image = body.image;
       if (typeof body.file === "string") input.file = body.file;
       if (typeof body.filename === "string") input.filename = body.filename;
+
+      // P3：hook 可指名跑一支技能（外部事件 → 技能 → 用技能輸出推播）。
+      if (hook.skill) {
+        const args = hook.skillArgs ? renderHookTemplate(hook.skillArgs, payload) : "";
+        const run = async (): Promise<void> => {
+          const result = await runHookSkill({ skillId: hook.skill as string, args, chat: hook.to, platform: hook.platform as Platform });
+          if (!result.ok) throw new Error(result.error ?? "技能執行失敗");
+        };
+        // 重試（指數退避）；技能失敗也重試（外部服務偶發失敗常見）。
+        const outcome = await deliverWithRetry(name, hook, run, { retries: hook.retries ?? 2 });
+        if (outcome.ok) {
+          audit(req, "hook.skill", `${name} → 技能 ${hook.skill}`);
+          res.json({ ok: true, hook: name, skill: hook.skill, delivered: true, platform: hook.platform, to: hook.to });
+        } else {
+          audit(req, "hook.failed", `${name}：${outcome.error ?? "失敗"}`);
+          res.status(502).json({ ok: false, error: outcome.error ?? "技能執行失敗" });
+        }
+        return;
+      }
+      if (!text.trim()) {
+        res.status(400).json({ ok: false, error: "渲染後內容為空（檢查範本或 body.text）" });
+        return;
+      }
 
       // 排程：body 帶 runAt／sendAt（未來時間）→ 交給平台的 scheduler（會落盤、重啟不丟）。
       const runAtRaw = body.runAt ?? body.sendAt;
@@ -1915,26 +1989,36 @@ function parseHookTimestampMs(value: string): number | null {
           target: hook.to,
         });
         void (async () => {
-          try {
+          // 非同步也走同一套重試與告警（背景執行，呼叫端不受影響）。
+          const outcome = await deliverWithRetry(name, hook, async () => {
             await svc.sendAdvanced([input]);
+          }, { retries: hook.retries ?? 2 });
+          if (outcome.ok) {
             updateDeliveryRecord(name, deliveryId, { status: "delivered", ok: true, finishedAt: Date.now() });
             recordHookDelivery(name, { ok: true, target: hook.to });
             recordMetric("hook_deliveries_total", 1, { hook: name, platform: hook.platform, result: "ok" });
             logger.info("hook 投遞完成（非同步）", { hook: name, platform: hook.platform });
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            updateDeliveryRecord(name, deliveryId, { status: "failed", ok: false, error: message, finishedAt: Date.now() });
-            recordHookDelivery(name, { ok: false, error: message, target: hook.to });
+          } else {
+            updateDeliveryRecord(name, deliveryId, { status: "failed", ok: false, error: outcome.error, finishedAt: Date.now() });
+            recordHookDelivery(name, { ok: false, error: outcome.error, target: hook.to });
             recordMetric("hook_deliveries_total", 1, { hook: name, platform: hook.platform, result: "fail" });
-            logger.error("hook 投遞失敗（非同步）", { hook: name, error: message });
+            logger.error("hook 投遞失敗（非同步）", { hook: name, error: outcome.error });
           }
         })();
         res.status(202).json({ ok: true, hook: name, accepted: true, deliveryId, platform: hook.platform, to: hook.to });
         return;
       }
 
-      try {
-        await svc.sendAdvanced([input]);
+      // 同步投遞（含重試；失敗會連續計數並在達門檻時告警）。
+      const outcome = await deliverWithRetry(
+        name,
+        hook,
+        async () => {
+          await svc.sendAdvanced([input]);
+        },
+        { retries: hook.retries ?? 2 },
+      );
+      if (outcome.ok) {
         recordHookDelivery(name, { ok: true, target: hook.to });
         addDeliveryRecord(name, {
           at: Date.now(),
@@ -1946,8 +2030,8 @@ function parseHookTimestampMs(value: string): number | null {
         audit(req, "hook.deliver", `${name} → ${hook.platform}/${hook.to}`);
         recordMetric("hook_deliveries_total", 1, { hook: name, platform: hook.platform, result: "ok" });
         res.json({ ok: true, hook: name, delivered: true, platform: hook.platform, to: hook.to });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+      } else {
+        const message = outcome.error ?? "投遞失敗";
         recordHookDelivery(name, { ok: false, error: message, target: hook.to });
         addDeliveryRecord(name, {
           at: Date.now(),

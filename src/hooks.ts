@@ -33,6 +33,12 @@ export interface HookConfig {
   async?: boolean;
   /** per-hook 速率上限（每分鐘幾次；0＝不限）。 */
   ratePerMin?: number;
+  /** 觸發的技能 id（外部事件 → 跑技能 → 用技能輸出推播；不填則走 template）。 */
+  skill?: string;
+  /** 傳給技能的參數範本（例：「{{city}} 天氣」）。 */
+  skillArgs?: string;
+  /** 投遞失敗時的重試次數（預設 2；佇列內部的重試之外再加一層）。 */
+  retries?: number;
   /** 最近投遞紀錄（含非同步的 pending 狀態）。 */
   deliveries?: DeliveryRecord[];
   /** 最近投遞狀態（相容舊欄位）。 */
@@ -101,6 +107,9 @@ function normalizeHook(raw: unknown): HookConfig | null {
     ...(r.replay === false ? { replay: false } : {}),
     ...(r.async === true ? { async: true } : {}),
     ...(typeof r.ratePerMin === "number" && r.ratePerMin >= 0 ? { ratePerMin: Math.floor(r.ratePerMin) } : {}),
+    ...(typeof r.skill === "string" && r.skill.trim() ? { skill: r.skill.trim() } : {}),
+    ...(typeof r.skillArgs === "string" ? { skillArgs: r.skillArgs } : {}),
+    ...(typeof r.retries === "number" && r.retries >= 0 ? { retries: Math.floor(r.retries) } : {}),
     ...(deliveries ? { deliveries } : {}),
     ...(last && typeof last.at === "number" ? { lastDelivery: last } : {}),
   };
@@ -242,8 +251,37 @@ export function resetHookRateWindows(): void {
   rateWindows.clear();
 }
 
-/* ── per-hook 重放保護（nonce 不得重複） ── */
+/* ── 連續失敗計數（用於自動告警） ── */
 
+const consecFailures = new Map<string, number>();
+/** 連續失敗到幾次要告警。 */
+export const HOOK_ALERT_THRESHOLD = 3;
+
+export function hookConsecFailures(name: string): number {
+  return consecFailures.get((name || "").trim().toLowerCase()) ?? 0;
+}
+
+/**
+ * 記一次投遞結果，回傳「這次失敗後的連敗次數」。
+ * 成功會歸零；失敗累加（跨重啟不保留，屬當前行程的觀察）。
+ */
+export function noteHookOutcome(name: string, ok: boolean): number {
+  const key = (name || "").trim().toLowerCase();
+  if (ok) {
+    consecFailures.set(key, 0);
+    return 0;
+  }
+  const next = (consecFailures.get(key) ?? 0) + 1;
+  consecFailures.set(key, next);
+  return next;
+}
+
+/** 測試用：清掉連敗計數。 */
+export function resetHookFailures(): void {
+  consecFailures.clear();
+}
+
+/* ── per-hook 重放保護（nonce 不得重複） ── */
 const seenHookNonces = new Map<string, number>();
 const MAX_NONCES = 5000;
 

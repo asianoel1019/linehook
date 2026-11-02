@@ -47,6 +47,9 @@ curl -X POST https://linehook.example.com/hooks \
 | `replay` | 預設 `true`＝要 timestamp＋nonce（重放保護）；`false`＝只簽 body（不建議） |
 | `async` | `true`＝立刻回 202、背景投遞（狀態可查） |
 | `ratePerMin` | per-hook 速率上限（每分鐘幾次；預設 30，0＝不限） |
+| `retries` | 投遞失敗時的重試次數（預設 2，指數退避） |
+| `skill` | 觸發的技能 id（外部事件 → 跑技能 → 用技能輸出推播；見 5.4） |
+| `skillArgs` | 傳給技能的參數範本（例：「{{city}} 天氣」） |
 | `disabled` | `true` = 保留設定但暫停投遞 |
 
 回應會把 `secret` 遮成 `****`（金鑰只在建立時看得到，之後也拿不回來——重設就重新建立）。
@@ -136,7 +139,6 @@ CI 完成：{{repo}}（{{duration | truncate:20}}）
 ---
 
 ## 4. 降噪（include / exclude）
-
 比對的是 payload 的**所有 key 與 value**（不分大小寫）：
 
 - `include: ["failed", "timeout"]` → 只有 payload 提到這些字才送。
@@ -204,6 +206,31 @@ curl https://linehook.example.com/hooks/ci-failed/deliveries -H 'Authorization: 
 ## 5.3 per-hook 速率限制
 
 預設每分鐘 30 次（`ratePerMin` 可調，0＝不限）。超過會回 **429**，訊息為「此 hook 超過速率上限（30 次／分鐘）」——壞掉的專案不會炸掉你的對話。
+
+---
+
+## 5.4 觸發技能（外部事件 → 技能 → 推播）
+
+hook 可以指名一支技能：**不經觸發詞比對**（hook 已經指名了），技能收到的是渲染後的參數，它的回覆就是推播內容。
+
+```json
+{ "name": "deploy-report", "to": "工作群", "platform": "line",
+  "skill": "weather", "skillArgs": "{{city}} 天氣", "secret": "…" }
+```
+
+事件 `{"city":"台北"}` → 技能收到 args「台北 天氣」→ 它的回覆被送到「工作群」。
+
+- 技能必須是**已啟用**的（技能頁 → 啟用），否則回 502 並說明原因。
+- 技能可以用 `ctx.reply`／`sendImage`／`schedule`；**不支援 `watch`**（hook 事件沒有對話任務脈絡，會明確報錯而不是靜默）。
+- 技能輸出走平台的 `sendAdvanced`（佇列落盤、跨平台備援、死信都照常）。
+- 技能執行也會被記錄（技能日誌的「最近執行」、耗時指標）。
+
+---
+
+## 5.5 失敗重試與連續失敗告警
+
+- **重試**：投遞失敗（技能執行失敗也算）會依指數退避重試（1s、2s、4s…），次數由 `retries` 控制（預設 2）。
+- **連續失敗告警**：同一個 hook 連續失敗 3 次 → 走既有的多通道告警（Email／webhook，見設定頁的告警設定）通知管理者；沒有設定告警通道時只寫 log。成功一次即歸零。
 
 ---
 
@@ -283,6 +310,6 @@ curl -X POST https://linehook.example.com/webhook \
 
 ## 11. 延伸（規劃中）
 
-- Webhook 介面（hook 觸發技能，例如「收到某事件就查天氣並推播」）
-- 連續投遞失敗自動告警（目前只記死信與稽核）
-- 投遞失敗的自動重試（目前靠呼叫端重試或手動重送死信）
+- Webhook 介面（hook 觸發技能再推播的「二次轉送」鏈）
+- 投遞失敗的自動重試已內建（指數退避）；進階：死信自動重送排程
+- hook 的 UI 管理（目前用 API 管理）

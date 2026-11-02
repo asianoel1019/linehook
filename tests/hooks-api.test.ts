@@ -9,7 +9,7 @@ import { config } from "../src/config.js";
 import { registerService } from "../src/messaging/services.js";
 import { createServer } from "../src/webhook/server.js";
 import type { IMessagingService, SendInput } from "../src/messaging/types.js";
-import { resetHookRateWindows, setHooksPath } from "../src/hooks.js";
+import { hookConsecFailures, resetHookFailures, resetHookRateWindows, setHooksPath } from "../src/hooks.js";
 import { loadSkills } from "../src/skills/loader.js";
 
 await loadSkills();
@@ -298,5 +298,82 @@ describe("跨專案通知閘道：POST /hook/:name（第二階段）", () => {
     const payload = { a: 1 };
     const res = await fetch(`${base}/hook/empty`, { method: "POST", headers: signHeaders(payload), body: JSON.stringify(payload) });
     assert.equal(res.status, 400);
+  });
+
+  it("hook 觸發技能：技能的輸出被推播（不走觸發詞比對）", async () => {
+    sent.length = 0;
+    const savedSkills = [...config.skills];
+    config.skills = [...config.skills.filter((s) => s.id !== "lunar"), { id: "lunar", enabled: true, trigger: "農曆", config: {} }];
+    try {
+      await post("/hooks", {
+        name: "ask-weather",
+        to: "工作群",
+        platform: "line",
+        skill: "lunar",
+        skillArgs: "2026-09-28",
+        secret: SECRET,
+      });
+      const payload = { city: "台北" };
+      const res = await fetch(`${base}/hook/ask-weather`, { method: "POST", headers: signHeaders(payload), body: JSON.stringify(payload) });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as Record<string, unknown>;
+      assert.equal(body.skill, "lunar");
+      assert.equal(body.delivered, true);
+      assert.equal(sent.length, 1, "技能應該送出 1 則");
+      assert.equal(sent[0]?.to, "工作群");
+      assert.ok(sent[0]?.text?.includes("農曆"), `技能輸出應為農曆換算結果：${sent[0]?.text}`);
+    } finally {
+      config.skills = savedSkills;
+    }
+  });
+
+  it("hook 觸發技能：技能不存在 → 502 並附原因", async () => {
+    sent.length = 0;
+    await post("/hooks", { name: "bad-skill", to: "t", platform: "line", skill: "no-such-skill", secret: SECRET });
+    const payload = { a: 1 };
+    const res = await fetch(`${base}/hook/bad-skill`, { method: "POST", headers: signHeaders(payload), body: JSON.stringify(payload) });
+    assert.equal(res.status, 502);
+    const body = (await res.json()) as Record<string, unknown>;
+    assert.ok(String(body.error).includes("找不到技能"));
+    assert.equal(sent.length, 0);
+  });
+
+  it("投遞失敗會重試（retries 次）", async () => {
+    sent.length = 0;
+    resetHookFailures();
+    let attempts = 0;
+    // 用一個會失敗的目標（送出時 adapter 拋錯）→ 計次
+    const orig = fake.sendAdvanced;
+    fake.sendAdvanced = async () => {
+      attempts += 1;
+      throw new Error("暫時性故障");
+    };
+    try {
+      await post("/hooks", { name: "retry-hook", to: "t", platform: "line", template: "x", secret: SECRET, retries: 2 });
+      const payload = { a: 1 };
+      const res = await fetch(`${base}/hook/retry-hook`, { method: "POST", headers: signHeaders(payload), body: JSON.stringify(payload) });
+      assert.equal(res.status, 502);
+      assert.equal(attempts, 3, "初次 + 2 次重試");
+    } finally {
+      fake.sendAdvanced = orig;
+    }
+  });
+
+  it("連續失敗會累加計數（供告警門檻判斷）", async () => {
+    resetHookFailures();
+    const orig = fake.sendAdvanced;
+    fake.sendAdvanced = async () => {
+      throw new Error("壞掉");
+    };
+    try {
+      await post("/hooks", { name: "fail-hook", to: "t", platform: "line", template: "x", secret: SECRET, retries: 0 });
+      const payload = { a: 1 };
+      await fetch(`${base}/hook/fail-hook`, { method: "POST", headers: signHeaders(payload), body: JSON.stringify(payload) });
+      assert.equal(hookConsecFailures("fail-hook"), 1);
+      await fetch(`${base}/hook/fail-hook`, { method: "POST", headers: signHeaders(payload), body: JSON.stringify(payload) });
+      assert.equal(hookConsecFailures("fail-hook"), 2);
+    } finally {
+      fake.sendAdvanced = orig;
+    }
   });
 });
