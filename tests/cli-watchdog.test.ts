@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { runWatchedProcess } from "../src/skills/llm.js";
-import { withSendTimeout } from "../src/line/client.js";
+import { withSendTimeout } from "../src/messaging/send-util.js";
 
 const NODE = process.execPath;
 

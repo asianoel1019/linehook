@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
@@ -136,6 +136,27 @@ export async function loadSkills(): Promise<SkillDefinition[]> {
 /** 重新掃描並載入技能（供安裝 / 移除後呼叫）。 */
 export async function reloadSkills(): Promise<SkillDefinition[]> {
   return loadSkills();
+}
+
+/**
+ * 只重載單一技能資料夾（P2 熱重載用）：重新 import 該資料夾並取代清單中的同名技能。
+ * 比整包重載快得多（54 個技能不必全部重新 import）——CI 慢機器上尤其明顯。
+ * 回傳重載後的技能 id（失敗回 null）。
+ */
+export async function reloadSkillDir(dir: string): Promise<string | null> {
+  const def = await tryImportFolder(dir);
+  if (!def) {
+    // 技能被刪掉或改壞了 → 從清單移除（避免留著舊的壞版）。
+    const before = skills.length;
+    skills = skills.filter((s) => s.id !== basename(dir));
+    return before !== skills.length ? "" : null;
+  }
+  const hidden = new Set(readHiddenSkills());
+  if (hidden.has(def.id)) return def.id;
+  const idx = skills.findIndex((s) => s.id === def.id);
+  if (idx >= 0) skills[idx] = def;
+  else skills.push(def);
+  return def.id;
 }
 
 export function listSkills(): SkillDefinition[] {

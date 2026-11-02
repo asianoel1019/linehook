@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
-import { reloadSkills } from "./loader.js";
+import { reloadSkillDir } from "./loader.js";
 
 /**
  * P2 技能熱重載：監看技能目錄，檔案一改就自動重載（不必重啟整個服務）。
@@ -23,7 +23,11 @@ let started = false;
 let reloading = false;
 let reloadCount = 0;
 
-function scheduleReload(reason: string): void {
+/** 變動的技能資料夾（重載時只換這一個，不必整包重載）。 */
+let pendingDir: string | null = null;
+
+function scheduleReload(reason: string, dir?: string): void {
+  if (dir) pendingDir = dir;
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => {
     timer = null;
@@ -33,12 +37,24 @@ function scheduleReload(reason: string): void {
 }
 
 async function doReload(reason: string): Promise<void> {
-  if (reloading) return;
+  if (reloading || !started) return;
   reloading = true;
+  const dir = pendingDir;
+  pendingDir = null;
   try {
-    const defs = await reloadSkills();
-    reloadCount += 1;
-    logger.info("技能已熱重載", { reason, skills: defs.length, count: reloadCount });
+    if (dir) {
+      // 只重載變動的那一個技能（快很多；54 個技能不必全部重新 import）。
+      const id = await reloadSkillDir(dir);
+      if (!started) return; // 期間被停掉 → 不計數
+      reloadCount += 1;
+      logger.info("技能已熱重載", { reason, skill: id ?? dir, count: reloadCount });
+    } else {
+      const { reloadSkills } = await import("./loader.js");
+      const defs = await reloadSkills();
+      if (!started) return;
+      reloadCount += 1;
+      logger.info("技能已熱重載", { reason, skills: defs.length, count: reloadCount });
+    }
   } catch (error) {
     logger.error("技能熱重載失敗", { reason, error: String(error) });
   } finally {
@@ -46,11 +62,11 @@ async function doReload(reason: string): Promise<void> {
   }
 }
 
-function watchDir(dir: string, label: string): void {
+function watchDir(dir: string, label: string, skillDir?: string): void {
   if (!existsSync(dir)) return;
   try {
     const w = watch(dir, { persistent: false }, (_event, filename) => {
-      scheduleReload(`${label}:${String(filename ?? "?")}`);
+      scheduleReload(`${label}:${String(filename ?? "?")}`, skillDir ?? (isSkillDir(dir) ? dir : undefined));
     });
     w.on("error", (error) => {
       logger.warn("技能目錄監看失敗", { dir, error: String(error) });
@@ -58,6 +74,15 @@ function watchDir(dir: string, label: string): void {
     watchers.push(w);
   } catch (error) {
     logger.warn("技能目錄監看失敗", { dir, error: String(error) });
+  }
+}
+
+/** 這個目錄看起來像技能資料夾（含進入點或 skill.json）→ 變動時可單獨重載。 */
+function isSkillDir(dir: string): boolean {
+  try {
+    return ["index.js", "index.ts", "skill.json"].some((f) => existsSync(join(dir, f)));
+  } catch {
+    return false;
   }
 }
 
@@ -75,7 +100,8 @@ export function startHotReload(): boolean {
       if (!existsSync(dir)) continue;
       for (const name of readdirSync(dir)) {
         try {
-          if (statSync(join(dir, name)).isDirectory()) watchDir(join(dir, name), `${label}/${name}`);
+          const sub = join(dir, name);
+          if (statSync(sub).isDirectory()) watchDir(sub, `${label}/${name}`, sub);
         } catch {
           // ignore
         }

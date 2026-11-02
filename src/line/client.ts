@@ -18,6 +18,7 @@ import type { WatchOptions } from "../skills/types.js";
 import { dispatchIncoming, dispatchSkillTask, type DispatchDeps } from "../messaging/dispatch.js";
 import { extractLocationFromText } from "../messaging/location.js";
 import { chunkReplyText } from "../messaging/text.js";
+import { sanitizeReplyText, withSendTimeout } from "../messaging/send-util.js";
 import { withMentions } from "../messaging/mentions.js";
 import { resolveLocalMediaPath } from "../messaging/media.js";
 import type { FlexInput, IMessagingService, LocationInput, QueuedSend, SendInput, StickerInput } from "../messaging/types.js";
@@ -57,27 +58,6 @@ function delay(ms: number): Promise<void> {
 
 /** 單則發送逾時（evex promise 偶爾不 settle，不能讓回覆卡到天荒地老）。 */
 const REPLY_SEND_TIMEOUT_MS = 30_000;
-
-/** 回覆消毒：清控制字（保留 \t\n\r）與 ANSI 轉義；這些在聊天室顯示不了，還可能搞壞發送。 */
-export function sanitizeReplyText(text: string): string {
-  return String(text ?? "")
-    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
-}
-
-/** 比賽：本體先回就用本體的，逾時先到就丟錯（本體之後才回也無害）。 */
-export function withSendTimeout<T>(task: Promise<T>, ms: number, label: string): Promise<T> {
-
-  // 掛一個已處理的分支，避免本體晚到時變成 unhandled rejection 噪音。
-  task.catch(() => {});
-  return Promise.race([
-    task,
-    new Promise<never>((_, reject) => {
-      const timer = setTimeout(() => reject(new Error(label)), ms);
-      if (typeof timer.unref === "function") timer.unref();
-    }),
-  ]);
-}
 
 // splitText 住在 messaging/text.ts（各傳輸層共用）；此處 re-export 保持相容。
 export { splitText } from "../messaging/text.js";

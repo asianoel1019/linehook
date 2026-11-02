@@ -128,4 +128,20 @@ describe("P1-1 設定健檢", () => {
     const body = (await res.json()) as { traces: unknown[] };
     assert.ok(Array.isArray(body.traces));
   });
+
+  it("GET /console：內嵌 JS 語法有效（頁面模板轉義回歸）", async () => {
+    const res = await fetch(`${base}/console`, { headers: auth });
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    const m = html.match(/<script(?![^>]*src)[^>]*>([\s\S]*?)<\/script>/);
+    assert.ok(m, "應有內嵌 script");
+    const tmp = join(tmpdir(), `console-inline-${process.pid}.js`);
+    writeFileSync(tmp, m[1], "utf8");
+    try {
+      const r = spawnSync(process.execPath, ["--check", tmp]);
+      assert.equal(r.status, 0, String(r.stderr).slice(0, 300));
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  });
 });

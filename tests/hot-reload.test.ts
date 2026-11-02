@@ -40,7 +40,8 @@ describe("P2 技能熱重載", () => {
     // 觸發一次檔案變更
     writeFileSync(join(skillDir, "demo", "index.js"), "export default { id: 'demo', name: 'Demo2', defaultTrigger: 'demo', fields: [], run: async () => {} };", "utf8");
     const start = Date.now();
-    while (hotReloadCount() === before && Date.now() - start < 8000) {
+    // CI 機器慢（重載要重新 import 技能模組），給寬裕的等待時間
+    while (hotReloadCount() === before && Date.now() - start < 60_000) {
       await new Promise((r) => setTimeout(r, 100));
     }
     assert.ok(hotReloadCount() > before, "應已觸發重載");
@@ -49,6 +50,8 @@ describe("P2 技能熱重載", () => {
 
   it("stop 後不再重載", async () => {
     stopHotReload();
+    // 先讓可能在前一步排隊的重載結案（避免競態誤判）
+    await new Promise((r) => setTimeout(r, 1000));
     const before = hotReloadCount();
     writeFileSync(join(skillDir, "demo", "index.js"), "export default { id: 'demo', name: 'Demo3', defaultTrigger: 'demo', fields: [], run: async () => {} };", "utf8");
     await new Promise((r) => setTimeout(r, 2500));

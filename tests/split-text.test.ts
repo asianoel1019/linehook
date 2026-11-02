@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { sanitizeReplyText, splitText } from "../src/line/client.js";
+import { splitText } from "../src/messaging/text.js";
+import { sanitizeReplyText } from "../src/messaging/send-util.js";
 
 describe("splitText", () => {
   it("短文字不切割", () => {
