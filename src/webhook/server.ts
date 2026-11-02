@@ -1,6 +1,17 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { safeEqual } from "../safe-equal.js";
+import crypto from "node:crypto";
+import {
+  deleteHook,
+  getHook,
+  listHooks,
+  matchesHookFilters,
+  recordHookDelivery,
+  renderTemplate as renderHookTemplate,
+  upsertHook,
+  type HookConfig,
+} from "../hooks.js";
 import express, { type ErrorRequestHandler, type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
 import { config } from "../config.js";
@@ -1722,6 +1733,120 @@ export function createServer(line: IMessagingService): express.Express {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  });
+  // P2 跨專案通知閘道：POST /hook/:name —— 外部專案事件 → 依 hook 設定路由/渲染/投遞。
+  app.post(
+    "/hook/:name",
+    ipGuard,
+    rateLimit,
+    async (req, res) => {
+      const name = String(req.params.name ?? "").trim().toLowerCase();
+      const hook = getHook(name);
+      if (!hook) {
+        res.status(404).json({ ok: false, error: "找不到 hook" });
+        return;
+      }
+      if (hook.disabled) {
+        res.status(409).json({ ok: false, error: "此 hook 已停用" });
+        return;
+      }
+      // per-hook 簽章（設定了金鑰就必須簽；沒設定則走全域 webhook 驗證）。
+      if (hook.secret) {
+        const raw = (req as RawBodyRequest).rawBody ?? Buffer.from("");
+        const provided = String(req.header("x-hook-signature") ?? "");
+        const expected = crypto.createHmac("sha256", hook.secret).update(raw).digest("hex");
+        if (!provided || !safeEqual(provided, expected)) {
+          logger.warn("hook 簽章驗證失敗", { hook: name, ip: req.ip });
+          recordMetric("hook_auth_failures_total", 1, { hook: name });
+          res.status(403).json({ ok: false, error: "簽章驗證失敗" });
+          return;
+        }
+      } else {
+        verifyWebhookAuth(req, res, () => {
+          // 驗證通過才往下（此處不再回應，交給後續流程）
+        });
+        if (res.headersSent) return;
+        if (!webhookAuthEnabled()) {
+          res.status(503).json({ ok: false, error: "此 hook 未設定金鑰，且全域 webhook 驗證未啟用" });
+          return;
+        }
+      }
+      const payload = asRecord(req.body) ?? {};
+      // 冪等：優先 Idempotency-Key，否則用 payload.event_id。
+      const idemKey =
+        String(req.header("idempotency-key") ?? "").trim() ||
+        (typeof payload.event_id === "string" ? payload.event_id.trim() : "");
+      if (idemKey && !reserveIdempotency(`hook:${name}:${idemKey}`)) {
+        res.json({ ok: true, duplicate: true, hook: name });
+        return;
+      }
+      // 降噪條件
+      const filter = matchesHookFilters(hook, payload);
+      if (!filter.pass) {
+        audit(req, "hook.filtered", `${name}：${filter.reason ?? "條件不符"}`);
+        res.json({ ok: true, skipped: true, hook: name, reason: filter.reason });
+        return;
+      }
+      // 範本渲染（空範本則用 body.text）
+      const body = asRecord(req.body) ?? {};
+      const text = hook.template
+        ? renderHookTemplate(hook.template, payload)
+        : typeof body.text === "string"
+          ? body.text
+          : "";
+      if (!text.trim()) {
+        res.status(400).json({ ok: false, error: "渲染後內容為空（檢查範本或 body.text）" });
+        return;
+      }
+      const svc = getService(hook.platform as Platform);
+      if (!svc) {
+        res.status(503).json({ ok: false, error: `平台未啟用：${hook.platform}` });
+        return;
+      }
+      const input: SendInput = { to: hook.to, text };
+      if (typeof body.image === "string") input.image = body.image;
+      if (typeof body.file === "string") input.file = body.file;
+      if (typeof body.filename === "string") input.filename = body.filename;
+      try {
+        await svc.sendAdvanced([input]);
+        recordHookDelivery(name, { ok: true, target: hook.to });
+        audit(req, "hook.deliver", `${name} → ${hook.platform}/${hook.to}`);
+        recordMetric("hook_deliveries_total", 1, { hook: name, platform: hook.platform, result: "ok" });
+        res.json({ ok: true, hook: name, delivered: true, platform: hook.platform, to: hook.to });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        recordHookDelivery(name, { ok: false, error: message, target: hook.to });
+        audit(req, "hook.failed", `${name}：${message}`);
+        recordMetric("hook_deliveries_total", 1, { hook: name, platform: hook.platform, result: "fail" });
+        res.status(502).json({ ok: false, error: message });
+      }
+    },
+  );
+  // hook 管理 API（admin）。
+  app.get("/hooks.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json({
+      hooks: listHooks().map((h) => ({ ...h, secret: h.secret ? "****" : undefined })),
+    });
+  });
+  app.post("/hooks", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
+    const body = asRecord(req.body) ?? {};
+    const result = upsertHook(body as Partial<HookConfig> & { name?: string });
+    if (!result.ok) {
+      res.status(400).json({ ok: false, error: result.error });
+      return;
+    }
+    audit(req, "hooks.upsert", result.hook.name);
+    res.json({ ok: true, hook: { ...result.hook, secret: result.hook.secret ? "****" : undefined } });
+  });
+  app.delete("/hooks/:name", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
+    const name = String(req.params.name ?? "").trim().toLowerCase();
+    if (!deleteHook(name)) {
+      res.status(404).json({ ok: false, error: "找不到 hook" });
+      return;
+    }
+    audit(req, "hooks.delete", name);
+    res.json({ ok: true });
   });
   app.post(
     "/webhook",

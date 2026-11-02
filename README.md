@@ -805,6 +805,7 @@ docs/IM.md              多平台規劃（LINE / Telegram / Teams / WhatsApp / D
 docs/IM-setup.md        LINE / Telegram / WhatsApp / Teams / Discord 申請與設定說明
 docs/voice-input.md     語音輸入（STT）說明書：開啟方式、供應商、平台支援、除錯
 docs/skill-author-guide.md 技能作者教學（寫技能、測試、打包分享）
+docs/integration.md     跨專案通知閘道：讓其他專案推播事件到你的 IM（含簽章與範本）
 tests/                  單元測試（`npm test`）
 .github/workflows/ci.yml CI（typecheck / lint / build / test / coverage / secret scan / audit gate / docker build）
 .github/scripts/secret-scan.mjs secret 掃描（零相依，可本機重跑）
