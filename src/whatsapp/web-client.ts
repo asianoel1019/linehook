@@ -13,6 +13,7 @@ import { watchOptionsToCron } from "../skills/watch.js";
 import type { WatchOptions } from "../skills/types.js";
 import { dispatchIncoming, dispatchSkillTask, type DispatchDeps } from "../messaging/dispatch.js";
 import { chunkReplyText } from "../messaging/text.js";
+import { withMentions } from "../messaging/mentions.js";
 import { resolveLocalMediaPath } from "../messaging/media.js";
 import {
   NotLoggedInError,
@@ -443,7 +444,7 @@ export class WhatsAppWebService implements IMessagingService {
     if (input.sticker) await this.sendSticker(jid, input.sticker);
     if (input.location) await this.sendLocation(jid, input.location);
     if (input.flex) await this.sendFlex(jid, input.flex);
-    if (input.text) await this.rawSendText(jid, input.text);
+    if (input.text) await this.rawSendText(jid, withMentions("whatsapp", input.text, input.mentions));
 
     recordSend({ time: new Date().toISOString(), to: input.to, type: this.inputType(input), ok: true, platform: "whatsapp" });
     setState({ lastSendAt: new Date().toISOString(), lastSendTo: this.chatToName.get(jid) ?? jid });

@@ -12,8 +12,10 @@ import { watchOptionsToCron } from "../skills/watch.js";
 import type { WatchOptions } from "../skills/types.js";
 import { dispatchIncoming, dispatchSkillTask, type DispatchDeps } from "../messaging/dispatch.js";
 import { chunkReplyText } from "../messaging/text.js";
+import { withMentions } from "../messaging/mentions.js";
 import { resolveLocalMediaPath } from "../messaging/media.js";
-import { fetchWithLimits } from "../net.js";
+import { fetchBuffer, fetchWithLimits } from "../net.js";
+import type { IncomingAudio } from "../messaging/types.js";
 import { writeDeadLetter } from "../deadletter.js";
 import {
   NotLoggedInError,
@@ -28,6 +30,8 @@ import {
 } from "../messaging/types.js";
 
 const API_BASE = "https://discord.com/api/v10";
+/** 語音下載大小上限（STT 請求體限制）。 */
+const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
 const GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json";
 /** Discord 單則訊息上限 2000 字元。 */
 const CONTENT_LIMIT = 2000;
@@ -45,6 +49,8 @@ interface DiscordMessageEvent {
     author?: { id?: string; username?: string; bot?: boolean };
     content?: string;
     member?: { nick?: string };
+    /** P3：附件（語音＝voice:true）。 */
+    attachments?: Array<{ url?: string; voice?: boolean; content_type?: string; size?: number }>;
   };
 }
 
@@ -68,7 +74,9 @@ export function normalizeDiscordMessage(evt: DiscordMessageEvent, selfId: string
   if (d.author.bot) return null;
   if (selfId && d.author.id === selfId) return null;
   const text = (d.content ?? "").trim();
-  if (!text) return null;
+  // P3：只有語音附件（沒有文字）也要收，dispatch 會轉成文字再走技能。
+  const hasVoice = (d.attachments ?? []).some((a) => a.voice === true);
+  if (!text && !hasVoice) return null;
   const fromId = d.author.id ?? "";
   const fromName = d.member?.nick || d.author.username || fromId;
   return {
@@ -247,6 +255,12 @@ export class DiscordService implements IMessagingService {
   private async handleMessage(raw: DiscordMessageEvent["d"]): Promise<void> {
     const msg = normalizeDiscordMessage({ d: raw }, this.selfId);
     if (!msg) return;
+    // P3 語音：附件 voice=true → 下載轉 base64 給 STT。
+    const voice = (raw?.attachments ?? []).find((a) => a.voice === true && a.url);
+    if (voice?.url) {
+      const audio = await this.fetchDiscordVoice(voice.url, voice.content_type);
+      if (audio) msg.audio = audio;
+    }
     recordMessage({
       time: new Date().toISOString(),
       fromMid: msg.fromId,
@@ -256,6 +270,18 @@ export class DiscordService implements IMessagingService {
       text: msg.text,
     });
     await dispatchIncoming(msg, this.dispatchDeps());
+  }
+
+  /** 下載 Discord 語音附件（webm/ogg），失敗回 null。 */
+  private async fetchDiscordVoice(url: string, contentType?: string): Promise<IncomingAudio | null> {
+    try {
+      const buf = await fetchBuffer(url, undefined, { timeoutMs: 20_000, maxBytes: MAX_AUDIO_BYTES });
+      if (buf.length === 0 || buf.length > MAX_AUDIO_BYTES) return null;
+      return { base64: buf.toString("base64"), mimeType: contentType || "audio/ogg" };
+    } catch (error) {
+      logger.warn("下載 Discord 語音失敗", { error: error instanceof Error ? error.message : String(error) });
+      return null;
+    }
   }
 
   private cleanupSocket(): void {
@@ -412,7 +438,19 @@ export class DiscordService implements IMessagingService {
     if (input.sticker) await this.sendSticker(id, input.sticker);
     if (input.location) await this.sendLocation(id, input.location);
     if (input.flex) await this.sendFlex(id, input.flex);
-    if (input.text) await this.rawSendText(id, input.text);
+    // P3 群組 @：<@id> 文字＋allowed_mentions（沒有這個 Discord 不會真的通知人）。
+    if (input.text) {
+      const text = withMentions("discord", input.text, input.mentions);
+      const mentions = (input.mentions ?? []).map((m) => m.trim()).filter(Boolean);
+      if (mentions.length > 0) {
+        const parts = chunkReplyText(text, CONTENT_LIMIT);
+        for (const part of parts) {
+          await this.post(`/channels/${id}/messages`, { content: part, allowed_mentions: { parse: ["users"] } });
+        }
+      } else {
+        await this.rawSendText(id, text);
+      }
+    }
 
     recordSend({ time: new Date().toISOString(), to: input.to, type: this.inputType(input), ok: true, platform: "discord" });
     setState({ lastSendAt: new Date().toISOString(), lastSendTo: this.chatToName.get(id) ?? id });

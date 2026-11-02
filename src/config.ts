@@ -115,6 +115,16 @@ const schema = z.object({
   OUTBOUND_BLOCKLIST: z.string().default(""),
   /** P1-2：白名單是否強制（false＝觀察模式：只記錄不擋，預設）。 */
   OUTBOUND_ENFORCE: boolDefault(false),
+  /** P3 語音輸入：STT 供應商（none／openai／gemini／local）。 */
+  STT_PROVIDER: z.enum(["none", "openai", "gemini", "local"]).default("none"),
+  STT_API_KEY: z.string().trim().default(""),
+  STT_BASE_URL: z.string().trim().default(""),
+  STT_MODEL: z.string().trim().default(""),
+  STT_LANGUAGE: z.string().trim().default(""),
+  STT_LOCAL_BIN: z.string().trim().default(""),
+  STT_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
+  /** P3 跨平台備援：備援順序（逗號分隔平台；空＝不備援）。 */
+  FALLBACK_PLATFORMS: z.string().default(""),
   INBOUND_QUEUE_PATH: z.string().default("./data/inbound-queue.jsonl"),
   SCHEDULES_PATH: z.string().default("./data/schedules.json"),
   STATS_PATH: z.string().default("./data/stats.jsonl"),
@@ -346,6 +356,14 @@ export interface Config {
   outboundAllowlist: string[];
   outboundBlocklist: string[];
   outboundEnforce: boolean;
+  sttProvider: "none" | "openai" | "gemini" | "local";
+  sttApiKey: string;
+  sttBaseUrl: string;
+  sttModel: string;
+  sttLanguage: string;
+  sttLocalBin: string;
+  sttTimeoutMs: number;
+  fallbackPlatforms: string[];
   inboundQueuePath: string;
   schedulesPath: string;
   statsPath: string;
@@ -483,6 +501,14 @@ export const config: Config = {
   outboundAllowlist: parseList(env.OUTBOUND_ALLOWLIST).map((s) => s.toLowerCase()),
   outboundBlocklist: parseList(env.OUTBOUND_BLOCKLIST).map((s) => s.toLowerCase()),
   outboundEnforce: env.OUTBOUND_ENFORCE,
+  sttProvider: env.STT_PROVIDER,
+  sttApiKey: env.STT_API_KEY,
+  sttBaseUrl: env.STT_BASE_URL,
+  sttModel: env.STT_MODEL,
+  sttLanguage: env.STT_LANGUAGE,
+  sttLocalBin: env.STT_LOCAL_BIN,
+  sttTimeoutMs: env.STT_TIMEOUT_MS,
+  fallbackPlatforms: parseList(env.FALLBACK_PLATFORMS).map((s) => s.toLowerCase()),
   inboundQueuePath: env.INBOUND_QUEUE_PATH,
   schedulesPath: env.SCHEDULES_PATH,
   statsPath: env.STATS_PATH,

@@ -33,6 +33,15 @@ export interface IncomingMessage {
   images?: IncomingImage[];
   /** 隨附位置（使用者傳送的位置訊息；供附近查詢類技能使用）。 */
   location?: IncomingLocation;
+  /** P3：隨附語音（base64 inline）；dispatch 會轉成文字後照常走技能。 */
+  audio?: IncomingAudio;
+}
+
+/** P3 收到訊息附帶的語音（已轉 base64，附 mimeType）。 */
+export interface IncomingAudio {
+  base64: string;
+  mimeType: string;
+  durationMs?: number;
 }
 
 /** 收到訊息的圖片附件（已轉 base64，附 mimeType）。 */
@@ -78,6 +87,8 @@ export interface SendInput {
   sticker?: StickerInput;
   location?: LocationInput;
   flex?: FlexInput;
+  /** P3：要在訊息裡 @ 的人（平台 id 或暱稱；各平台格式不同，由 adapter 轉換）。 */
+  mentions?: string[];
 }
 
 /**

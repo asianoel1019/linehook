@@ -61,6 +61,8 @@ export interface LineMessage {
   longitude?: number;
   altText?: string;
   contents?: unknown;
+  /** P3：@ 對象（LINE Messaging API 的 mention 物件；userId 或 "all"）。 */
+  mention?: { mentionees: Array<{ type: "user"; userId: string } | { type: "all" }> };
 }
 
 export interface LineOfficialEvent {
@@ -210,6 +212,15 @@ export function buildLineMessages(input: SendInput, resolveUrl: (src: string) =>
   const out: LineMessage[] = [];
   if (input.text) {
     for (const part of chunkReplyText(input.text, LINE_TEXT_LIMIT)) out.push({ type: "text", text: part });
+  }
+  // P3：群組 @ —— mention 只對第一則文字訊息生效（LINE 的規則）。
+  const mentionees = (input.mentions ?? [])
+    .map((m) => (m.trim() === "" ? "" : m.trim()))
+    .filter(Boolean)
+    .map((m) => (m.toLowerCase() === "all" ? ({ type: "all" } as const) : ({ type: "user", userId: m } as const)));
+  if (mentionees.length > 0) {
+    const firstText = out.find((m) => m.type === "text");
+    if (firstText) firstText.mention = { mentionees: [...mentionees] };
   }
   if (input.image) {
     const url = resolveUrl(input.image);

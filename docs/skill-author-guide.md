@@ -214,8 +214,56 @@ npm run build       # 產 dist
 
 ---
 
-## 8. 可用的別名（@lw/*）
+## 9. 語音輸入（P3）
 
+使用者傳語音時，主機會先把音訊轉成文字，再照常走技能管線——所以**你的技能不需要改任何東西**，
+只要會處理文字就自動支援語音。
+
+轉錄供應商在 `.env` 設定（`STT_PROVIDER=none`＝不轉錄）：
+
+| provider | 說明 |
+|---|---|
+| `openai` | `/audio/transcriptions`（whisper 相容）；沒給 key/base/model 就沿用全域 LLM 設定 |
+| `gemini` | 音訊以 inline_data 內嵌給 Gemini |
+| `local` | 本機 whisper.cpp（`STT_LOCAL_BIN=/usr/local/bin/whisper-cli`） |
+
+轉錄成功後，文字會加上「（語音）」前綴再進管線——技能收到的 `ctx.args` 就包含它。
+轉錄失敗會回使用者一句「語音轉文字失敗，請改用文字訊息」，不會中斷整條管線。
+
+進站語音目前支援：LINE 自帳號（語音貼文）、Telegram（voice／audio）、Discord（語音附件）。
+
+---
+
+## 10. 群組 @（P3）
+
+技能要 @ 特定的人時，在回覆文字前帶上：
+
+```ts
+await ctx.reply("@Neal 早安，今天天氣不錯");
+```
+
+或者用平台的原生 mention（`SendInput.mentions`，出站 API 用）：
+
+```ts
+await ctx.sendAdvanced([{ to: "群組id", text: "早安", mentions: ["Neal"] }]);
+```
+
+各平台轉換：LINE 官方用原生 mention 物件、Discord 走 `<@id>`＋`allowed_mentions`、
+Telegram／WhatsApp／LINE 自帳號用純文字 `@暱稱`、Teams 用 `<at>暱稱</at>`。
+
+---
+
+## 11. 跨平台備援（P3）
+
+主平台送出失敗（例如 LINE 掛了），主機會依 `FALLBACK_PLATFORMS` 的順序改走別的平台，
+訊息前會標示「（line 送出失敗，改由 telegram 送出）」。
+
+配對方式是**對方名稱**：只有在備援平台找到同名對話時才會備援（配不到就不發，避免發給錯的人）。
+所以要在備援平台的設定裡把對方加成一樣的名字。
+
+---
+
+## 12. 可用的別名（@lw/*）
 | 別名 | 用途 |
 |---|---|
 | `@lw/logger` | 寫日誌（`logger.info/warn/error`） |

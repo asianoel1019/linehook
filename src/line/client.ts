@@ -18,13 +18,16 @@ import type { WatchOptions } from "../skills/types.js";
 import { dispatchIncoming, dispatchSkillTask, type DispatchDeps } from "../messaging/dispatch.js";
 import { extractLocationFromText } from "../messaging/location.js";
 import { chunkReplyText } from "../messaging/text.js";
+import { withMentions } from "../messaging/mentions.js";
 import { resolveLocalMediaPath } from "../messaging/media.js";
 import type { FlexInput, IMessagingService, LocationInput, QueuedSend, SendInput, StickerInput } from "../messaging/types.js";
 import { NotLoggedInError, TargetNotFoundError } from "../messaging/types.js";
-import type { IncomingImage } from "../messaging/types.js";
+import type { IncomingImage, IncomingAudio } from "../messaging/types.js";
 
 /** 收到圖片轉 base64 的上限（LLM 請求體限制；超過就略過附件）。 */
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+/** 收到語音轉 base64 的上限（STT 請求體限制）。 */
+const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
 export type { FlexInput, LocationInput, SendInput, StickerInput } from "../messaging/types.js";
 import { fetchBuffer } from "../net.js";
 
@@ -472,7 +475,9 @@ export class LineService implements IMessagingService {
     if (input.location) await this.sendLocation(mid, input.location);
     if (input.flex) await this.sendFlex(mid, input.flex);
     if (input.text) {
-      await client.base.talk.sendMessage({ to: mid, text: input.text, e2ee: true });
+      // P3 群組 @：自帳號沒有原生 mention API，用純文字 @暱稱（群組裡仍會顯示）。
+      const text = withMentions("line", input.text, input.mentions);
+      await client.base.talk.sendMessage({ to: mid, text, e2ee: true });
     }
 
     recordSend({ time: new Date().toISOString(), to: input.to, type: inputType(input), ok: true, platform: "line" });
@@ -695,6 +700,22 @@ export class LineService implements IMessagingService {
         }
       }
 
+      // P3 語音訊息：抓 blob（m4a）帶給 STT（contentType 2 = AUDIO）。
+      let audio: IncomingAudio | undefined;
+      if (contentType === 2 || contentType === "AUDIO") {
+        try {
+          const blob = await message.getData();
+          const buf = Buffer.from(await blob.arrayBuffer());
+          if (buf.length > 0 && buf.length <= MAX_AUDIO_BYTES) {
+            audio = { base64: buf.toString("base64"), mimeType: "audio/mp4" };
+          } else if (buf.length > MAX_AUDIO_BYTES) {
+            logger.warn("收到過大的語音，略過", { bytes: buf.length });
+          }
+        } catch (error) {
+          logger.warn("讀取語音訊息失敗", { error: String(error) });
+        }
+      }
+
       // 位置訊息：raw.location 帶經緯度（contentType 15）；自帳號有時只收到
       // 文字版「[ Location ]＋地圖連結」，此時從文字還原。
       const rawLoc = (message.raw as { location?: { latitude?: number | string; longitude?: number | string; title?: unknown; address?: unknown } }).location;
@@ -729,6 +750,7 @@ export class LineService implements IMessagingService {
           text,
           messageId: rawId == null ? undefined : String(rawId),
           ...(images ? { images } : {}),
+          ...(audio ? { audio } : {}),
           ...(location ? { location } : {}),
         },
         this.dispatchDeps(),

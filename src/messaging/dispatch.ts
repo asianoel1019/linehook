@@ -92,6 +92,8 @@ import { redactText } from "../redact.js";
 import { recordSkillRun } from "../skill-stats.js";
 import { runWithExecContext } from "../exec-context.js";
 import { startTrace, withTrace, finishTrace, traceEvent } from "../trace.js";
+import { transcribeAudio } from "./stt.js";
+import { sendWithFallback } from "./fallback.js";
 import type { SkillConfig } from "../config.js";
 import type { SkillDefinition } from "../skills/types.js";
 import type { ForwardRule } from "../config.js";
@@ -442,6 +444,42 @@ export interface DispatchDeps {
   listScheduled(): ScheduledJobView[];
 }
 
+/**
+ * P3 跨平台備援：主要平台送出失敗就改走備援平台（名稱對得到才送）。
+ * 對方名字從收訊來源帶過來（各平台 id 不同，只能靠名稱配對）。
+ */
+async function replyWithFallback(
+  deps: DispatchDeps,
+  chat: string,
+  text: string,
+  fromName: string,
+): Promise<void> {
+  await sendWithFallback(deps.platform, chat, text, fromName, () => deps.replyTo(chat, text));
+}
+
+/**
+ * P3 語音輸入：有音訊就轉文字（失敗時回一句可操作的提示，不中斷管線）。
+ * 轉錄成功的文字會前綴「（語音）」，讓技能與使用者都知道來源。
+ */
+async function resolveVoiceText(msg: IncomingMessage, deps: DispatchDeps): Promise<string> {
+  const text = (msg.text ?? "").trim();
+  if (!msg.audio) return text;
+  try {
+    const spoken = await transcribeAudio(msg.audio);
+    const merged = text ? `${text} ${spoken}` : spoken;
+    traceEvent("voice", { ok: true, detail: `語音已轉文字（${spoken.length} 字）` });
+    return `（語音）${merged}`;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn("語音轉文字失敗", { error: message, platform: deps.platform });
+    traceEvent("voice", { ok: false, detail: `語音轉文字失敗：${message}` });
+    if (!text) {
+      await deps.replyTo(msg.chat, "語音轉文字失敗（尚未設定 STT），請改用文字訊息。");
+    }
+    return text;
+  }
+}
+
 /** 收到訊息後的統一管線：去重 → 指令 → 技能 → 轉發規則。 */
 export async function dispatchIncoming(msg: IncomingMessage, deps: DispatchDeps): Promise<void> {
   try {
@@ -451,13 +489,15 @@ export async function dispatchIncoming(msg: IncomingMessage, deps: DispatchDeps)
       return;
     }
     recordMetric("im_inbound_total", 1, { platform: deps.platform, dedup: "false" });
+    // P3 語音輸入：只有語音沒有文字時先轉文字，之後照常走技能（回覆仍是文字）。
+    const text = await resolveVoiceText(msg, deps);
     // P2 追蹤：一則收訊一條 trace，技能／轉發／失敗都掛在同一條上。
-    const traceId = startTrace(deps.platform, msg.chat, msg.fromId, msg.text);
+    const traceId = startTrace(deps.platform, msg.chat, msg.fromId, text);
     await withTrace(traceId, async () => {
       try {
-        await runCommand(msg.text, msg.chat, msg.fromId, deps);
-        await runSkills(msg.text, msg.chat, msg.fromName, msg.fromId, deps, msg.images, msg.location);
-        await runForwardRules(msg.text, msg.chat, msg.fromName, msg.chatName, deps);
+        await runCommand(text, msg.chat, msg.fromId, deps);
+        await runSkills(text, msg.chat, msg.fromName, msg.fromId, deps, msg.images, msg.location);
+        await runForwardRules(text, msg.chat, msg.fromName, msg.chatName, deps);
       } finally {
         finishTrace();
       }
@@ -572,7 +612,7 @@ export async function dispatchSkillTask(job: ScheduledJob, deps: DispatchDeps): 
     saveState: async (patch) => {
       deps.saveTaskState(job.id, { ...(ref.state ?? {}), ...patch });
     },
-    reply: (t) => deps.replyTo(chat, t),
+    reply: (t) => replyWithFallback(deps, chat, t, ""),
     sendImage: async (source, filename) => {
       try {
         await deps.sendMedia(chat, source, "image", filename);
@@ -651,7 +691,7 @@ async function runMatchedSkill(
       config: skill.config,
       ...(images && images.length > 0 ? { images } : {}),
       ...(location ? { location } : {}),
-      reply: (t) => deps.replyTo(chat, t),
+      reply: (t) => replyWithFallback(deps, chat, t, fromName),
       sendImage: async (source, filename) => {
         try {
           await deps.sendMedia(chat, source, "image", filename);
@@ -708,7 +748,7 @@ async function runMatchedSkill(
     });
     // 錯誤回覆本身也要保護：回覆失敗不可擊倒後續技能與轉發規則。
     try {
-      await deps.replyTo(chat, `技能「${def.name}」執行失敗：${redactText(message)}`);
+      await replyWithFallback(deps, chat, `技能「${def.name}」執行失敗：${redactText(message)}`, fromName);
     } catch (replyError) {
       logger.error("技能錯誤回覆失敗", {
         skill: skill.id,

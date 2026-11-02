@@ -13,6 +13,7 @@ import { watchOptionsToCron } from "../skills/watch.js";
 import type { WatchOptions } from "../skills/types.js";
 import { dispatchIncoming, dispatchSkillTask, type DispatchDeps } from "../messaging/dispatch.js";
 import { chunkReplyText } from "../messaging/text.js";
+import { withMentions } from "../messaging/mentions.js";
 import { resolveLocalMediaPath } from "../messaging/media.js";
 import { fetchBuffer } from "../net.js";
 import { fetchWithLimits } from "../net.js";
@@ -22,6 +23,7 @@ import {
   type FlexInput,
   type IMessagingService,
   type IncomingImage,
+  type IncomingAudio,
   type IncomingMessage,
   type LocationInput,
   type QueuedSend,
@@ -31,6 +33,8 @@ import {
 
 /** 收到圖片轉 base64 的上限（LLM 請求體限制；超過就略過附件）。 */
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+/** 語音下載大小上限（STT 請求體限制）。 */
+const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
 
 /** 取 JSON（Bot API 包一層 TgApiResult）。 */
 async function fetchJson<T>(url: string): Promise<T> {
@@ -87,6 +91,9 @@ export interface TgUpdate {
     photo?: Array<{ file_id?: string; file_unique_id?: string; width?: number; height?: number }>;
     /** 位置訊息。 */
     location?: { latitude?: number; longitude?: number };
+    /** P3：語音訊息（voice 為 ogg/opus；audio 為 mp3/m4a 等）。 */
+    voice?: { file_id?: string; mime_type?: string; duration?: number };
+    audio?: { file_id?: string; mime_type?: string; duration?: number; file_name?: string };
   };
 }
 
@@ -108,7 +115,9 @@ export function normalizeTelegramUpdate(update: TgUpdate): IncomingMessage | nul
     rawLoc && Number.isFinite(rawLoc.latitude) && Number.isFinite(rawLoc.longitude)
       ? { latitude: Number(rawLoc.latitude), longitude: Number(rawLoc.longitude) }
       : undefined;
-  if (!text && !photo?.file_id && !location) return null;
+  // P3：純語音（voice／audio）也要收，dispatch 會轉成文字再走技能。
+  const hasVoice = Boolean(msg.voice?.file_id || msg.audio?.file_id);
+  if (!text && !photo?.file_id && !location && !hasVoice) return null;
   const chat = String(msg.chat.id);
   const fromId = String(msg.from.id);
   const fromName = msg.from.username
@@ -316,6 +325,15 @@ export class TelegramService implements IMessagingService {
       if (image) msg.images = [image];
     }
 
+    // P3 語音訊息：voice（ogg/opus）或 audio（mp3/m4a）→ 下載轉 base64 給 STT。
+    const voice = update.message?.voice;
+    const audioFile = update.message?.audio;
+    const audioRef = voice?.file_id ? { id: voice.file_id, mime: voice.mime_type || "audio/ogg" } : audioFile?.file_id ? { id: audioFile.file_id, mime: audioFile.mime_type || "audio/mpeg" } : null;
+    if (audioRef) {
+      const audio = await this.fetchTelegramAudio(audioRef.id, audioRef.mime);
+      if (audio) msg.audio = audio;
+    }
+
     recordMessage({
       time: new Date().toISOString(),
       fromMid: msg.fromId,
@@ -346,6 +364,29 @@ export class TelegramService implements IMessagingService {
       return { base64: buf.toString("base64"), mimeType: "image/jpeg" };
     } catch (error) {
       logger.warn("下載 Telegram 圖片失敗", { error: error instanceof Error ? error.message : String(error) });
+      return null;
+    }
+  }
+
+  /** 下載 Telegram 語音（getFile → file_path → bytes），失敗回 null。 */
+  private async fetchTelegramAudio(fileId: string, mimeType: string): Promise<IncomingAudio | null> {
+    const token = config.telegram.botToken?.trim();
+    if (!token) return null;
+    try {
+      const info = await fetchJson<TgApiResult<{ file_path?: string }>>(
+        `https://api.telegram.org/bot${encodeURIComponent(token)}/getFile?file_id=${encodeURIComponent(fileId)}`,
+      );
+      const filePath = info.result?.file_path;
+      if (!filePath) return null;
+      const buf = await fetchBuffer(
+        `https://api.telegram.org/file/bot${encodeURIComponent(token)}/${filePath}`,
+        undefined,
+        { timeoutMs: 20_000, maxBytes: MAX_AUDIO_BYTES },
+      );
+      if (buf.length === 0 || buf.length > MAX_AUDIO_BYTES) return null;
+      return { base64: buf.toString("base64"), mimeType };
+    } catch (error) {
+      logger.warn("下載 Telegram 語音失敗", { error: error instanceof Error ? error.message : String(error) });
       return null;
     }
   }
@@ -485,7 +526,8 @@ export class TelegramService implements IMessagingService {
     if (input.sticker) await this.sendSticker(id, input.sticker);
     if (input.location) await this.sendLocation(id, input.location);
     if (input.flex) await this.sendFlex(id, input.flex);
-    if (input.text) await this.rawSendText(id, input.text);
+    // P3 群組 @：純文字 @username（群組內 Telegram 會自動連字並通知）。
+    if (input.text) await this.rawSendText(id, withMentions("telegram", input.text, input.mentions));
 
     recordSend({
       time: new Date().toISOString(),
