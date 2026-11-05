@@ -431,6 +431,7 @@ export const DICT: Record<string, Entry> = {
   fix_alert: { zh: "設定頁填 SMTP 或告警 webhook，否則故障沒人知道", en: "Set SMTP or alert webhooks on the settings page", ja: "設定ページで SMTP か通知 webhook を設定" },
   fix_outbound: { zh: "白名單／封鎖清單用 OUTBOUND_* 環境變數調整；先觀察再強制", en: "Tune via OUTBOUND_* env vars; observe before enforcing", ja: "OUTBOUND_* 環境変数で調整。強制前に観察を" },
   fix_inbound: { zh: "傳一則訊息再看；傳了還沒有，檢查 webhook URL 與 token", en: "Send a message and recheck; otherwise verify webhook URL and token", ja: "メッセージを送って再確認。無ければ webhook URL とトークンを確認" },
+  fix_inbound_longconn: { zh: "此平台走長連線（沒有 webhook）：確認已登入且沒有掉線（Console 看平台狀態）；個人帳號模式請確認登入有效", en: "This platform uses a long connection (no webhook): check it is logged in and not dropped (platform status in Console)", ja: "このプラットフォームは長接続（webhook なし）：ログイン維持と接続状態を確認（Console のプラットフォーム状態）" },
   nav_schedules: { zh: "排程中心", en: "Schedules", ja: "スケジュール" },
   nav_hooks: { zh: "外部推播入口", en: "Push gateway", ja: "外部プッシュ入口" },
   hooks_title: { zh: "外部推播入口", en: "Push gateway", ja: "外部プッシュ入口" },

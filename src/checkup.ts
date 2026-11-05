@@ -6,6 +6,9 @@ import { listServices } from "./messaging/services.js";
 import { listSkills } from "./skills/index.js";
 import { findTriggerConflicts } from "./messaging/dispatch.js";
 import { getOutboundBlocked, getOutboundStats, isHostDegraded } from "./net.js";
+import { getStore } from "./store/index.js";
+import { getMessages } from "./messages.js";
+import { formatInTz } from "./time.js";
 import { isLang, tr } from "./i18n.js";
 
 /**
@@ -191,16 +194,58 @@ function checkOutbound(): CheckItem {
   };
 }
 
-function checkInbound(): CheckItem {
-  const plats = listServices().map((s) => s.platform);
-  const lastByPlatform = new Map<string, string>();
+/**
+ * 這個 chatType 屬於哪個平台。
+ * - 有 platform 欄位 → 直接用（統一訊息層的新寫法）。
+ * - chatType 是平台名 → 用它（其他平台一直這樣寫）。
+ * - chatType 是 USER/GROUP/ROOM → 舊版 LINE 個人帳號模式寫的（那時沒有 platform 欄位）→ 算 line。
+ */
+function platformOfRow(row: { platform?: unknown; chatType?: unknown }): string {
+  const p = typeof row.platform === "string" ? row.platform.trim().toLowerCase() : "";
+  if (p) return p;
+  const t = typeof row.chatType === "string" ? row.chatType.trim().toLowerCase() : "";
+  if (t === "user" || t === "group" || t === "room") return "line";
+  return t;
+}
+
+/** 各平台最近一次進站時間（統一訊息層 + webhook 落地檔，兩邊取較新的）。 */
+function lastInboundByPlatform(): Map<string, number> {
+  const last = new Map<string, number>();
+  const put = (platform: string, iso: string): void => {
+    if (!platform) return;
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t)) return;
+    const cur = last.get(platform) ?? 0;
+    if (t > cur) last.set(platform, t);
+  };
+  // 1a) 統一訊息層的記憶體 ring（未開 MESSAGES_PERSIST 時也只有這裡有資料）
+  try {
+    for (const row of getMessages()) {
+      if (typeof row.time !== "string") continue;
+      put(platformOfRow(row), row.time);
+    }
+  } catch (error) {
+    logger.warn("健檢讀取記憶體訊息失敗", { error: String(error) });
+  }
+  // 1b) 統一訊息層的落地資料（開了 MESSAGES_PERSIST 才會有；重啟後仍可查歷史）
+  try {
+    const rows = getStore().query("messages", { limit: 500, orderDesc: true });
+    for (const row of rows) {
+      const time = typeof row.time === "string" ? row.time : "";
+      if (!time) continue;
+      put(platformOfRow(row as { platform?: unknown; chatType?: unknown }), time);
+    }
+  } catch (error) {
+    logger.warn("健檢讀取統一訊息層失敗", { error: String(error) });
+  }
+  // 2) webhook 落地檔（只有走 webhook 的平台會寫）
   try {
     if (existsSync(config.inboundQueuePath)) {
       const lines = readFileSync(config.inboundQueuePath, "utf8").split("\n").filter(Boolean);
       for (const line of lines.slice(-300)) {
         try {
           const r = JSON.parse(line) as { time?: unknown; platform?: unknown };
-          if (typeof r.time === "string" && typeof r.platform === "string") lastByPlatform.set(r.platform, r.time);
+          if (typeof r.time === "string" && typeof r.platform === "string") put(r.platform.trim().toLowerCase(), r.time);
         } catch {
           // 壞行跳過
         }
@@ -209,18 +254,41 @@ function checkInbound(): CheckItem {
   } catch (error) {
     logger.warn("健檢讀取進站紀錄失敗", { error: String(error) });
   }
-  const fmt = (iso: string): string => iso.slice(0, 16).replace("T", " ");
+  return last;
+}
+
+/** 該平台是不是走長連線（沒有 webhook URL 可查）。 */
+function isLongConnectionPlatform(platform: string): boolean {
+  if (platform === "line") return config.line.mode !== "official";
+  if (platform === "whatsapp") return config.whatsapp.mode === "web";
+  if (platform === "discord") return true;
+  return false;
+}
+
+function checkInbound(): CheckItem {
+  const plats = listServices().map((s) => s.platform);
+  const lastByPlatform = lastInboundByPlatform();
+  // 依設定時區顯示（原本直接切 UTC 字串，會比本地時間少 8 小時）。
+  const fmt = (ms: number): string => formatInTz(new Date(ms)).slice(0, 16).replace("T", " ");
   const unseen = plats.filter((p) => !lastByPlatform.has(p));
   const detail =
     plats.length === 0
       ? tr(lang(), "ck_no_platform")
-      : plats.map((p) => `${p}：${lastByPlatform.has(p) ? fmt(lastByPlatform.get(p) as string) : tr(lang(), "ck_no_inbound")}`).join("；");
+      : plats.map((p) => `${p}：${lastByPlatform.has(p) ? fmt(lastByPlatform.get(p) as number) : tr(lang(), "ck_no_inbound")}`).join("；");
+  // 修法提示：長連線平台與 webhook 平台不一樣（長連線沒有 webhook URL 可查）。
+  const longConn = unseen.filter((p) => isLongConnectionPlatform(p));
+  const fix =
+    unseen.length === 0
+      ? tr(lang(), "fix_inbound")
+      : longConn.length > 0
+        ? tr(lang(), "fix_inbound_longconn")
+        : tr(lang(), "fix_inbound");
   return {
     id: "inbound",
     ok: unseen.length === 0,
     name: tr(lang(), "ck_inbound"),
     detail,
-    fix: tr(lang(), "fix_inbound"),
+    fix,
   };
 }
 

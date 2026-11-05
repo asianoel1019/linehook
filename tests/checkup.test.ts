@@ -122,6 +122,45 @@ describe("P1-1 設定健檢", () => {
     }
   });
 
+  it("健檢的進站檢查：長連線平台（無 webhook）也能顯示最近進站時間", async () => {
+    // 寫一則 LINE 個人模式風格的訊息（chatType=line）到統一訊息層
+    const { recordMessage } = await import("../src/messages.js");
+    recordMessage({
+      time: new Date().toISOString(),
+      fromMid: "u-test",
+      fromName: "Tester",
+      chatMid: "c-test",
+      chatType: "line",
+      platform: "line",
+      text: "測試訊息",
+    });
+    const res = await fetch(`${base}/health/check.json`, { headers: auth });
+    const body = (await res.json()) as { items: Array<{ id: string; ok: boolean; detail: string; fix: string }> };
+    const inbound = body.items.find((i) => i.id === "inbound");
+    assert.ok(inbound);
+    assert.ok(inbound.detail.includes("line"), `detail 應含 line：${inbound.detail}`);
+    assert.ok(!inbound.detail.includes("無進站"), `不該顯示無紀錄：${inbound.detail}`);
+    // 時間應依設定時區顯示（不是 UTC 原始字串）
+    assert.ok(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(inbound.detail), `時間格式：${inbound.detail}`);
+  });
+
+  it("健檢的進站檢查：舊資料的 USER/GROUP/ROOM chatType 相容為 line", async () => {
+    const { recordMessage } = await import("../src/messages.js");
+    recordMessage({
+      time: new Date().toISOString(),
+      fromMid: "u-legacy",
+      fromName: "Legacy",
+      chatMid: "c-legacy",
+      chatType: "GROUP", // 舊版 LINE 個人模式的寫法
+      text: "舊格式",
+    });
+    const res = await fetch(`${base}/health/check.json`, { headers: auth });
+    const body = (await res.json()) as { items: Array<{ id: string; detail: string }> };
+    const inbound = body.items.find((i) => i.id === "inbound");
+    assert.ok(inbound);
+    assert.ok(inbound.detail.includes("line"), `舊 chatType 應算 line：${inbound.detail}`);
+  });
+
   it("GET /traces.json：鏈路追蹤清單", async () => {
     const res = await fetch(`${base}/traces.json?limit=5`, { headers: auth });
     assert.equal(res.status, 200);

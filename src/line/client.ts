@@ -716,7 +716,9 @@ export class LineService implements IMessagingService {
         fromMid: message.from.id,
         fromName,
         chatMid: chat,
-        chatType: String(message.to.type ?? ""),
+        // chatType 統一用平台名（其他平台也都是這樣）；舊的 USER/GROUP/ROOM 只存在於歷史資料。
+        chatType: "line",
+        platform: "line",
         text,
       });
 
