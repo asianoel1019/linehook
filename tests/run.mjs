@@ -17,11 +17,16 @@ const concurrency = Number(process.env.TEST_CONCURRENCY) > 0 ? Number(process.en
 const alias = new URL("../alias.mjs", import.meta.url).href;
 
 const args = process.argv.slice(2);
-const files = args.length > 0 ? args : ["tests/*.test.ts"];
+// --coverage：加上覆蓋率採集（coverage-gate.mjs 用；走同一個 harness 確保
+// 環境（STORAGE_KIND、併發度）與一般測試完全一致——先前 gate 自己 spawn node，
+// 少了 STORAGE_KIND=jsonl 與併發上限，導致「npm test 過、coverage 掛」）。
+const withCoverage = args.includes("--coverage");
+const files = args.filter((a) => a !== "--coverage");
+const coverageArgs = withCoverage ? ["--experimental-test-coverage"] : [];
 
 const result = spawnSync(
   process.execPath,
-  ["--import", "tsx", "--import", alias, "--test", `--test-concurrency=${concurrency}`, ...files],
+  ["--import", "tsx", "--import", alias, "--test", `--test-concurrency=${concurrency}`, ...coverageArgs, ...(files.length > 0 ? files : ["tests/*.test.ts"])],
   {
     stdio: "inherit",
     env,

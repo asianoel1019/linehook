@@ -37,9 +37,27 @@ function write(level: LogLevel, message: string, meta?: Record<string, unknown>)
   else console.log(line);
 
   // C7：寫入失敗要回報（至少 stderr），不要空 callback 吞掉。
+  // 順手確保目錄存在：部署時 logs/ 可能還沒建（或被清掉），不該每行都 ENOENT 噴錯。
+  ensureLogDir();
   appendFile(config.logFile, `${line}\n`, (error) => {
-    if (error) console.error(`[logger] 寫入 log 檔失敗: ${String(error)}`);
+    if (error) {
+      logDirReady = false; // 下次寫入時重建目錄
+      console.error(`[logger] 寫入 log 檔失敗: ${String(error)}`);
+    }
   });
+}
+
+let logDirReady = false;
+
+/** 確保 log 檔的目錄存在（成功後記住，避免每次寫入都 mkdir）。 */
+function ensureLogDir(): void {
+  if (logDirReady) return;
+  try {
+    mkdirSync(dirname(config.logFile), { recursive: true });
+    logDirReady = true;
+  } catch {
+    // 建不了就讓 appendFile 去報錯（下面統一處理）
+  }
 }
 
 export const logger = {
