@@ -70,11 +70,12 @@ const entry = (id: string, extra: Record<string, unknown> = {}) => ({
   id, enabled: true, trigger: "", allowedUsers: [], config: {}, ...extra,
 });
 
-const hit = (skillId: string, trigger: string): TriggerHit => ({
+const hit = (skillId: string, trigger: string, primary = true): TriggerHit => ({
   skill: entry(skillId),
   def: undefined as never,
   trigger,
   args: "",
+  primary,
   usage: false,
 });
 
@@ -84,6 +85,14 @@ describe("selectTriggerHit", () => {
     assert.equal(selectTriggerHit([hit("countdown", "倒數計時"), hit("remind", "倒數")])?.skill.id, "countdown");
     assert.equal(selectTriggerHit([hit("a", "換算"), hit("b", "換算")])?.skill.id, "a");
     assert.equal(selectTriggerHit([]), null);
+  });
+
+  it("同長度時主觸發詞贏別名（順序不論）", () => {
+    // 用者的觸發詞（主）vs 別人的程式碼別名 → 主觸發詞勝出
+    assert.equal(selectTriggerHit([hit("rss", "摘要", false), hit("summarize", "摘要", true)])?.skill.id, "summarize");
+    assert.equal(selectTriggerHit([hit("summarize", "摘要", true), hit("rss", "摘要", false)])?.skill.id, "summarize");
+    // 兩個都是別名 → 仍取順序第一
+    assert.equal(selectTriggerHit([hit("x", "摘要", false), hit("y", "摘要", false)])?.skill.id, "x");
   });
 });
 
@@ -116,14 +125,25 @@ describe("findTriggerConflicts", () => {
     assert.deepEqual(findTriggerConflicts([
       { id: "a", enabled: true, words: ["換算"] },
       { id: "b", enabled: true, words: ["換算"] },
-    ]), [{ word: "換算", kind: "exact", owners: ["a", "b"] }]);
+    ]), [{ word: "換算", kind: "exact", owners: ["a", "b"], ownerPrimary: { a: true, b: true } }]);
   });
 
   it("互為前綴（長短不拘）", () => {
     assert.deepEqual(findTriggerConflicts([
       { id: "remind", enabled: true, words: ["倒數"] },
       { id: "countdown", enabled: true, words: ["倒數計時"] },
-    ]), [{ word: "倒數計時", kind: "prefix", owners: ["countdown", "remind"] }]);
+    ]), [{ word: "倒數計時", kind: "prefix", owners: ["countdown", "remind"], ownerPrimary: { countdown: true, remind: true } }]);
+  });
+
+  it("標示每個 owner 是觸發詞還是別名（使用者改過觸發詞仍撞詞的原因）", () => {
+    const conflicts = findTriggerConflicts([
+      { id: "summarize", enabled: true, words: ["摘要"] },        // 主觸發詞
+      { id: "rss", enabled: true, words: ["rss", "摘要"] },     // 別名撞上
+    ]);
+    assert.equal(conflicts.length, 1);
+    assert.equal(conflicts[0]?.word, "摘要");
+    assert.equal(conflicts[0]?.ownerPrimary?.summarize, true);
+    assert.equal(conflicts[0]?.ownerPrimary?.rss, false);
   });
 
   it("停用、空詞、同一技能內部不算", () => {
@@ -147,10 +167,20 @@ describe("P0 E2E：撞車與遮蔽", () => {
     assert.match(d.replies[0], /已紀錄|每年/);
   });
 
-  it("換算只回一次（順序第一者勝）", async () => {
+  it("同詞只回一次（unit 的主觸發詞「換算」贏 exchange-rate 的別名「換算」）", async () => {
     const d = makeDeps();
     config.skills = [entry("exchange-rate"), entry("unit")];
     await dispatchIncoming(msg("阿寶請幫忙 換算 1 km", { messageId: "arb-2" }), d);
+    assert.equal(d.replies.length, 1, "同詞只該回一次");
+    // unit 的主觸發詞是「換算」；exchange-rate 的「換算」只是程式碼別名 → 主觸發詞優先
+    assert.match(d.replies[0], /來源單位|公尺|公里/);
+  });
+
+  it("同為主觸發詞時取設定順序第一", async () => {
+    const d = makeDeps();
+    // 兩支技能的主觸發詞都被設成「換算」→ 順序第一者勝（維持 P0 契約）
+    config.skills = [entry("exchange-rate", { trigger: "換算" }), entry("unit", { trigger: "換算" })];
+    await dispatchIncoming(msg("阿寶請幫忙 換算 1 km", { messageId: "arb-2b" }), d);
     assert.equal(d.replies.length, 1);
     assert.match(d.replies[0], /用法|匯率/);
   });

@@ -195,6 +195,8 @@ export interface SkillDecision {
   outcome: SkillOutcome;
   /** 命中的觸發詞（hit 時才有）。 */
   trigger?: string;
+  /** 命中的詞是否為該技能的「主觸發詞」（false＝只是別名）。 */
+  primary?: boolean;
   /** 觸發詞之後的參數（hit/layer2 時有）。 */
   args?: string;
   /** 人類可讀原因（miss/blocked 時為 zh 說明）。 */
@@ -230,12 +232,13 @@ export function matchSkillEntry(
   const triggers = [primary, ...(def.triggerAliases ?? [])].filter(Boolean);
   const matched = triggers.find((t) => prefix.rest.startsWith(t));
   if (!matched) return { skill, def, outcome: "miss", reason: "觸發詞不符" };
+  const isPrimary = matched === primary;
 
   const args = prefix.rest.slice(matched.length).trim();
   if (/^[?？]$/.test(args) || /^(help|用法|說明)$/i.test(args)) {
-    return { skill, def, outcome: "layer2-usage", trigger: matched, args };
+    return { skill, def, outcome: "layer2-usage", trigger: matched, primary: isPrimary, args };
   }
-  return { skill, def, outcome: "hit", trigger: matched, args };
+  return { skill, def, outcome: "hit", trigger: matched, primary: isPrimary, args };
 }
 
 /** 前綴命中的候選（供最長匹配仲裁；any 模式走另一條路不參與）。 */
@@ -244,6 +247,8 @@ export interface TriggerHit {
   def: SkillDefinition;
   trigger: string;
   args: string;
+  /** 命中的詞是主觸發詞（true）還是別名（false）。 */
+  primary: boolean;
   /** layer2 用法查詢（命中但只顯示用法）。 */
   usage: boolean;
 }
@@ -285,6 +290,7 @@ export function scanTriggerHits(
       def,
       trigger: decision.trigger ?? "",
       args: decision.args ?? "",
+      primary: decision.primary !== false,
       usage: decision.outcome === "layer2-usage",
     };
     if (effectiveMode(skill, def) === "any") anyHits.push(hit);
@@ -294,13 +300,25 @@ export function scanTriggerHits(
 }
 
 /**
- * 最長匹配仲裁：觸發詞最長者勝出；同長度取設定順序第一個。
+ * 最長匹配仲裁：觸發詞最長者勝出；同長度時「主觸發詞」優先於「別名」
+ * （使用者主動設定的觸發詞代表這技能的門面，別名只是程式碼補充詞）；
+ * 同長度且同性質（都是主觸發詞或都是別名）才取設定順序第一個。
  * 解掉「倒數計時被倒數攔走」這類跨技能前綴遮蔽；同詞重複（換算×2）只執行其一。
  */
 export function selectTriggerHit(prefixHits: TriggerHit[]): TriggerHit | null {
   let best: TriggerHit | null = null;
   for (const hit of prefixHits) {
-    if (!best || hit.trigger.length > best.trigger.length) best = hit;
+    if (!best) {
+      best = hit;
+      continue;
+    }
+    if (hit.trigger.length > best.trigger.length) {
+      best = hit;
+      continue;
+    }
+    if (hit.trigger.length < best.trigger.length) continue;
+    // 同長度：主觸發詞贏別名
+    if (hit.primary && !best.primary) best = hit;
   }
   return best;
 }
@@ -309,32 +327,47 @@ export interface TriggerConflict {
   word: string;
   kind: "exact" | "prefix";
   owners: string[];
+  /** 每個 owner 命中這個詞的方式：true＝主觸發詞、false＝別名（UI 要說清楚，否則使用者搞不懂自己明明改過了）。 */
+  ownerPrimary: Record<string, boolean>;
+}
+
+export interface ConflictSkillInput {
+  id: string;
+  enabled: boolean;
+  /** 詞清單：第一個是主觸發詞，後面是別名。 */
+  words: string[];
 }
 
 /**
  * 觸發詞衝突偵測（純函式；供 /skills 設定頁警示）。
  * 只看已啟用的技能：完全相同 → exact；互為前綴 → prefix；同一技能內部不算。
  */
-export function findTriggerConflicts(
-  skills: Array<{ id: string; enabled: boolean; words: string[] }>,
-): TriggerConflict[] {
+export function findTriggerConflicts(skills: ConflictSkillInput[]): TriggerConflict[] {
   const active = skills.filter((s) => s.enabled);
   const byWord = new Map<string, Set<string>>();
+  const ownerPrimary: Record<string, Record<string, boolean>> = {};
   for (const s of active) {
-    for (const raw of s.words) {
+    s.words.forEach((raw, index) => {
       const w = raw.trim();
-      if (!w) continue;
+      if (!w) return;
       const set = byWord.get(w) ?? new Set<string>();
       set.add(s.id);
       byWord.set(w, set);
-    }
+      const perWord = (ownerPrimary[w] ??= {});
+      // 同一個詞對同一技能而言：索引 0 是主觸發詞；重複出現時以第一個為準。
+      if (perWord[s.id] === undefined) perWord[s.id] = index === 0;
+    });
   }
   const out: TriggerConflict[] = [];
   const words = [...byWord.keys()];
   // 完全相同：同一詞被多個技能宣告
   for (const w of words) {
     const owners = [...(byWord.get(w) ?? [])].sort();
-    if (owners.length >= 2) out.push({ word: w, kind: "exact", owners });
+    if (owners.length >= 2) {
+      const perWord: Record<string, boolean> = {};
+      for (const o of owners) perWord[o] = ownerPrimary[w]?.[o] !== false;
+      out.push({ word: w, kind: "exact", owners, ownerPrimary: perWord });
+    }
   }
   // 互為前綴：不同詞，一個是另一個的開頭
   const seen = new Set<string>();
@@ -348,7 +381,11 @@ export function findTriggerConflicts(
       const key = [a, b].sort().join("|");
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ word: a.length >= b.length ? a : b, kind: "prefix", owners });
+      const perWord: Record<string, boolean> = {};
+      for (const o of owners) {
+        perWord[o] = (ownerPrimary[a]?.[o] !== false) || (ownerPrimary[b]?.[o] !== false);
+      }
+      out.push({ word: a.length >= b.length ? a : b, kind: "prefix", owners, ownerPrimary: perWord });
     }
   }
   return out.sort((x, y) => x.word.localeCompare(y.word, "zh-Hant"));

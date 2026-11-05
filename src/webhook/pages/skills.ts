@@ -30,7 +30,7 @@ export function renderSkillsHtml() {
         ruleKey: skill.ruleKey ?? "rules",
     }));
     // 觸發詞衝突偵測：只看已啟用技能的有效觸發詞（自訂覆寫優先）＋別名
-    const conflictsBySkill: Record<string, Array<{ word: string; kind: string; others: string[] }>> = {};
+    const conflictsBySkill: Record<string, Array<{ word: string; kind: string; others: string[]; ownerPrimary: Record<string, boolean> }>> = {};
     {
       const input = listSkills()
         .filter((def) => def.triggerMode !== "any")
@@ -45,7 +45,7 @@ export function renderSkillsHtml() {
       for (const c of findTriggerConflicts(input)) {
         for (const owner of c.owners) {
           const list = conflictsBySkill[owner] ?? [];
-          list.push({ word: c.word, kind: c.kind, others: c.owners.filter((o) => o !== owner) });
+          list.push({ word: c.word, kind: c.kind, others: c.owners.filter((o) => o !== owner), ownerPrimary: c.ownerPrimary });
           conflictsBySkill[owner] = list;
         }
       }
@@ -555,9 +555,13 @@ ${schedulesTabBody()}
       warnBox.textContent = T("trigger_conflict") + "：" + conflicts.map(function (c) {
         var names = c.others.map(function (id) {
           var d = skillDef(id);
-          return d ? d.name : id;
+          var name = d ? d.name : id;
+          // 標示對方是用「觸發詞」還是「別名」撞的（否則使用者會以為自己改過了觸發詞）。
+          var primary = c.ownerPrimary ? c.ownerPrimary[id] !== false : true;
+          return name + (primary ? "（觸發詞）" : "（別名）");
         });
-        return "「" + c.word + "」↔ " + names.join("、");
+        var mine = c.ownerPrimary ? c.ownerPrimary[def.id] !== false : true;
+        return "「" + c.word + "」" + (mine ? "（本技能的觸發詞）" : "（本技能的別名）") + " ↔ " + names.join("、");
       }).join("；") + "。" + T("trigger_conflict_hint");
       title.appendChild(warnBox);
     }

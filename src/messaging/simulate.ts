@@ -166,7 +166,14 @@ export function simulateDispatch(input: SimulateInput): SimulateResult {
           detail: `Layer 2：${decision.trigger}＋問號 → 回覆用法說明`,
         });
         if (def) {
-          prefixHits.push({ skill, def, trigger: decision.trigger ?? "", args: decision.args ?? "", usage: true });
+          prefixHits.push({
+            skill,
+            def,
+            trigger: decision.trigger ?? "",
+            args: decision.args ?? "",
+            primary: decision.primary !== false,
+            usage: true,
+          });
         }
         continue;
       }
@@ -184,6 +191,7 @@ export function simulateDispatch(input: SimulateInput): SimulateResult {
           def,
           trigger: decision.trigger ?? "",
           args: decision.args ?? "",
+          primary: decision.primary !== false,
           usage: false,
         });
       }

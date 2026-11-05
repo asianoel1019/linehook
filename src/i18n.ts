@@ -382,7 +382,7 @@ export const DICT: Record<string, Entry> = {
   lbl_expand: { zh: "展開 / 收起設定", en: "Expand / collapse", ja: "設定を展開 / 折りたたむ" },
   skill_trigger_any: { zh: "此技能會檢查每一則收到的訊息（不需觸發詞）", en: "This skill checks every incoming message (no trigger word)", ja: "このスキルは受信メッセージごとに確認します（トリガー不要）" },
   trigger_conflict: { zh: "觸發詞重複", en: "Trigger conflict", ja: "トリガー重複" },
-  trigger_conflict_hint: { zh: "與以下技能撞詞，同時啟用只會執行觸發詞最長者；建議改名或停用其中一個", en: "Overlaps with the skills below; only the longest trigger runs. Rename or disable one.", ja: "以下のスキルと重複しています。同時有効化すると最長のトリガーのみ実行されます。改名か無効化を推奨。" },
+  trigger_conflict_hint: { zh: "技能的自訂觸發詞與程式碼別名都算數；同時啟用只會執行最長者（觸發詞優先於別名），建議改名或停用其中一個", en: "Both a skill's custom trigger and its code aliases count; only the longest match runs (primary trigger beats alias). Rename or disable one.", ja: "skills のカスタムトリガーとコード上のエイリアスの両方が対象。最も長い方のみ実行（主トリガーは別名より優先）。改名か無効化を推奨。" },
   lbl_last_run: { zh: "最近執行", en: "Last run", ja: "最終実行" },
   lbl_consec_fails: { zh: "連續失敗", en: "Consecutive failures", ja: "連続失敗" },
   lbl_usage_7d: { zh: "近7日", en: "Last 7d", ja: "直近7日" },
