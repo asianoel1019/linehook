@@ -229,8 +229,22 @@ Telegram（`TELEGRAM_*`）、WhatsApp（`WHATSAPP_*`，含 Cloud／個人帳號�
 
 發送端點共用驗證（HMAC／URL Token／API Token）；未啟用的平台回 `503`。
 
-### `POST /webhook`（以 LINE 為例，其他平台同格式）
+### 跨專案通知閘道（`POST /hook/<名稱>`）
 
+讓**其他專案**（CI、監控、自動化）把事件推成你的 IM 訊息：每個 hook 自帶金鑰與簽章、範本渲染、降噪條件、速率上限、投遞重試與連敗告警，也可直接觸發某支技能。
+
+```bash
+curl -X POST https://你的主機/hook/ci-failed \
+  -H 'Content-Type: application/json' \
+  -H 'X-Hook-Timestamp: <epoch 秒>' -H 'X-Hook-Nonce: <唯一>' \
+  -H 'X-Hook-Signature: <hex(HMAC("{ts}.{nonce}.{body}", secret))>' \
+  -d '{"repo":"proj/api","pr":4213,"reason":"3 tests failed"}'
+```
+
+- 速查（一頁貼上用）：[`docs/integration-quickref.md`](docs/integration-quickref.md)
+- 完整說明：[`docs/integration.md`](docs/integration.md)
+
+### `POST /webhook`（以 LINE 為例，其他平台同格式）
 ```http
 POST /webhook HTTP/1.1
 Content-Type: application/json
@@ -806,6 +820,7 @@ docs/IM-setup.md        LINE / Telegram / WhatsApp / Teams / Discord 申請與�
 docs/voice-input.md     語音輸入（STT）說明書：開啟方式、供應商、平台支援、除錯
 docs/skill-author-guide.md 技能作者教學（寫技能、測試、打包分享）
 docs/integration.md     跨專案通知閘道：讓其他專案推播事件到你的 IM（含簽章與範本）
+docs/integration-quickref.md 跨專案通知閘道・一頁速查（照著貼即可接上）
 tests/                  單元測試（`npm test`）
 .github/workflows/ci.yml CI（typecheck / lint / build / test / coverage / secret scan / audit gate / docker build）
 .github/scripts/secret-scan.mjs secret 掃描（零相依，可本機重跑）

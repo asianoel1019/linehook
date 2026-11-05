@@ -1,5 +1,8 @@
 # 跨專案通知閘道（Integration Guide）
 
+> **只想快速貼一條 curl？** 看 [`integration-quickref.md`](integration-quickref.md)（一頁速查）。
+> 這份是完整說明。
+
 讓**其他專案**把事件推送到你的 LINE／Telegram／WhatsApp／Teams／Discord。
 呼叫端不需要知道任何 IM 平台的細節：不用申請 token、不用處理訊息格式、不用管推播額度、不用重試。
 
