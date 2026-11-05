@@ -253,6 +253,10 @@ export interface SkillConfig {
   trigger: string;
   /** 允許的使用者/對話 ID 清單；空陣列 = 所有人。 */
   allowedUsers: string[];
+  /** 停用的內建別名（def.triggerAliases 的子集；空陣列 = 全部啟用）。 */
+  disabledAliases?: string[];
+  /** 使用者自訂追加的別名（與觸發詞同等有效）。 */
+  extraAliases?: string[];
   config: Record<string, string>;
 }
 

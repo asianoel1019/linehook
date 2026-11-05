@@ -239,6 +239,8 @@ const settingsSchema = z.object({
         enabled: z.boolean().default(false),
         trigger: z.string().default(""),
         allowedUsers: z.array(z.string()).default([]),
+        disabledAliases: z.array(z.string()).default([]),
+        extraAliases: z.array(z.string()).default([]),
         config: z.record(z.string(), z.string()).default({}),
       }),
     )
@@ -355,6 +357,8 @@ export function currentSettings(): EditableSettings {
       enabled: skill.enabled,
       trigger: skill.trigger,
       allowedUsers: [...(skill.allowedUsers ?? [])],
+      disabledAliases: [...(skill.disabledAliases ?? [])],
+      extraAliases: [...(skill.extraAliases ?? [])],
       config: { ...skill.config },
     })),
   };
@@ -458,6 +462,8 @@ function apply(settings: EditableSettings): void {
     enabled: skill.enabled,
     trigger: skill.trigger,
     allowedUsers: [...(skill.allowedUsers ?? [])],
+    disabledAliases: [...(skill.disabledAliases ?? [])],
+    extraAliases: [...(skill.extraAliases ?? [])],
     config: { ...skill.config },
   }));
   config.globalLlm = {

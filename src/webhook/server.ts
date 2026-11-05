@@ -1204,11 +1204,25 @@ export function createServer(line: IMessagingService): express.Express {
         const configOut: Record<string, string> = {};
         for (const [k, v] of Object.entries(config)) configOut[k] = String(v ?? "");
         const rawAllowed = Array.isArray(s.allowedUsers) ? s.allowedUsers : [];
+        // 別名設定：去空白、去重、上限（防手改請求灌爆）；停用別名即使不在內建清單也保留（無害，升級技能後仍有效）。
+        const cleanWords = (v: unknown): string[] => {
+          if (!Array.isArray(v)) return [];
+          const out: string[] = [];
+          for (const x of v) {
+            const w = String(x ?? "").trim();
+            if (!w || w.length > 24 || out.includes(w)) continue;
+            out.push(w);
+            if (out.length >= 30) break;
+          }
+          return out;
+        };
         return {
           id: typeof s.id === "string" ? s.id : "",
           enabled: s.enabled === true,
           trigger: typeof s.trigger === "string" ? s.trigger : "",
           allowedUsers: rawAllowed.map((u: unknown) => String(u ?? "").trim()).filter((u: string) => u.length > 0),
+          disabledAliases: cleanWords(s.disabledAliases),
+          extraAliases: cleanWords(s.extraAliases),
           config: configOut,
         };
       });

@@ -7,12 +7,14 @@ import { config } from "../src/config.js";
 import {
   dispatchIncoming,
   findTriggerConflicts,
+  matchSkillEntry,
   scanTriggerHits,
   selectTriggerHit,
   analyzeAssistantPrefix,
   type DispatchDeps,
   type TriggerHit,
 } from "../src/messaging/dispatch.js";
+import { effectiveTriggerWords } from "../src/skills/help.js";
 import { loadSkills } from "../src/skills/loader.js";
 import { listSkills, getSkill } from "../src/skills/index.js";
 import { simulateDispatch } from "../src/messaging/simulate.js";
@@ -269,5 +271,58 @@ describe("模擬器顯示仲裁", () => {
     const arb = r.stages.filter((s) => s.label === "仲裁");
     assert.equal(arb.length, 1);
     assert.match(arb[0].detail, /countdown/);
+  });
+});
+
+describe("別名開關＋自訂別名", () => {
+  it("停用的別名不再命中（rss 關掉「摘要」）", () => {
+    const text = "阿寶請幫忙 摘要 最新";
+    const prefix = analyzeAssistantPrefix(text, "阿寶", "zh");
+    const m = { text, chat: "c-trigger", fromMid: "u1" };
+    const off = matchSkillEntry(entry("rss", { disabledAliases: ["摘要"] }), getSkill("rss"), m, prefix, true);
+    assert.equal(off.outcome, "miss");
+    const on = matchSkillEntry(entry("rss"), getSkill("rss"), m, prefix, true);
+    assert.equal(on.outcome, "hit");
+    assert.equal(on.trigger, "摘要");
+    assert.equal(on.primary, false);
+  });
+
+  it("自訂別名與觸發詞一樣有效（rss 加「日報」）", () => {
+    const text = "阿寶請幫忙 日報";
+    const prefix = analyzeAssistantPrefix(text, "阿寶", "zh");
+    const d = matchSkillEntry(
+      entry("rss", { extraAliases: ["日報"] }),
+      getSkill("rss"),
+      { text, chat: "c-trigger", fromMid: "u1" },
+      prefix,
+      true,
+    );
+    assert.equal(d.outcome, "hit");
+    assert.equal(d.trigger, "日報");
+    assert.equal(d.primary, false);
+  });
+
+  it("關掉別名後掃描只剩一家、衝突偵測不再報", () => {
+    const text = "阿寶請幫忙 摘要 最新";
+    const prefix = analyzeAssistantPrefix(text, "阿寶", "zh");
+    const m = { text, chat: "c-trigger", fromMid: "u1" };
+    // 關掉前：兩家都命中
+    config.skills = [entry("summarize"), entry("rss")];
+    assert.equal(scanTriggerHits(config.skills, m, prefix, true).prefixHits.length, 2);
+    // 關掉後：只剩 summarize
+    config.skills = [entry("summarize"), entry("rss", { disabledAliases: ["摘要"] })];
+    const scan = scanTriggerHits(config.skills, m, prefix, true);
+    assert.equal(scan.prefixHits.length, 1);
+    assert.equal(selectTriggerHit(scan.prefixHits)?.skill.id, "summarize");
+    // 衝突偵測走有效詞：關掉前有 exact、關掉後消失
+    const words = (id: string, extra: Record<string, unknown> = {}) => ({
+      id,
+      enabled: true,
+      words: effectiveTriggerWords({ trigger: "", ...extra }, getSkill(id)!),
+    });
+    const before = findTriggerConflicts([words("summarize"), words("rss")]);
+    assert.ok(before.some((c) => c.word === "摘要" && c.kind === "exact"), "關掉前應有「摘要」exact 衝突");
+    const after = findTriggerConflicts([words("summarize"), words("rss", { disabledAliases: ["摘要"] })]);
+    assert.ok(!after.some((c) => c.word === "摘要"), "關掉後「摘要」不該再衝突");
   });
 });

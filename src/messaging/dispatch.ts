@@ -3,7 +3,7 @@ import { logger } from "../logger.js";
 import { recordSend } from "../stats.js";
 import { getState } from "../state.js";
 import { getSkill } from "../skills/index.js";
-import { effectiveMode, skillListText, skillUsageText } from "../skills/help.js";
+import { effectiveMode, effectiveAliases, skillListText, skillUsageText } from "../skills/help.js";
 import type { SkillContext, SkillTaskContext, SkillWatchView, WatchOptions } from "../skills/types.js";
 import type { Job as ScheduledJob, ScheduledJobView } from "../line/scheduler.js";
 import type { IncomingMessage, Platform, SendInput } from "./types.js";
@@ -229,7 +229,8 @@ export function matchSkillEntry(
   if (!prefix.rest) return { skill, def, outcome: "miss", reason: "只喊了助理名稱，沒有內容" };
 
   const primary = (skill.trigger || def.defaultTrigger).trim();
-  const triggers = [primary, ...(def.triggerAliases ?? [])].filter(Boolean);
+  // 有效觸發詞＝主觸發詞＋有效別名（停用的內建別名不參與比對，自訂別名同等有效）。
+  const triggers = [primary, ...effectiveAliases(skill, def)].filter(Boolean);
   const matched = triggers.find((t) => prefix.rest.startsWith(t));
   if (!matched) return { skill, def, outcome: "miss", reason: "觸發詞不符" };
   const isPrimary = matched === primary;
@@ -1070,7 +1071,7 @@ async function runSkills(
       // Layer 2：<觸發詞> ? → 顯示該技能用法
       const primaryTrigger = (winner.skill.trigger || winner.def.defaultTrigger).trim();
       logger.info("顯示技能用法", { skill: winner.skill.id, chat });
-      await deps.replyTo(chat, skillUsageText(winner.def, primaryTrigger, config.language));
+      await deps.replyTo(chat, skillUsageText(winner.def, primaryTrigger, config.language, winner.skill));
     } else {
       await runMatchedSkill(
         winner.skill,

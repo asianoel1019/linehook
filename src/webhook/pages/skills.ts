@@ -2,6 +2,7 @@
 import { config } from "../../config.js";
 import { tr } from "../../i18n.js";
 import { listSkills } from "../../skills/index.js";
+import { effectiveTriggerWords } from "../../skills/help.js";
 import { findTriggerConflicts } from "../../messaging/dispatch.js";
 import { resolveText } from "../../skills/types.js";
 import { schedulesTabBody, schedulesTabScript } from "./schedules.js";
@@ -15,6 +16,7 @@ export function renderSkillsHtml() {
         category: resolveText(skill.category, config.language),
         categoryZh: resolveText(skill.category, "zh"),
         defaultTrigger: skill.defaultTrigger,
+        triggerAliases: skill.triggerAliases ?? [],
         triggerMode: skill.triggerMode ?? "assistant",
         hideTrigger: skill.hideTrigger ?? false,
         fields: skill.fields.map((f) => ({
@@ -29,7 +31,7 @@ export function renderSkillsHtml() {
         })),
         ruleKey: skill.ruleKey ?? "rules",
     }));
-    // 觸發詞衝突偵測：只看已啟用技能的有效觸發詞（自訂覆寫優先）＋別名
+    // 觸發詞衝突偵測：只看已啟用技能的有效觸發詞（自訂覆寫優先）＋有效別名（停用的不算）
     const conflictsBySkill: Record<string, Array<{ word: string; kind: string; others: string[]; ownerPrimary: Record<string, boolean> }>> = {};
     {
       const input = listSkills()
@@ -39,7 +41,7 @@ export function renderSkillsHtml() {
           return {
             id: def.id,
             enabled: entry?.enabled ?? false,
-            words: [(entry?.trigger || def.defaultTrigger).trim(), ...(def.triggerAliases ?? [])],
+            words: effectiveTriggerWords(entry ?? {}, def),
           };
         });
       for (const c of findTriggerConflicts(input)) {
@@ -603,6 +605,41 @@ ${schedulesTabBody()}
       body.appendChild(fieldWrap(T("lbl_trigger"), trigger));
     }
 
+    // 別名開關＋自訂別名：停用的別名不參與比對與衝突偵測（any 模式技能不需要觸發詞，不顯示）。
+    if (def.triggerMode !== "any") {
+      var builtinAliases = def.triggerAliases || [];
+      if (builtinAliases.length > 0) {
+        var aliasWrap = document.createElement("div");
+        aliasWrap.className = "field";
+        var aliasLabel = document.createElement("label");
+        aliasLabel.textContent = T("lbl_aliases");
+        aliasWrap.appendChild(aliasLabel);
+        var disabledAliases = skill.disabledAliases || [];
+        builtinAliases.forEach(function (a) {
+          var lab = document.createElement("label");
+          lab.style.cssText = "display:inline-flex;align-items:center;gap:4px;margin:0 10px 4px 0;font-weight:400;cursor:pointer";
+          var cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.className = "sk-alias";
+          cb.setAttribute("data-alias", a);
+          cb.checked = disabledAliases.indexOf(a) === -1;
+          lab.append(cb, document.createTextNode(a));
+          aliasWrap.appendChild(lab);
+        });
+        var aliasHint = document.createElement("div");
+        aliasHint.className = "msg";
+        aliasHint.textContent = T("hint_aliases");
+        aliasWrap.appendChild(aliasHint);
+        body.appendChild(aliasWrap);
+      }
+      var extraInput = document.createElement("input");
+      extraInput.type = "text";
+      extraInput.className = "sk-extra-aliases";
+      extraInput.value = (skill.extraAliases || []).join("、");
+      extraInput.placeholder = T("ph_extra_aliases");
+      body.appendChild(fieldWrap(T("lbl_extra_aliases"), extraInput));
+    }
+
     var allowUsers = document.createElement("textarea");
     allowUsers.className = "sk-allow-users";
     allowUsers.style.minHeight = "44px";
@@ -933,6 +970,18 @@ ${schedulesTabBody()}
         allowedUsers: card.querySelector(".sk-allow-users")
           ? card.querySelector(".sk-allow-users").value.split(/[\\\\r\\\\n,]+/).map(function (x) { return x.trim(); }).filter(Boolean)
           : [],
+        // 未勾選的內建別名＝停用；自訂別名用「、」逗號或空白分隔
+        disabledAliases: Array.prototype.filter.call(card.querySelectorAll(".sk-alias"), function (cb) { return !cb.checked; }).map(function (cb) { return cb.getAttribute("data-alias"); }).filter(Boolean),
+        extraAliases: (function () {
+          var el = card.querySelector(".sk-extra-aliases");
+          if (!el) return [];
+          var seen = {};
+          return el.value.split(/[、,，;； ]+/).map(function (x) { return x.trim(); }).filter(function (x) {
+            if (!x || seen[x]) return false;
+            seen[x] = true;
+            return true;
+          });
+        })(),
         config: config
       });
     });

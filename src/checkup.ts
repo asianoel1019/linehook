@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { listServices } from "./messaging/services.js";
 import { listSkills } from "./skills/index.js";
+import { effectiveTriggerWords } from "./skills/help.js";
 import { findTriggerConflicts } from "./messaging/dispatch.js";
 import { getOutboundBlocked, getOutboundStats, isHostDegraded } from "./net.js";
 import { getStore } from "./store/index.js";
@@ -86,7 +87,8 @@ function checkConflicts(): CheckItem {
       return {
         id: def.id,
         enabled: entry?.enabled ?? false,
-        words: [(entry?.trigger || def.defaultTrigger).trim(), ...(def.triggerAliases ?? [])],
+        // 有效觸發詞（停用的別名不算，否則關掉別名後警告還在，使用者會困惑）。
+        words: effectiveTriggerWords(entry ?? {}, def),
       };
     });
   const conflicts = findTriggerConflicts(input);
