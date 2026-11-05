@@ -177,3 +177,9 @@ urllib.request.urlopen(req)
 2. 別把 **admin** API Token 給外部專案；只要投遞請給 `send` scope 的 Token（走 `/webhook`）或用 hook 簽章。
 3. `to` 用名稱（id 換了不改設定）。
 4. 開著全域 webhook 驗證（hook 沒設金鑰時會走它；全關時 `/hook/:name` 會回 503 而不是變公開端點）。
+
+---
+
+## ⑪ 管理介面
+
+管理頁「**外部推播入口**」（`/hooks`）可以：建立／編輯 hook（自動產生金鑰並顯示一次）、開關停用、**預覽**渲染結果（不送出）、**實際送出**一則測試、看每個 hook 的投遞紀錄。

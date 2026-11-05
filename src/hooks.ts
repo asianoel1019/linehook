@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
@@ -155,19 +156,41 @@ export function getHook(name: string): HookConfig | undefined {
   return load().find((h) => h.name === key);
 }
 
-/** 新增或更新 hook（同名覆蓋）。回傳錯誤字串表示失敗。 */
-export function upsertHook(input: Partial<HookConfig> & { name?: string }): { ok: true; hook: HookConfig } | { ok: false; error: string } {
+/** 產生 per-hook 簽章金鑰（48 個 hex 字元＝192 bits）。 */
+export function generateHookSecret(): string {
+  return randomBytes(24).toString("hex");
+}
+
+/**
+ * 新增或更新 hook（同名覆蓋）。回傳錯誤字串表示失敗。
+ * secret 留空 → 自動產生並在回傳中給出（只這一次能拿到）。
+ * regenerateSecret → 換一把新的（舊金鑰立即失效）。
+ */
+export function upsertHook(
+  input: Partial<HookConfig> & { name?: string; regenerateSecret?: boolean },
+): { ok: true; hook: HookConfig; secret?: string } | { ok: false; error: string } {
   const hook = normalizeHook(input);
   if (!hook) return { ok: false, error: "hook 設定不合法（需要 name／to；name 限小寫字母數字與 -_）" };
   const hooks = load();
   const idx = hooks.findIndex((h) => h.name === hook.name);
-  if (idx >= 0) hooks[idx] = { ...hooks[idx], ...hook };
+  const existing = idx >= 0 ? hooks[idx] : undefined;
+  let secret: string | undefined;
+  if (input.regenerateSecret === true) {
+    secret = generateHookSecret();
+    hook.secret = secret;
+  } else if (!hook.secret && existing?.secret) {
+    hook.secret = existing.secret; // 編輯時沒帶 secret → 沿用舊的
+  } else if (!hook.secret) {
+    secret = generateHookSecret();
+    hook.secret = secret;
+  }
+  if (idx >= 0) hooks[idx] = { ...existing, ...hook };
   else {
     if (hooks.length >= MAX_HOOKS) return { ok: false, error: `hook 數量上限 ${MAX_HOOKS}` };
     hooks.push(hook);
   }
   save(hooks);
-  return { ok: true, hook: hooks[idx >= 0 ? idx : hooks.length - 1] as HookConfig };
+  return { ok: true, hook: hooks[idx >= 0 ? idx : hooks.length - 1] as HookConfig, ...(secret ? { secret } : {}) };
 }
 
 /** 刪除 hook。 */

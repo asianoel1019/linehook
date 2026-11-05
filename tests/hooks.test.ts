@@ -2,7 +2,7 @@ import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import {
   deleteHook,
   getHook,
@@ -13,14 +13,17 @@ import {
   upsertHook,
 } from "../src/hooks.js";
 
-const workDir = join(tmpdir(), `hooks-${process.pid}`);
+// 檔名帶隨機後綴：Windows 會重用 PID，只用 pid 會撞到上一次的殘留檔。
+const hooksFile = join(tmpdir(), `hooks-${process.pid}-${Math.random().toString(36).slice(2)}.json`);
 
 before(() => {
-  setHooksPath(join(workDir, "hooks.json"));
+  rmSync(hooksFile, { force: true });
+  setHooksPath(hooksFile);
 });
 
 after(() => {
   setHooksPath(null);
+  rmSync(hooksFile, { force: true });
 });
 
 describe("hooks 設定", () => {
@@ -49,7 +52,7 @@ describe("hooks 設定", () => {
 
   it("存檔後可重讀", () => {
     upsertHook({ name: "h1", to: "t", platform: "telegram", include: ["failed"], secret: "s3cr3t" });
-    assert.ok(existsSync(join(workDir, "hooks.json")));
+    assert.ok(existsSync(hooksFile));
     const hook = getHook("h1");
     assert.equal(hook?.platform, "telegram");
     assert.deepEqual(hook?.include, ["failed"]);

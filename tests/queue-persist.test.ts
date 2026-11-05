@@ -1,11 +1,21 @@
-import { after, describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { SendQueue, fileQueuePersistence, nextQueueKey } from "../src/line/queue.js";
 
-const workDir = join(tmpdir(), `queue-persist-${process.pid}`);
+// 目錄帶隨機後綴並在開始前清空：Windows 會重用 PID，殘留檔會讓「pending 筆數」斷言失準。
+const workDir = join(tmpdir(), `queue-persist-${process.pid}-${Math.random().toString(36).slice(2)}`);
+
+before(() => {
+  rmSync(workDir, { recursive: true, force: true });
+  mkdirSync(workDir, { recursive: true });
+});
+
+after(() => {
+  rmSync(workDir, { recursive: true, force: true });
+});
 const fast = () => ({
   maxRetries: 2,
   retryBaseMs: 5,

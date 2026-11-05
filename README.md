@@ -233,6 +233,8 @@ Telegram（`TELEGRAM_*`）、WhatsApp（`WHATSAPP_*`，含 Cloud／個人帳號�
 
 讓**其他專案**（CI、監控、自動化）把事件推成你的 IM 訊息：每個 hook 自帶金鑰與簽章、範本渲染、降噪條件、速率上限、投遞重試與連敗告警，也可直接觸發某支技能。
 
+管理介面：管理頁「**外部推播入口**」（`/hooks`）——建立／編輯 hook、預覽渲染結果、實際送出一則測試、看投遞紀錄。
+
 ```bash
 curl -X POST https://你的主機/hook/ci-failed \
   -H 'Content-Type: application/json' \

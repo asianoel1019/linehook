@@ -101,6 +101,7 @@ import { renderDashboardHtml } from "./pages/dashboard.js";
 import { renderSettingsHtml } from "./pages/settings.js";
 import { renderConsoleHtml } from "./pages/console.js";
 import { renderSkillsHtml } from "./pages/skills.js";
+import { renderHooksHtml } from "./pages/hooks.js";
 import { renderLoginHtml } from "./pages/login.js";
 import { renderReadmeHtml, sanitizeReadmeHtml as sanitizeReadmeHtmlImpl } from "./pages/readme.js";
 import { renderMessagesHtml } from "./pages/messages.js";
@@ -880,6 +881,10 @@ export function createServer(line: IMessagingService): express.Express {
   });
   app.get("/skills", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
     res.type("html").send(renderSkillsHtml());
+  });
+  // 外部推播入口（hook 管理頁；獨立頂層頁）。
+  app.get("/hooks", statusAccess, requireSessionOrApi("admin"), (_req, res) => {
+    res.type("html").send(renderHooksHtml());
   });
   // 技能健康探測：單技能 5 秒逾時，全體結果快取 60 秒（A7）。
   let skillsHealthCache: {
@@ -2054,6 +2059,76 @@ function parseHookTimestampMs(value: string): number | null {
       hooks: listHooks().map((h) => ({ ...h, secret: h.secret ? "****" : undefined })),
     });
   });
+  // 預覽：只渲染不送出（管理頁的「預覽」按鈕用；告訴管理者會不會被送、會長什麼樣）。
+  app.post("/hooks/:name/preview", statusAccess, requireSessionOrApi("read"), (req, res) => {
+    const name = String(req.params.name ?? "").trim().toLowerCase();
+    const hook = getHook(name);
+    if (!hook) {
+      res.status(404).json({ ok: false, error: "找不到 hook" });
+      return;
+    }
+    const payload = asRecord(req.body) ?? {};
+    const filter = matchesHookFilters(hook, payload);
+    const text = hook.template
+      ? renderHookTemplate(hook.template, payload)
+      : typeof payload.text === "string"
+        ? payload.text
+        : "";
+    res.json({
+      ok: true,
+      hook: name,
+      wouldSend: filter.pass && Boolean(text.trim()) && !hook.disabled,
+      skipped: !filter.pass,
+      reason: filter.reason,
+      rendered: text,
+      skill: hook.skill ?? null,
+      skillArgs: hook.skill ? renderHookTemplate(hook.skillArgs ?? "", payload) : null,
+      disabled: hook.disabled === true,
+    });
+  });
+  // 測試：實際送出一則（管理頁的「實際送出」；走同一投遞路徑含重試）。
+  app.post("/hooks/:name/test", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, async (req, res) => {
+    const name = String(req.params.name ?? "").trim().toLowerCase();
+    const hook = getHook(name);
+    if (!hook) {
+      res.status(404).json({ ok: false, error: "找不到 hook" });
+      return;
+    }
+    const payload = asRecord(req.body) ?? {};
+    const filter = matchesHookFilters(hook, payload);
+    if (!filter.pass) {
+      res.json({ ok: true, skipped: true, hook: name, reason: filter.reason });
+      return;
+    }
+    const svc = getService(hook.platform as Platform);
+    if (!svc) {
+      res.status(503).json({ ok: false, error: `平台未啟用：${hook.platform}` });
+      return;
+    }
+    const text = hook.template
+      ? renderHookTemplate(hook.template, payload)
+      : typeof payload.text === "string"
+        ? payload.text
+        : "";
+    if (!text.trim()) {
+      res.status(400).json({ ok: false, error: "渲染後內容為空（檢查範本或 body.text）" });
+      return;
+    }
+    const outcome = await deliverWithRetry(
+      name,
+      hook,
+      async () => {
+        await svc.sendAdvanced([{ to: hook.to, text }]);
+      },
+      { retries: hook.retries ?? 2 },
+    );
+    audit(req, "hook.test", `${name} → ${hook.platform}/${hook.to}`);
+    if (outcome.ok) {
+      res.json({ ok: true, hook: name, delivered: true, platform: hook.platform, to: hook.to, text });
+    } else {
+      res.status(502).json({ ok: false, error: outcome.error ?? "投遞失敗" });
+    }
+  });
   // 某 hook 的投遞紀錄（含非同步的 pending／完成狀態）。
   app.get("/hooks/:name/deliveries", statusAccess, requireSessionOrApi("read"), (req, res) => {
     res.set("Cache-Control", "no-store");
@@ -2066,13 +2141,18 @@ function parseHookTimestampMs(value: string): number | null {
   });
   app.post("/hooks", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
     const body = asRecord(req.body) ?? {};
-    const result = upsertHook(body as Partial<HookConfig> & { name?: string });
+    const result = upsertHook(body as Partial<HookConfig> & { name?: string; regenerateSecret?: boolean });
     if (!result.ok) {
       res.status(400).json({ ok: false, error: result.error });
       return;
     }
     audit(req, "hooks.upsert", result.hook.name);
-    res.json({ ok: true, hook: { ...result.hook, secret: result.hook.secret ? "****" : undefined } });
+    res.json({
+      ok: true,
+      hook: { ...result.hook, secret: result.hook.secret ? "****" : undefined },
+      // 金鑰只這一次回傳（之後列表只顯示 ****；丢了可 regenerateSecret）。
+      ...(result.secret ? { secret: result.secret } : {}),
+    });
   });
   app.delete("/hooks/:name", statusAccess, requireSessionOrApi("admin"), requireSameOrigin, (req, res) => {
     const name = String(req.params.name ?? "").trim().toLowerCase();

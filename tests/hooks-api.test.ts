@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { rmSync } from "node:fs";
 import crypto from "node:crypto";
 import { config } from "../src/config.js";
 import { registerService } from "../src/messaging/services.js";
@@ -44,11 +45,15 @@ const savedApiToken = config.apiToken;
 const savedApiTokenEnabled = config.apiTokenEnabled;
 const savedApiTokens = [...config.apiTokens];
 
+// 檔名帶隨機後綴：Windows 會重用 PID，只用 pid 會撞到上一次的殘留檔。
+const hooksFile = join(tmpdir(), `hooks-api2-${process.pid}-${Math.random().toString(36).slice(2)}.json`);
+
 before(async () => {
   registerService(fake);
   config.apiTokenEnabled = true;
   config.apiTokens = [{ name: "t", token: "tok-admin", scopes: ["admin"] }];
-  setHooksPath(join(tmpdir(), `hooks-api2-${process.pid}.json`));
+  rmSync(hooksFile, { force: true });
+  setHooksPath(hooksFile);
   resetHookRateWindows();
   const app = createServer(fake);
   server = await new Promise<Server>((resolve) => {
@@ -63,6 +68,7 @@ after(() => {
   config.apiTokenEnabled = savedApiTokenEnabled;
   config.apiTokens = savedApiTokens;
   setHooksPath(null);
+  rmSync(hooksFile, { force: true });
 });
 
 const auth = { Authorization: "Bearer tok-admin" };

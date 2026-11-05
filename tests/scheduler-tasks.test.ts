@@ -2,8 +2,12 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { rmSync } from "node:fs";
 
-process.env.SCHEDULES_PATH = join(tmpdir(), `sched-tasks-test-${process.pid}.json`);
+// 檔名帶隨機後綴並先清掉：Windows 會重用 PID，殘留的排程檔會讓筆數斷言失準。
+const schedulesFile = join(tmpdir(), `sched-tasks-test-${process.pid}-${Math.random().toString(36).slice(2)}.json`);
+rmSync(schedulesFile, { force: true });
+process.env.SCHEDULES_PATH = schedulesFile;
 
 // 必須在設定 env 後才動態載入（config 在 import 時讀 env）
 const { SendScheduler } = await import("../src/line/scheduler.js");

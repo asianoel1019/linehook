@@ -32,6 +32,7 @@ export function page(
     const nav = [
         ["/dashboard", tr(lang, "nav_dashboard"), "dashboard"],
         ["/console", tr(lang, "nav_console"), "console"],
+        ["/hooks", tr(lang, "nav_hooks"), "hooks"],
         ["/skills", tr(lang, "nav_skills"), "skills"],
         ["/settings", tr(lang, "nav_settings"), "settings"],
         ["/messages", tr(lang, "nav_messages"), "messages"],
