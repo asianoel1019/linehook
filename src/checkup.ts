@@ -4,7 +4,7 @@ import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { listServices } from "./messaging/services.js";
 import { listSkills } from "./skills/index.js";
-import { effectiveTriggerWords } from "./skills/help.js";
+import { effectiveTriggers } from "./skills/help.js";
 import { findTriggerConflicts } from "./messaging/dispatch.js";
 import { getOutboundBlocked, getOutboundStats, isHostDegraded } from "./net.js";
 import { getStore } from "./store/index.js";
@@ -84,11 +84,13 @@ function checkConflicts(): CheckItem {
     .filter((def) => def.triggerMode !== "any")
     .map((def) => {
       const entry = config.skills.find((s) => s.id === def.id);
+      const triggers = effectiveTriggers(entry ?? {}, def);
       return {
         id: def.id,
         enabled: entry?.enabled ?? false,
-        // 有效觸發詞（停用的別名不算，否則關掉別名後警告還在，使用者會困惑）。
-        words: effectiveTriggerWords(entry ?? {}, def),
+        // 有效觸發詞（停用/改掉的別名不算，否則關掉別名後警告還在，使用者會困惑）。
+        words: triggers.map((t) => t.text),
+        primaries: triggers.map((t) => t.primary),
       };
     });
   const conflicts = findTriggerConflicts(input);

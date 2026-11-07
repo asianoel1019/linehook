@@ -10,39 +10,66 @@ export function effectiveMode(skill: SkillConfig, def: SkillDefinition): "assist
   return (cfgMode === "any" || cfgMode === "assistant" ? cfgMode : def.triggerMode) ?? "assistant";
 }
 
-/** 別名設定的最小形狀（SkillConfig 的子集；測試與外部呼叫可只帶這三個欄位）。 */
+/** 別名設定的最小形狀（SkillConfig 的子集；測試與外部呼叫可只帶需要的欄位）。 */
 export interface AliasSettings {
   trigger?: string;
+  triggerEnabled?: boolean;
   disabledAliases?: string[];
-  extraAliases?: string[];
+  aliasText?: Record<string, string>;
+  extraAliases?: Array<string | { text: string; enabled: boolean }>;
+}
+
+/** 一個有效觸發詞：文字＋它是主觸發詞還是別名（仲裁與衝突標示用）。 */
+export interface EffectiveTrigger {
+  text: string;
+  primary: boolean;
 }
 
 /**
- * 有效別名＝內建別名扣掉使用者停用的＋使用者自訂追加的（去重保序）。
- * 舊設定沒有這兩個欄位時等同全部啟用、無追加（無痛升級）。
+ * 有效觸發詞清單（主觸發詞永遠第一，後面是別名；去重保序）。
+ * 規則：主觸發詞可單獨關閉；內建別名可改字（aliasText）或停用（disabledAliases）；
+ * 自訂別名可單獨開關；字串格式的自訂別名視為啟用中（舊設定相容）。
+ * 舊設定沒有這些欄位時等同全部啟用、無改字（無痛升級）。
  */
-export function effectiveAliases(skill: AliasSettings, def: SkillDefinition): string[] {
+export function effectiveTriggers(skill: AliasSettings, def: SkillDefinition): EffectiveTrigger[] {
+  const out: EffectiveTrigger[] = [];
+  const seen = new Set<string>();
+  const push = (text: unknown, primary: boolean): void => {
+    const t = String(text ?? "").trim();
+    if (!t || seen.has(t)) return;
+    seen.add(t);
+    out.push({ text: t, primary });
+  };
+  if (skill.triggerEnabled !== false) {
+    push(skill.trigger || def.defaultTrigger || "", true);
+  }
   const disabled = new Set(
     (skill.disabledAliases ?? []).map((a) => String(a ?? "").trim()).filter(Boolean),
   );
-  const out: string[] = [];
+  const overrides = skill.aliasText ?? {};
   for (const raw of def.triggerAliases ?? []) {
-    const a = String(raw ?? "").trim();
-    if (!a || disabled.has(a) || out.includes(a)) continue;
-    out.push(a);
+    const orig = String(raw ?? "").trim();
+    if (!orig || disabled.has(orig)) continue;
+    const edited = String(overrides[orig] ?? "").trim();
+    push(edited || orig, false);
   }
-  for (const raw of skill.extraAliases ?? []) {
-    const a = String(raw ?? "").trim();
-    if (!a || out.includes(a)) continue;
-    out.push(a);
+  for (const item of skill.extraAliases ?? []) {
+    if (typeof item === "string") push(item, false);
+    else if (item && typeof item === "object" && item.enabled !== false) push(item.text, false);
   }
   return out;
 }
 
-/** 有效觸發詞清單：第一個是主觸發詞，後面是有效別名（衝突偵測的 words 直接用這個）。 */
+/** 有效別名（不含主觸發詞；用法說明與舊呼叫相容用）。 */
+export function effectiveAliases(skill: AliasSettings, def: SkillDefinition): string[] {
+  return effectiveTriggers(skill, def)
+    .filter((t) => !t.primary)
+    .map((t) => t.text);
+}
+
+/** 有效觸發詞清單：第一個是主觸發詞（若有關閉則無），後面是有效別名（衝突偵測的 words 直接用這個）。 */
 export function effectiveTriggerWords(skill: AliasSettings, def: SkillDefinition): string[] {
-  const primary = String(skill.trigger || def.defaultTrigger || "").trim();
-  return [primary, ...effectiveAliases(skill, def)].filter(Boolean);
+  return effectiveTriggers(skill, def).map((t) => t.text);
 }
 
 /** 使用者可透過觸發詞呼叫的技能（啟用、assistant 模式、非隱藏）。 */

@@ -14,7 +14,7 @@ import {
   type DispatchDeps,
   type TriggerHit,
 } from "../src/messaging/dispatch.js";
-import { effectiveTriggerWords } from "../src/skills/help.js";
+import { effectiveTriggers } from "../src/skills/help.js";
 import { loadSkills } from "../src/skills/loader.js";
 import { listSkills, getSkill } from "../src/skills/index.js";
 import { simulateDispatch } from "../src/messaging/simulate.js";
@@ -287,7 +287,7 @@ describe("別名開關＋自訂別名", () => {
     assert.equal(on.primary, false);
   });
 
-  it("自訂別名與觸發詞一樣有效（rss 加「日報」）", () => {
+  it("自訂別名與觸發詞一樣有效（rss 加「日報」；字串＝舊格式相容）", () => {
     const text = "阿寶請幫忙 日報";
     const prefix = analyzeAssistantPrefix(text, "阿寶", "zh");
     const d = matchSkillEntry(
@@ -300,6 +300,48 @@ describe("別名開關＋自訂別名", () => {
     assert.equal(d.outcome, "hit");
     assert.equal(d.trigger, "日報");
     assert.equal(d.primary, false);
+  });
+
+  it("內建別名可改字（舊字不命中、新字命中且算別名）", () => {
+    const edited = entry("rss", { aliasText: { "摘要": "摘要新聞" } });
+    const def = getSkill("rss");
+    const t1 = "阿寶請幫忙 摘要 最新";
+    const miss = matchSkillEntry(edited, def, { text: t1, chat: "c-trigger", fromMid: "u1" }, analyzeAssistantPrefix(t1, "阿寶", "zh"), true);
+    assert.equal(miss.outcome, "miss");
+    const t2 = "阿寶請幫忙 摘要新聞";
+    const hit2 = matchSkillEntry(edited, def, { text: t2, chat: "c-trigger", fromMid: "u1" }, analyzeAssistantPrefix(t2, "阿寶", "zh"), true);
+    assert.equal(hit2.outcome, "hit");
+    assert.equal(hit2.trigger, "摘要新聞");
+    assert.equal(hit2.primary, false);
+  });
+
+  it("主觸發詞可關閉（關掉後只剩別名能觸發）", () => {
+    const off = entry("summarize", { triggerEnabled: false });
+    const def = getSkill("summarize");
+    const t1 = "阿寶請幫忙 摘要 x";
+    assert.equal(
+      matchSkillEntry(off, def, { text: t1, chat: "c-trigger", fromMid: "u1" }, analyzeAssistantPrefix(t1, "阿寶", "zh"), true).outcome,
+      "miss",
+    );
+    const t2 = "阿寶請幫忙 總結 x";
+    const hit2 = matchSkillEntry(off, def, { text: t2, chat: "c-trigger", fromMid: "u1" }, analyzeAssistantPrefix(t2, "阿寶", "zh"), true);
+    assert.equal(hit2.outcome, "hit");
+    assert.equal(hit2.primary, false);
+  });
+
+  it("自訂別名可單獨關閉", () => {
+    const def = getSkill("rss");
+    const text = "阿寶請幫忙 日報";
+    const prefix = analyzeAssistantPrefix(text, "阿寶", "zh");
+    const m = { text, chat: "c-trigger", fromMid: "u1" };
+    assert.equal(
+      matchSkillEntry(entry("rss", { extraAliases: [{ text: "日報", enabled: false }] }), def, m, prefix, true).outcome,
+      "miss",
+    );
+    assert.equal(
+      matchSkillEntry(entry("rss", { extraAliases: [{ text: "日報", enabled: true }] }), def, m, prefix, true).outcome,
+      "hit",
+    );
   });
 
   it("關掉別名後掃描只剩一家、衝突偵測不再報", () => {
@@ -315,11 +357,15 @@ describe("別名開關＋自訂別名", () => {
     assert.equal(scan.prefixHits.length, 1);
     assert.equal(selectTriggerHit(scan.prefixHits)?.skill.id, "summarize");
     // 衝突偵測走有效詞：關掉前有 exact、關掉後消失
-    const words = (id: string, extra: Record<string, unknown> = {}) => ({
-      id,
-      enabled: true,
-      words: effectiveTriggerWords({ trigger: "", ...extra }, getSkill(id)!),
-    });
+    const words = (id: string, extra: Record<string, unknown> = {}) => {
+      const triggers = effectiveTriggers({ trigger: "", ...extra }, getSkill(id)!);
+      return {
+        id,
+        enabled: true,
+        words: triggers.map((t) => t.text),
+        primaries: triggers.map((t) => t.primary),
+      };
+    };
     const before = findTriggerConflicts([words("summarize"), words("rss")]);
     assert.ok(before.some((c) => c.word === "摘要" && c.kind === "exact"), "關掉前應有「摘要」exact 衝突");
     const after = findTriggerConflicts([words("summarize"), words("rss", { disabledAliases: ["摘要"] })]);

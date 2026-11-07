@@ -1216,13 +1216,45 @@ export function createServer(line: IMessagingService): express.Express {
           }
           return out;
         };
+        // 內建別名改字：{ 內建原文: 改後文字 }，兩邊都去空白、改後空字串＝取消改字（不存）。
+        const cleanAliasText = (v: unknown): Record<string, string> => {
+          const rec = asRecord(v) ?? {};
+          const out: Record<string, string> = {};
+          for (const [k, raw] of Object.entries(rec)) {
+            const key = String(k ?? "").trim();
+            const val = String(raw ?? "").trim();
+            if (!key || !val || key.length > 24 || val.length > 24) continue;
+            if (key === val) continue;
+            out[key] = val;
+            if (Object.keys(out).length >= 30) break;
+          }
+          return out;
+        };
+        // 自訂別名：字串（舊格式＝啟用）或 { text, enabled }；正規化成物件存檔。
+        const cleanExtra = (v: unknown): Array<{ text: string; enabled: boolean }> => {
+          if (!Array.isArray(v)) return [];
+          const out: Array<{ text: string; enabled: boolean }> = [];
+          const seen = new Set<string>();
+          for (const x of v) {
+            const rec = asRecord(x);
+            const text = String(rec ? (rec.text ?? "") : (x ?? "")).trim();
+            const enabled = rec ? rec.enabled !== false : true;
+            if (!text || text.length > 24 || seen.has(text)) continue;
+            seen.add(text);
+            out.push({ text, enabled });
+            if (out.length >= 30) break;
+          }
+          return out;
+        };
         return {
           id: typeof s.id === "string" ? s.id : "",
           enabled: s.enabled === true,
           trigger: typeof s.trigger === "string" ? s.trigger : "",
+          triggerEnabled: s.triggerEnabled !== false,
           allowedUsers: rawAllowed.map((u: unknown) => String(u ?? "").trim()).filter((u: string) => u.length > 0),
           disabledAliases: cleanWords(s.disabledAliases),
-          extraAliases: cleanWords(s.extraAliases),
+          aliasText: cleanAliasText(s.aliasText),
+          extraAliases: cleanExtra(s.extraAliases),
           config: configOut,
         };
       });

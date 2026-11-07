@@ -251,12 +251,19 @@ export interface SkillConfig {
   id: string;
   enabled: boolean;
   trigger: string;
+  /** 主觸發詞開關；false = 只靠別名觸發（預設 true；舊設定缺欄位視為開啟）。 */
+  triggerEnabled?: boolean;
   /** 允許的使用者/對話 ID 清單；空陣列 = 所有人。 */
   allowedUsers: string[];
   /** 停用的內建別名（def.triggerAliases 的子集；空陣列 = 全部啟用）。 */
   disabledAliases?: string[];
-  /** 使用者自訂追加的別名（與觸發詞同等有效）。 */
-  extraAliases?: string[];
+  /** 內建別名的改字覆寫（key＝內建原文，value＝改後的字；後台只存差異，技能更新加新別名不受影響）。 */
+  aliasText?: Record<string, string>;
+  /**
+   * 使用者自訂追加的別名。字串＝啟用中（舊格式相容）；物件可單獨開關。
+   * 與觸發詞同等有效，也會列入衝突偵測。
+   */
+  extraAliases?: Array<string | { text: string; enabled: boolean }>;
   config: Record<string, string>;
 }
 

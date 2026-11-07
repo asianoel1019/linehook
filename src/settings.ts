@@ -238,9 +238,13 @@ const settingsSchema = z.object({
         id: z.string().default(""),
         enabled: z.boolean().default(false),
         trigger: z.string().default(""),
+        triggerEnabled: z.boolean().default(true),
         allowedUsers: z.array(z.string()).default([]),
         disabledAliases: z.array(z.string()).default([]),
-        extraAliases: z.array(z.string()).default([]),
+        aliasText: z.record(z.string(), z.string()).default({}),
+        extraAliases: z
+          .array(z.union([z.string(), z.object({ text: z.string().default(""), enabled: z.boolean().default(true) })]))
+          .default([]),
         config: z.record(z.string(), z.string()).default({}),
       }),
     )
@@ -356,8 +360,10 @@ export function currentSettings(): EditableSettings {
       id: skill.id,
       enabled: skill.enabled,
       trigger: skill.trigger,
+      triggerEnabled: skill.triggerEnabled !== false,
       allowedUsers: [...(skill.allowedUsers ?? [])],
       disabledAliases: [...(skill.disabledAliases ?? [])],
+      aliasText: { ...(skill.aliasText ?? {}) },
       extraAliases: [...(skill.extraAliases ?? [])],
       config: { ...skill.config },
     })),
@@ -461,8 +467,10 @@ function apply(settings: EditableSettings): void {
     id: skill.id,
     enabled: skill.enabled,
     trigger: skill.trigger,
+    triggerEnabled: skill.triggerEnabled !== false,
     allowedUsers: [...(skill.allowedUsers ?? [])],
     disabledAliases: [...(skill.disabledAliases ?? [])],
+    aliasText: { ...(skill.aliasText ?? {}) },
     extraAliases: [...(skill.extraAliases ?? [])],
     config: { ...skill.config },
   }));

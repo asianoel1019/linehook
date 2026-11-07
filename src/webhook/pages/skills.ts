@@ -2,7 +2,7 @@
 import { config } from "../../config.js";
 import { tr } from "../../i18n.js";
 import { listSkills } from "../../skills/index.js";
-import { effectiveTriggerWords } from "../../skills/help.js";
+import { effectiveTriggers } from "../../skills/help.js";
 import { findTriggerConflicts } from "../../messaging/dispatch.js";
 import { resolveText } from "../../skills/types.js";
 import { schedulesTabBody, schedulesTabScript } from "./schedules.js";
@@ -38,10 +38,12 @@ export function renderSkillsHtml() {
         .filter((def) => def.triggerMode !== "any")
         .map((def) => {
           const entry = config.skills.find((s) => s.id === def.id);
+          const triggers = effectiveTriggers(entry ?? {}, def);
           return {
             id: def.id,
             enabled: entry?.enabled ?? false,
-            words: effectiveTriggerWords(entry ?? {}, def),
+            words: triggers.map((t) => t.text),
+            primaries: triggers.map((t) => t.primary),
           };
         });
       for (const c of findTriggerConflicts(input)) {
@@ -596,48 +598,81 @@ ${schedulesTabBody()}
       anyNote.style.cssText = "margin:4px 0 10px";
       anyNote.textContent = T("skill_trigger_any");
       body.appendChild(anyNote);
-    } else if (!def.hideTrigger) {
-      var trigger = document.createElement("input");
-      trigger.type = "text";
-      trigger.className = "sk-trigger";
-      trigger.value = skill.trigger || def.defaultTrigger || "";
-      trigger.placeholder = def.defaultTrigger || T("lbl_trigger");
-      body.appendChild(fieldWrap(T("lbl_trigger"), trigger));
     }
-
-    // 別名開關＋自訂別名：停用的別名不參與比對與衝突偵測（any 模式技能不需要觸發詞，不顯示）。
+    // 觸發詞＋別名：全部可改字、單獨開關（any 模式技能不需要觸發詞，不顯示；
+    // hideTrigger 技能的主觸發詞固定，只顯示別名區）。
     if (def.triggerMode !== "any") {
-      var builtinAliases = def.triggerAliases || [];
-      if (builtinAliases.length > 0) {
-        var aliasWrap = document.createElement("div");
-        aliasWrap.className = "field";
-        var aliasLabel = document.createElement("label");
-        aliasLabel.textContent = T("lbl_aliases");
-        aliasWrap.appendChild(aliasLabel);
-        var disabledAliases = skill.disabledAliases || [];
-        builtinAliases.forEach(function (a) {
-          var lab = document.createElement("label");
-          lab.style.cssText = "display:inline-flex;align-items:center;gap:4px;margin:0 10px 4px 0;font-weight:400;cursor:pointer";
-          var cb = document.createElement("input");
-          cb.type = "checkbox";
-          cb.className = "sk-alias";
-          cb.setAttribute("data-alias", a);
-          cb.checked = disabledAliases.indexOf(a) === -1;
-          lab.append(cb, document.createTextNode(a));
-          aliasWrap.appendChild(lab);
-        });
-        var aliasHint = document.createElement("div");
-        aliasHint.className = "msg";
-        aliasHint.textContent = T("hint_aliases");
-        aliasWrap.appendChild(aliasHint);
-        body.appendChild(aliasWrap);
+      if (!def.hideTrigger) {
+        var trigRow = document.createElement("div");
+        trigRow.style.cssText = "display:flex;gap:8px;align-items:center";
+        var trigger = document.createElement("input");
+        trigger.type = "text";
+        trigger.className = "sk-trigger";
+        trigger.value = skill.trigger || def.defaultTrigger || "";
+        trigger.placeholder = def.defaultTrigger || T("lbl_trigger");
+        trigger.style.cssText = "flex:1";
+        var trigOn = document.createElement("label");
+        trigOn.style.cssText = "display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font-weight:400;cursor:pointer";
+        var trigCb = document.createElement("input");
+        trigCb.type = "checkbox";
+        trigCb.className = "sk-trigger-enabled";
+        trigCb.checked = skill.triggerEnabled !== false;
+        trigOn.append(trigCb, document.createTextNode(T("lbl_enabled")));
+        trigRow.append(trigger, trigOn);
+        body.appendChild(fieldWrap(T("lbl_trigger"), trigRow));
       }
-      var extraInput = document.createElement("input");
-      extraInput.type = "text";
-      extraInput.className = "sk-extra-aliases";
-      extraInput.value = (skill.extraAliases || []).join("、");
-      extraInput.placeholder = T("ph_extra_aliases");
-      body.appendChild(fieldWrap(T("lbl_extra_aliases"), extraInput));
+      var aliasList = document.createElement("div");
+      aliasList.className = "sk-alias-list";
+      var aliasTextMap = skill.aliasText || {};
+      var disabled = skill.disabledAliases || [];
+      var addAliasRow = function (original, text, enabled, custom) {
+        var row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:8px;align-items:center;margin-bottom:6px";
+        if (custom) row.className = "sk-custom-row";
+        var cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = enabled;
+        if (custom) cb.className = "sk-custom-enabled";
+        else { cb.className = "sk-alias"; cb.setAttribute("data-alias", original); }
+        var inp = document.createElement("input");
+        inp.type = "text";
+        inp.style.cssText = "flex:1";
+        inp.value = text;
+        if (custom) inp.className = "sk-custom-text";
+        else { inp.className = "sk-alias-text"; inp.setAttribute("data-alias", original); inp.placeholder = original; }
+        var tag = document.createElement("span");
+        tag.className = "msg";
+        tag.style.cssText = "font-size:11px;white-space:nowrap";
+        tag.textContent = custom ? T("lbl_custom") : T("lbl_builtin");
+        row.append(cb, inp, tag);
+        if (custom) {
+          var del = document.createElement("button");
+          del.type = "button";
+          del.textContent = T("btn_delete");
+          del.addEventListener("click", function () { row.remove(); });
+          row.appendChild(del);
+        }
+        aliasList.appendChild(row);
+      };
+      (def.triggerAliases || []).forEach(function (a) {
+        var edited = aliasTextMap[a];
+        addAliasRow(a, (edited != null ? String(edited) : a), disabled.indexOf(a) === -1, false);
+      });
+      normalizeExtraAliases(skill.extraAliases).forEach(function (c) { addAliasRow("", c.text, c.enabled, true); });
+      var aliasWrap = fieldWrap(T("lbl_aliases"), aliasList);
+      var aliasActions = document.createElement("div");
+      aliasActions.className = "actions";
+      var aliasAdd = document.createElement("button");
+      aliasAdd.type = "button";
+      aliasAdd.textContent = T("btn_add_alias");
+      aliasAdd.addEventListener("click", function () { addAliasRow("", "", true, true); });
+      aliasActions.appendChild(aliasAdd);
+      aliasWrap.appendChild(aliasActions);
+      var aliasHint = document.createElement("div");
+      aliasHint.className = "msg";
+      aliasHint.textContent = T("hint_aliases");
+      aliasWrap.appendChild(aliasHint);
+      body.appendChild(aliasWrap);
     }
 
     var allowUsers = document.createElement("textarea");
@@ -801,6 +836,19 @@ ${schedulesTabBody()}
 
   function searchHay(parts) {
     return (parts || []).join(" ").toLowerCase();
+  }
+
+  // 後台相容：自訂別名舊格式是字串陣列，新格式是 {text,enabled}；一律正規化後使用。
+  function normalizeExtraAliases(list) {
+    var out = [];
+    (list || []).forEach(function (x) {
+      if (typeof x === "string") { if (x.trim()) out.push({ text: x.trim(), enabled: true }); }
+      else if (x && typeof x === "object") {
+        var t = String(x.text == null ? "" : x.text).trim();
+        if (t) out.push({ text: t, enabled: x.enabled !== false });
+      }
+    });
+    return out;
   }
 
   function renderGroups(host, items, opts) {
@@ -967,20 +1015,34 @@ ${schedulesTabBody()}
         id: id,
         enabled: card.querySelector(".sk-enabled").checked,
         trigger: card.querySelector(".sk-trigger") ? card.querySelector(".sk-trigger").value.trim() : "",
+        triggerEnabled: (function () {
+          var el = card.querySelector(".sk-trigger-enabled");
+          return el ? el.checked : true;
+        })(),
         allowedUsers: card.querySelector(".sk-allow-users")
           ? card.querySelector(".sk-allow-users").value.split(/[\\\\r\\\\n,]+/).map(function (x) { return x.trim(); }).filter(Boolean)
           : [],
-        // 未勾選的內建別名＝停用；自訂別名用「、」逗號或空白分隔
+        // 未勾選的內建別名＝停用；內建別名改字只存差異；自訂列逐列收集（含開關）
         disabledAliases: Array.prototype.filter.call(card.querySelectorAll(".sk-alias"), function (cb) { return !cb.checked; }).map(function (cb) { return cb.getAttribute("data-alias"); }).filter(Boolean),
-        extraAliases: (function () {
-          var el = card.querySelector(".sk-extra-aliases");
-          if (!el) return [];
-          var seen = {};
-          return el.value.split(/[、,，;； ]+/).map(function (x) { return x.trim(); }).filter(function (x) {
-            if (!x || seen[x]) return false;
-            seen[x] = true;
-            return true;
+        aliasText: (function () {
+          var o = {};
+          Array.prototype.forEach.call(card.querySelectorAll(".sk-alias-text"), function (el) {
+            var orig = el.getAttribute("data-alias");
+            var v = el.value.trim();
+            if (orig && v && v !== orig) o[orig] = v;
           });
+          return o;
+        })(),
+        extraAliases: (function () {
+          var out = [];
+          var seen = {};
+          Array.prototype.forEach.call(card.querySelectorAll(".sk-custom-row"), function (row) {
+            var t = row.querySelector(".sk-custom-text").value.trim();
+            if (!t || seen[t]) return;
+            seen[t] = true;
+            out.push({ text: t, enabled: row.querySelector(".sk-custom-enabled").checked });
+          });
+          return out;
         })(),
         config: config
       });

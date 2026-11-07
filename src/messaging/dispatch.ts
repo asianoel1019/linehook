@@ -3,7 +3,7 @@ import { logger } from "../logger.js";
 import { recordSend } from "../stats.js";
 import { getState } from "../state.js";
 import { getSkill } from "../skills/index.js";
-import { effectiveMode, effectiveAliases, skillListText, skillUsageText } from "../skills/help.js";
+import { effectiveMode, effectiveTriggers, skillListText, skillUsageText } from "../skills/help.js";
 import type { SkillContext, SkillTaskContext, SkillWatchView, WatchOptions } from "../skills/types.js";
 import type { Job as ScheduledJob, ScheduledJobView } from "../line/scheduler.js";
 import type { IncomingMessage, Platform, SendInput } from "./types.js";
@@ -228,18 +228,18 @@ export function matchSkillEntry(
   if (!prefix.hasPrefix) return { skill, def, outcome: "miss", reason: "訊息沒有以助理名稱開頭" };
   if (!prefix.rest) return { skill, def, outcome: "miss", reason: "只喊了助理名稱，沒有內容" };
 
-  const primary = (skill.trigger || def.defaultTrigger).trim();
-  // 有效觸發詞＝主觸發詞＋有效別名（停用的內建別名不參與比對，自訂別名同等有效）。
-  const triggers = [primary, ...effectiveAliases(skill, def)].filter(Boolean);
-  const matched = triggers.find((t) => prefix.rest.startsWith(t));
+  const entries = effectiveTriggers(skill, def);
+  // 有效觸發詞＝主觸發詞（可關）＋有效別名（可改字/停用/自訂）。
+  // 同一技能內按順序取第一個前綴命中（主觸發詞永遠排第一）；跨技能再由最長匹配仲裁。
+  const matched = entries.find((t) => prefix.rest.startsWith(t.text));
   if (!matched) return { skill, def, outcome: "miss", reason: "觸發詞不符" };
-  const isPrimary = matched === primary;
+  const isPrimary = matched.primary;
 
-  const args = prefix.rest.slice(matched.length).trim();
+  const args = prefix.rest.slice(matched.text.length).trim();
   if (/^[?？]$/.test(args) || /^(help|用法|說明)$/i.test(args)) {
-    return { skill, def, outcome: "layer2-usage", trigger: matched, primary: isPrimary, args };
+    return { skill, def, outcome: "layer2-usage", trigger: matched.text, primary: isPrimary, args };
   }
-  return { skill, def, outcome: "hit", trigger: matched, primary: isPrimary, args };
+  return { skill, def, outcome: "hit", trigger: matched.text, primary: isPrimary, args };
 }
 
 /** 前綴命中的候選（供最長匹配仲裁；any 模式走另一條路不參與）。 */
@@ -335,8 +335,10 @@ export interface TriggerConflict {
 export interface ConflictSkillInput {
   id: string;
   enabled: boolean;
-  /** 詞清單：第一個是主觸發詞，後面是別名。 */
+  /** 詞清單（有效觸發詞；主觸發詞關閉時可沒有主詞）。 */
   words: string[];
+  /** 與 words 等長：每個詞是主觸發詞（true）還是別名（false）；缺省時沿用舊規則（第一個是主詞）。 */
+  primaries?: boolean[];
 }
 
 /**
@@ -355,8 +357,8 @@ export function findTriggerConflicts(skills: ConflictSkillInput[]): TriggerConfl
       set.add(s.id);
       byWord.set(w, set);
       const perWord = (ownerPrimary[w] ??= {});
-      // 同一個詞對同一技能而言：索引 0 是主觸發詞；重複出現時以第一個為準。
-      if (perWord[s.id] === undefined) perWord[s.id] = index === 0;
+      // 同一個詞對同一技能而言：有 primaries 就照它標，否則索引 0 是主觸發詞；重複出現時以第一個為準。
+      if (perWord[s.id] === undefined) perWord[s.id] = s.primaries?.[index] ?? index === 0;
     });
   }
   const out: TriggerConflict[] = [];
