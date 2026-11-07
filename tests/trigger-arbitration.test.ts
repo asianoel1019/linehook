@@ -8,6 +8,7 @@ import {
   dispatchIncoming,
   findTriggerConflicts,
   matchSkillEntry,
+  predictConflictWinner,
   scanTriggerHits,
   selectTriggerHit,
   analyzeAssistantPrefix,
@@ -257,7 +258,6 @@ describe("全技能觸發自保（每個觸發詞都歸自己）", () => {
     assert.deepEqual(failures, []);
   });
 });
-
 describe("模擬器顯示仲裁", () => {
   it("多命中時多一條仲裁 stage", () => {
     config.skills = [entry("remind"), entry("countdown")];
@@ -271,6 +271,54 @@ describe("模擬器顯示仲裁", () => {
     const arb = r.stages.filter((s) => s.label === "仲裁");
     assert.equal(arb.length, 1);
     assert.match(arb[0].detail, /countdown/);
+  });
+});
+
+describe("衝突勝出預測（比照面板用）", () => {
+  const wordsOf = (id: string, extra: Record<string, unknown> = {}) => {
+    const triggers = effectiveTriggers({ trigger: "", ...extra }, getSkill(id)!);
+    return {
+      id,
+      enabled: true,
+      words: triggers.map((t) => t.text),
+      primaries: triggers.map((t) => t.primary),
+    };
+  };
+
+  it("exact：主觸發詞贏別名（summarize 勝 rss）", () => {
+    config.skills = [entry("summarize"), entry("rss")];
+    const c = findTriggerConflicts([wordsOf("summarize"), wordsOf("rss")]).find(
+      (x) => x.word === "摘要" && x.kind === "exact",
+    )!;
+    assert.ok(c, "應有「摘要」exact 衝突");
+    assert.equal(predictConflictWinner(c), "summarize");
+  });
+
+  it("prefix：最長贏（countdown 勝 remind）", () => {
+    config.skills = [entry("remind"), entry("countdown")];
+    const c = findTriggerConflicts([wordsOf("remind"), wordsOf("countdown")]).find(
+      (x) => x.word === "倒數計時" && x.kind === "prefix",
+    )!;
+    assert.ok(c, "應有「倒數計時」prefix 衝突");
+    assert.equal(predictConflictWinner(c), "countdown");
+  });
+
+  it("同為主觸發詞：設定順序第一贏", () => {
+    config.skills = [entry("exchange-rate", { trigger: "換算" }), entry("unit", { trigger: "換算" })];
+    const c = findTriggerConflicts([
+      wordsOf("exchange-rate", { trigger: "換算" }),
+      wordsOf("unit", { trigger: "換算" }),
+    ]).find((x) => x.word === "換算" && x.kind === "exact")!;
+    assert.ok(c, "應有「換算」exact 衝突");
+    assert.equal(predictConflictWinner(c), "exchange-rate");
+  });
+
+  it("參與者少於兩家不預測（回 null）", () => {
+    config.skills = [entry("summarize")];
+    assert.equal(
+      predictConflictWinner({ word: "摘要", kind: "exact", owners: ["summarize", "rss"], ownerPrimary: { summarize: true, rss: false } }),
+      null,
+    );
   });
 });
 

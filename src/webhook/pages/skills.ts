@@ -70,6 +70,7 @@ export function renderSkillsHtml() {
   <div class="field"><label data-i18n="lbl_assistant_name">助理名稱</label><input id="assistant-name" type="text" placeholder="阿寶"></div>
   <div class="actions"><button type="button" id="skills-save" data-i18n="save_settings">儲存</button><span id="skills-msg" class="msg"></span></div>
 </div>
+<div id="conflict-compare" hidden></div>
 <div style="margin:10px 0 6px;display:flex;gap:12px;align-items:center;flex-wrap:wrap"><input id="skill-filter" data-i18n-ph="ph_filter_skills" placeholder="快速篩選：名稱、ID、觸發詞、說明…" style="width:100%;max-width:460px"><label style="display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer"><input id="skill-filter-disabled" type="checkbox"><span data-i18n="lbl_disabled_only">只看未啟用</span></label><label style="display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer"><span data-i18n="lbl_sort">排序</span><select id="skill-sort"></select></label></div>
 <div id="skillList"></div>
 </div>
@@ -1054,6 +1055,87 @@ ${schedulesTabBody()}
     return $("skill-sort") ? $("skill-sort").value : "default";
   }
 
+  // 觸發詞衝突比照：集中一覽（誰跟誰撞、各自用什麼字、誰會贏、怎麼解），存檔後即時重抓。
+  function uniq(arr) {
+    return arr.filter(function (v, i) { return arr.indexOf(v) === i; });
+  }
+
+  function conflictFix(c, winner) {
+    var owners = c.owners || [];
+    if (owners.length < 2) return "";
+    if (c.kind === "exact") {
+      if (!winner) return "";
+      var losers = owners.filter(function (o) { return o.id !== c.winner; }).map(function (o) { return o.name; });
+      if (losers.length === 0) return "";
+      return T("conf_fix_exact").split("{loser}").join(losers.join("、")).split("{word}").join(c.word).split("{winner}").join(winner.name);
+    }
+    var shorts = owners.filter(function (o) { return o.claim.length < c.word.length; });
+    if (shorts.length === 0) return "";
+    return T("conf_fix_prefix")
+      .split("{short}").join(uniq(shorts.map(function (o) { return o.claim; })).join("、"))
+      .split("{long}").join(c.word)
+      .split("{loser}").join(uniq(shorts.map(function (o) { return o.name; })).join("、"));
+  }
+
+  function renderConflicts(list) {
+    var host = $("conflict-compare");
+    if (!host) return;
+    if (!list || list.length === 0) {
+      host.replaceChildren();
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    var wrap = document.createElement("div");
+    wrap.className = "glass";
+    wrap.style.cssText = "border-color:rgba(240,163,94,.35)";
+    var h = document.createElement("h2");
+    h.style.cssText = "margin:0 0 4px";
+    h.textContent = T("conf_title") + "（" + list.length + "）";
+    wrap.appendChild(h);
+    list.forEach(function (c) {
+      var row = document.createElement("div");
+      row.style.cssText = "border-top:1px solid rgba(255,255,255,.08);padding:8px 0;font-size:13px";
+      var head = document.createElement("div");
+      var w = document.createElement("b");
+      w.textContent = "「" + c.word + "」";
+      var kind = document.createElement("span");
+      kind.className = "badge";
+      kind.textContent = c.kind === "exact" ? T("conf_kind_exact") : T("conf_kind_prefix");
+      head.append(w, document.createTextNode(" "), kind);
+      var winner = (c.owners || []).filter(function (o) { return o.id === c.winner; })[0];
+      if (winner) {
+        var wb = document.createElement("span");
+        wb.className = "badge";
+        wb.textContent = T("conf_winner") + "：" + winner.name;
+        head.append(document.createTextNode(" "), wb);
+      }
+      row.appendChild(head);
+      var owners = document.createElement("div");
+      owners.className = "msg";
+      owners.textContent = (c.owners || []).map(function (o) {
+        return o.name + "（" + (o.primary ? T("conf_primary") : T("conf_alias")) + "「" + o.claim + "」）";
+      }).join(" ↔ ");
+      row.appendChild(owners);
+      var fix = conflictFix(c, winner);
+      if (fix) {
+        var f = document.createElement("div");
+        f.style.cssText = "color:#f0a35e";
+        f.textContent = fix;
+        row.appendChild(f);
+      }
+      wrap.appendChild(row);
+    });
+    host.replaceChildren(wrap);
+  }
+
+  function loadConflicts() {
+    fetch("/skills/conflicts.json", { cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (d) { renderConflicts(d && d.conflicts); })
+      .catch(function () {});
+  }
+
   function loadSkills() {
     fetch("/settings.json", { cache: "no-store" })
       .then(function (res) {
@@ -1129,6 +1211,7 @@ ${schedulesTabBody()}
     }).then(function (r) {
       if (!r) return;
       $("skills-msg").textContent = r.ok ? T("saved") : ("失敗：" + (r.data.error || ""));
+      if (r.ok) loadConflicts();
     }).catch(function () { $("skills-msg").textContent = "失敗"; });
   });
 
@@ -1140,6 +1223,7 @@ ${schedulesTabBody()}
   loadSkills();
   loadInstalled();
   loadAiSettings();
+  loadConflicts();
 
   // 深連結：/skills#schedules 直達排程頁籤（舊 /schedules 書籤由 server 轉址過來）。
   (function () {

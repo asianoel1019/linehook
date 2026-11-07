@@ -394,6 +394,26 @@ export function findTriggerConflicts(skills: ConflictSkillInput[]): TriggerConfl
   return out.sort((x, y) => x.word.localeCompare(y.word, "zh-Hant"));
 }
 
+/**
+ * 預測某個衝突的實際勝出者（供「衝突比照」面板顯示，不執行技能）。
+ * 用代表訊息（衝突詞＋"x"）跑一次真實的掃描＋仲裁，所以結果與實際行為一致：
+ * exact 看主觸發詞優先＋設定順序；prefix 看最長匹配。
+ * 參與者少於 2 個（例如其中一邊剛被關掉）回 null。
+ */
+export function predictConflictWinner(conflict: TriggerConflict): string | null {
+  const name = config.assistant.name || "阿寶";
+  const text = `${name} ${conflict.word}x`;
+  const prefix = analyzeAssistantPrefix(text, name, config.language);
+  const scan = scanTriggerHits(
+    config.skills.filter((s) => conflict.owners.includes(s.id)),
+    { text, chat: "", fromMid: "" },
+    prefix,
+    true,
+  );
+  if (scan.prefixHits.length < 2) return null;
+  return selectTriggerHit(scan.prefixHits)?.skill.id ?? null;
+}
+
 /** 轉發規則比對（對齊 runForwardRules）；回傳命中與否與推導出的轉發內容。 */
 export function matchForwardRule(
   rule: ForwardRule,

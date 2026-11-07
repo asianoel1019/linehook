@@ -50,7 +50,8 @@ import {
 import type { IMessagingService, Platform } from "../messaging/types.js";
 import type { SkillContext } from "../skills/types.js";
 import { getService, listServices } from "../messaging/services.js";
-import { parseQuietWindow, isQuietMinutes } from "../messaging/dispatch.js";
+import { parseQuietWindow, isQuietMinutes, findTriggerConflicts, predictConflictWinner } from "../messaging/dispatch.js";
+import { effectiveTriggers } from "../skills/help.js";
 import {
   pruneSchedulesMeta,
   setGlobalMute,
@@ -945,6 +946,44 @@ export function createServer(line: IMessagingService): express.Express {
   // P2 使用分析：近 7 日呼叫／失敗率／最後使用（被動日誌，不觸發探測）。
   app.get("/skills/usage.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
     res.json({ skills: getSkillUsage() });
+  });
+  // 觸發詞衝突比照：有效觸發詞（主詞可關、別名可改字/停用/自訂）算出的衝突，
+  // 每列附各擁有者的出處（主觸發詞/別名＋實際用的字）與仲裁預測勝出者，供技能頁除錯面板用。
+  app.get("/skills/conflicts.json", statusAccess, requireSessionOrApi("read"), (_req, res) => {
+    const input = listSkills()
+      .filter((def) => def.triggerMode !== "any")
+      .map((def) => {
+        const entry = config.skills.find((s) => s.id === def.id);
+        const triggers = effectiveTriggers(entry ?? {}, def);
+        return {
+          id: def.id,
+          enabled: entry?.enabled ?? false,
+          words: triggers.map((t) => t.text),
+          primaries: triggers.map((t) => t.primary),
+        };
+      });
+    const conflicts = findTriggerConflicts(input).map((c) => {
+      const owners = c.owners.map((id) => {
+        const def = getSkill(id);
+        const entry = config.skills.find((s) => s.id === id);
+        const claims = def && entry ? effectiveTriggers(entry, def).map((t) => t.text) : [];
+        // 該擁有者在這次衝突裡實際用的字：exact 就是衝突詞；prefix 取擁有者字裡與衝突詞互為前綴的最長者。
+        const claim =
+          c.kind === "exact"
+            ? c.word
+            : claims
+                .filter((w) => w === c.word || c.word.startsWith(w) || w.startsWith(c.word))
+                .sort((a, b) => b.length - a.length)[0] ?? c.word;
+        return {
+          id,
+          name: def?.name ?? id,
+          primary: c.ownerPrimary[id] !== false,
+          claim,
+        };
+      });
+      return { word: c.word, kind: c.kind, owners, winner: predictConflictWinner(c) };
+    });
+    res.json({ conflicts });
   });
   // P2 技能試跑：沙盒執行 def.run，只收集輸出（reply/媒體/排程/watch 全部攔截），不發送、不留狀態。
   app.post(
