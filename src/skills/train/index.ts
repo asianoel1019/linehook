@@ -7,7 +7,7 @@ import type { SkillContext, SkillDefinition } from "@lw/skills/types";
 const TDX_AUTH = "https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token";
 const TDX_BASE = "https://tdx.transportdata.tw/api/basic/v2/Rail/TRA";
 
-interface Station {
+export interface Station {
   StationID: string;
   StationName: { Zh_tw: string; En: string };
 }
@@ -118,6 +118,58 @@ function extractTime(text: string): string {
   return "";
 }
 
+/**
+ * 從使用者文字解析起訖站（純函式，可單元測試）。
+ * 關鍵：按站名「在文字中的出現位置」排序取前兩個——不能用車站清單的順序
+ * （TDX 由北到南），否則南→北的查詢會被反轉（浮洲→南港變南港→浮洲）。
+ * 同位置多個候選取最長（新左營/左營）；台/臺先正規化（1:1 換字，位置不變）。
+ */
+export function parseStations(
+  args: string,
+  stations: Station[],
+): { fromName?: string; toName?: string } {
+  const haystack = args.replace(/台/g, "臺");
+  const hits: Array<{ name: string; index: number; len: number }> = [];
+  for (const s of stations) {
+    const key = normalize(s.StationName.Zh_tw);
+    if (!key) continue;
+    const index = haystack.indexOf(key);
+    if (index === -1) continue;
+    hits.push({ name: s.StationName.Zh_tw, index, len: key.length });
+  }
+  // 按位置排序；同位置留最長、被已保留的命中覆蓋的丟掉（新左營裡的「左營」）。
+  hits.sort((a, b) => a.index - b.index || b.len - a.len);
+  const kept: typeof hits = [];
+  for (const h of hits) {
+    const overlap = kept.some((k) => h.index < k.index + k.len && k.index < h.index + h.len);
+    if (!overlap) kept.push(h);
+  }
+  let fromName = kept[0]?.name;
+  let toName = kept[1]?.name;
+
+  if (!fromName || !toName) {
+    const sepMatch = args.match(/([^\s]+)\s*(?:到|去|至|->|→)\s*([^\s]+)/);
+    if (sepMatch) {
+      const a = findStation(stations, sepMatch[1]);
+      const b = findStation(stations, sepMatch[2]);
+      if (a) fromName = a.StationName.Zh_tw;
+      if (b) toName = b.StationName.Zh_tw;
+    }
+  }
+  if (!fromName || !toName) {
+    const tokens = args.split(/\s+/).filter(Boolean);
+    const found: string[] = [];
+    for (const t of tokens) {
+      const s = findStation(stations, t);
+      if (s && !found.includes(s.StationName.Zh_tw)) found.push(s.StationName.Zh_tw);
+      if (found.length >= 2) break;
+    }
+    fromName = fromName || found[0];
+    toName = toName || found[1];
+  }
+  return { fromName, toName };
+}
+
 async function queryTimetable(
   token: string,
   fromId: string,
@@ -204,8 +256,6 @@ const trainSkill: SkillDefinition = {
       return;
     }
 
-    const raw = ctx.args.replace(/請幫忙|請幫|幫忙|查詢|查一下|時刻表|班次|火車|的|到|去|至/g, " ");
-    const tokens = raw.split(/\s+/).filter(Boolean);
     const date = parseDate(ctx.args);
     const explicitTime = extractTime(ctx.args);
     const ttlMs = parseTtl(ctx.config.cacheTtl, 60);
@@ -214,30 +264,7 @@ const trainSkill: SkillDefinition = {
     const token = await getToken(clientId, clientSecret);
     const stations = await getStations(token, ttlMs);
 
-    // 站名：優先從原始文字中找出兩個已知站名
-    const known = stations.filter((s) => ctx.args.includes(normalize(s.StationName.Zh_tw)));
-    let fromName = known[0]?.StationName.Zh_tw;
-    let toName = known[1]?.StationName.Zh_tw;
-
-    if (!fromName || !toName) {
-      const sepMatch = ctx.args.match(/([^\s]+)\s*(?:到|去|至|->|→)\s*([^\s]+)/);
-      if (sepMatch) {
-        const a = findStation(stations, sepMatch[1]);
-        const b = findStation(stations, sepMatch[2]);
-        if (a) fromName = a.StationName.Zh_tw;
-        if (b) toName = b.StationName.Zh_tw;
-      }
-    }
-    if (!fromName || !toName) {
-      const found: string[] = [];
-      for (const t of tokens) {
-        const s = findStation(stations, t);
-        if (s && !found.includes(s.StationName.Zh_tw)) found.push(s.StationName.Zh_tw);
-        if (found.length >= 2) break;
-      }
-      fromName = fromName || found[0];
-      toName = toName || found[1];
-    }
+    const { fromName, toName } = parseStations(ctx.args, stations);
 
     const from = fromName ? findStation(stations, fromName) : undefined;
     const to = toName ? findStation(stations, toName) : undefined;
