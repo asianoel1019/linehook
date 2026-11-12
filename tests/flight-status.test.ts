@@ -10,6 +10,7 @@ import flightStatusSkill, {
   formatFlight,
   parseFlightDate,
   parseTrip,
+  normalizeFlightArgs,
   shouldPoll,
   isTripOver,
   todayYmd,
@@ -189,6 +190,51 @@ describe("flight-status run()", () => {
       assert.match(cancel.replies[0], /已取消：CI100/);
     } finally {
       globalThis.fetch = savedFetch;
+    }
+  });
+});
+
+describe("flight-status normalizeFlightArgs（劫持路徑髒 args）", () => {
+  const TRIGGERS = ["航班", "班機", "航班查詢", "flightstatus"];
+
+  it("剝觸發詞：航班 行程… → 行程…", () => {
+    assert.equal(normalizeFlightArgs("航班 行程 11/18 JX715 11/24 JX716 越南行", "阿寶", TRIGGERS), "行程 11/18 JX715 11/24 JX716 越南行");
+  });
+
+  it("打錯助理名也照剝：阿三請幫忙 航班 行程…", () => {
+    assert.equal(
+      normalizeFlightArgs("阿三請幫忙 航班 行程 11/18 JX715 11/24 JX716 越南行", "阿寶", TRIGGERS),
+      "行程 11/18 JX715 11/24 JX716 越南行",
+    );
+  });
+
+  it("即時查詢不受影響：航班 JX715 → JX715；裸班號不動", () => {
+    assert.equal(normalizeFlightArgs("航班 JX715", "阿寶", TRIGGERS), "JX715");
+    assert.equal(normalizeFlightArgs("JX715到了沒", "阿寶", TRIGGERS), "JX715到了沒");
+    assert.equal(normalizeFlightArgs("訂閱 CI100", "阿寶", TRIGGERS), "訂閱 CI100");
+  });
+});
+
+describe("flight-status run() 回歸：行程不再掉進即時查詢", () => {
+  it("使用者原句「航班 行程 11/18 JX715 11/24 JX716 越南行」要建行程、不是查 JX715", async () => {
+    const saved = globalThis.fetch;
+    globalThis.fetch = tdxStub();
+    try {
+      const { ctx, replies, store } = runCtx({ args: "航班 行程 11/18 JX715 11/24 JX716 越南行" });
+      (ctx as { watch: (o: unknown) => string }).watch = ((o: { state?: Record<string, unknown> }) => {
+        store.state = o.state;
+        return "w1";
+      }) as never;
+      await flightStatusSkill.run(ctx);
+      assert.equal(replies.length, 1);
+      assert.match(replies[0], /已建立行程/);
+      assert.match(replies[0], /JX715/);
+      assert.match(replies[0], /JX716/);
+      assert.match(replies[0], /越南行/);
+      assert.doesNotMatch(replies[0], /出境|入境/);
+      assert.equal((store.state as { subs: Array<{ airline: string; number: string; date?: string }> }).subs.length, 2);
+    } finally {
+      globalThis.fetch = saved;
     }
   });
 });

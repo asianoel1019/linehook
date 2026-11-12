@@ -1,6 +1,7 @@
 import { logger } from "@lw/logger";
 import { fetchJson as netFetchJson } from "@lw/net";
 import { nowInTz } from "@lw/time";
+import { config } from "@lw/config";
 import type { SkillContext, SkillDefinition, SkillHealth, SkillTaskContext } from "@lw/skills/types";
 
 const TDX_AUTH = "https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token";
@@ -485,14 +486,44 @@ export function parseTrip(text: string, today: string): { legs: TripLeg[]; name:
 }
 
 /** 該訂閱今天要不要查（無日期天天查；有日期只查前一天～後一天）。 */
-export function shouldPoll(sub: Pick<FlightSub, "date">, today: string): boolean {
-  if (!sub.date) return true;
+export function shouldPoll(sub: Pick<FlightSub, "date">, today: string): boolean {  if (!sub.date) return true;
   return today >= addDaysYmd(sub.date, -1) && today <= addDaysYmd(sub.date, 1);
 }
 
 /** 行程是否已過期（出發日＋1 之後 → 自動結案）。 */
 export function isTripOver(sub: Pick<FlightSub, "date">, today: string): boolean {
   return !!sub.date && today > addDaysYmd(sub.date, 1);
+}
+
+/**
+ * 正規化子命令參數：反覆剝掉開頭的助理名／禮貌詞／觸發詞。
+ * 班號捷徑（dispatch 無前綴意圖）進來的 args 可能含這些前綴
+ * （「航班 行程…」甚至打錯助理名如「阿三請幫忙 航班 行程…」），
+ * 不剝掉的話 ^行程/^訂閱 等分支永遠進不去，只會查第一個班號的即時動態。
+ */
+export function normalizeFlightArgs(args: string, assistant: string, triggers: string[]): string {
+  let s = args.trim();
+  const words = [assistant, ...triggers]
+    .map((w) => String(w ?? "").trim())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  for (let guard = 0; guard < 10; guard++) {
+    let next: string | null = null;
+    // 「某名＋禮貌詞」開頭（名稱打錯也照剝，否則整串全滅）
+    const m = /^(.{0,8}?)(請幫忙|請幫|幫忙)/.exec(s);
+    if (m) next = s.slice(m[0].length).trim();
+    if (next === null) {
+      for (const w of words) {
+        if (s.startsWith(w)) {
+          next = s.slice(w.length).trim();
+          break;
+        }
+      }
+    }
+    if (next === null || next === s) return s;
+    s = next;
+  }
+  return s;
 }
 
 interface FlightState {
@@ -566,7 +597,10 @@ const flightStatusSkill: SkillDefinition = {
       await ctx.reply("航班動態技能尚未設定 TDX API key，請到技能設定填寫（可與火車技能共用同一組）。");
       return;
     }
-    const args = ctx.args.trim();
+    const args = normalizeFlightArgs(ctx.args.trim(), config.assistant.name || "", [
+      flightStatusSkill.defaultTrigger,
+      ...(flightStatusSkill.triggerAliases ?? []),
+    ]);
     const subs = readSubs(ctx);
     const minutes = pollMinutesOf(ctx.config);
     const watchOpts = { task: TASK, everyMinutes: minutes };
