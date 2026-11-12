@@ -24,16 +24,25 @@ const CITY_IATA: Record<string, string> = {
   雪梨: "SYD", 墨爾本: "MEL", 布里斯本: "BNE", 洛杉磯: "LAX", 舊金山: "SFO", 紐約: "JFK", 西雅圖: "SEA", 溫哥華: "YVR", 杜拜: "DXB",
 };
 
-function resolveAirports(text: string): string[] {
-  const codes: string[] = [];
+/**
+ * 解析出發地→目的地機場（純函式，可單元測試）。
+ * IATA 代碼與中文城市名按「在文字中的出現位置」排序取前兩個——
+ * 不能用 CITY_IATA 的物件順序，否則「東京飛台北」會被反轉成 TPE→NRT。
+ */
+export function resolveAirports(text: string): string[] {
+  const hits: Array<{ code: string; index: number }> = [];
+  const push = (code: string, index: number | undefined): void => {
+    if (index === undefined || index < 0 || hits.some((h) => h.code === code)) return;
+    hits.push({ code, index });
+  };
   for (const m of text.matchAll(/\b([A-Z]{3})\b/g)) {
-    if (!codes.includes(m[1])) codes.push(m[1]);
+    push(m[1], m.index);
   }
-  if (codes.length >= 2) return codes.slice(0, 2);
   for (const [name, code] of Object.entries(CITY_IATA)) {
-    if (text.includes(name) && !codes.includes(code)) codes.push(code);
+    push(code, text.indexOf(name));
   }
-  return codes.slice(0, 2);
+  hits.sort((a, b) => a.index - b.index);
+  return hits.slice(0, 2).map((h) => h.code);
 }
 
 /** 解析出航班的年月區間（回傳 {year, month}）。 */
