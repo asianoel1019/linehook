@@ -807,7 +807,11 @@ async function runMatchedSkill(
     const message = error instanceof Error ? error.message : String(error);
     recordDuration("skill_duration_seconds", (Date.now() - runStartedAt) / 1000, { skill: skill.id });
     recordMetric("skill_errors_total", 1, { skill: skill.id, class: classifySkillError(message) });
-    logger.error("技能執行失敗", { skill: skill.id, error: message });
+    logger.error("技能執行失敗", {
+      skill: skill.id,
+      error: message,
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+    });
     recordSkillRun(skill.id, false, message);
     traceEvent("skill", { skill: skill.id, ok: false, detail: `失敗：${message}` });
     writeDeadLetter({
@@ -824,6 +828,7 @@ async function runMatchedSkill(
       logger.error("技能錯誤回覆失敗", {
         skill: skill.id,
         error: replyError instanceof Error ? replyError.message : String(replyError),
+        ...(replyError instanceof Error && replyError.stack ? { stack: replyError.stack } : {}),
       });
     }
   }
