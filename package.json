@@ -22,8 +22,8 @@
     "format:check": "prettier --check src tests *.mjs *.cjs *.json *.md"
   },
   "dependencies": {
-    "@evex/linejs": "npm:@jsr/evex__linejs@^3.4.2",
-    "@evex/linejs-types": "npm:@jsr/evex__linejs-types@^3.4.2",
+    "@evex/linejs": "npm:@jsr/evex__linejs@^3.6.9",
+    "@evex/linejs-types": "npm:@jsr/evex__linejs-types@^3.6.9",
     "@whiskeysockets/baileys": "7.0.0-rc14",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
