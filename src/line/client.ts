@@ -303,6 +303,9 @@ export class LineService implements IMessagingService {
         await base.loginProcess.login({ authToken: cached });
       } catch (error) {
         logger.warn("authToken 失效，改用 QR 驗證", { error: String(error) });
+        // lib 不會清掉已寫入 client 的死 token；不清掉，後續 QR 請求會夾帶
+        // x-line-access: <dead>，LINE 直接回 Sorry 404，連建 session 的機會都沒有。
+        base.authToken = undefined;
         await base.loginProcess.login({ qr: true });
       }
     } else {
