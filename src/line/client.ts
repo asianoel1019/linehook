@@ -323,6 +323,10 @@ export class LineService implements IMessagingService {
       await base.loginProcess.login({ qr: true, skipCheck: true });
       profile = await verifyLogin();
     }
+    // ready(skipCheck) 跳掉了 lib 內部設定 client.profile 的步驟；
+    // E2EE 發送要拿它當自己的 MID（_from），不補的話每個回覆都在 generateAAD 炸掉。
+    base.profile = profile;
+    base.emit("ready", profile);
 
     await this.refreshContacts();
     this.loggedIn = true;
