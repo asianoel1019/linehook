@@ -262,6 +262,9 @@ export class LineService implements IMessagingService {
     const base = new BaseClient({
       device: config.line.device,
       storage: this.storage,
+      // 上游 #280：LEGY 加密閘道（/enc）對帶 token 的 Talk 請求回空 404，
+      // getProfile 永遠過不了；先走明文 thrift（仍經 TLS），等上游修復再恢復 auto。
+      legy: { encrypted: false },
     });
     this.base = base;
     const client = new Client(base);
