@@ -264,7 +264,8 @@ export class LineService implements IMessagingService {
       storage: this.storage,
     });
     this.base = base;
-    this.client = new Client(base);
+    const client = new Client(base);
+    this.client = client;
 
     // 自訂登入時顯示的裝置名稱（LINE 會顯示「您目前已在「X」上登入」）
     const loginProcess = base.loginProcess;
@@ -298,21 +299,28 @@ export class LineService implements IMessagingService {
     });
 
     const cached = await this.storage.get(AUTH_KEY);
+    // skipCheck：lib 內建 ready() 只打一次 getProfile，/enc 閃斷（上游 #280）
+    // 就整組炸掉，連剛掃完 QR 的有效 token 也會被誤殺；改自己重試驗證撐過去。
+    // 驗證通過的 profile 直接重用，不再多打一次（每次請求都可能遇到閃斷）。
+    const verifyLogin = () => withRetry("驗證登入", () => client.getMyProfile(), 4, 2000);
+    let profile: Awaited<ReturnType<Client["getMyProfile"]>>;
     if (typeof cached === "string" && cached) {
       try {
-        await base.loginProcess.login({ authToken: cached });
+        await base.loginProcess.login({ authToken: cached, skipCheck: true });
+        profile = await verifyLogin();
       } catch (error) {
         logger.warn("authToken 失效，改用 QR 驗證", { error: String(error) });
         // lib 不會清掉已寫入 client 的死 token；不清掉，後續 QR 請求會夾帶
         // x-line-access: <dead>，LINE 直接回 Sorry 404，連建 session 的機會都沒有。
         base.authToken = undefined;
-        await base.loginProcess.login({ qr: true });
+        await base.loginProcess.login({ qr: true, skipCheck: true });
+        profile = await verifyLogin();
       }
     } else {
-      await base.loginProcess.login({ qr: true });
+      await base.loginProcess.login({ qr: true, skipCheck: true });
+      profile = await verifyLogin();
     }
 
-    const profile = await this.client.getMyProfile();
     await this.refreshContacts();
     this.loggedIn = true;
     this.queue.start();
