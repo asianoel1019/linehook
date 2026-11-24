@@ -570,7 +570,11 @@ export async function dispatchIncoming(msg: IncomingMessage, deps: DispatchDeps)
       }
     });
   } catch (error) {
-    logger.error("處理收到的訊息失敗", { error: String(error) });
+    // stack 一起記：只記訊息字串的話（像 Buffer.from(undefined) 這種）永遠找不到兇手。
+    logger.error("處理收到的訊息失敗", {
+      error: String(error),
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+    });
   }
 }
 

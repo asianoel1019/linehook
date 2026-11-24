@@ -752,7 +752,10 @@ export class LineService implements IMessagingService {
         this.dispatchDeps(),
       );
     } catch (error) {
-      logger.error("處理收到的訊息失敗", { error: String(error) });
+      logger.error("處理收到的訊息失敗", {
+        error: String(error),
+        ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+      });
     }
   }
 
